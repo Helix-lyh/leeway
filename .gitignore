@@ -1,0 +1,10 @@
+# Binaries
+/leeway
+*.exe
+*.test
+
+# Build artifacts
+/dist/
+
+# Local config & caches (never commit credentials)
+/config.json

@@ -1,0 +1,6 @@
+{
+  "items": [
+    {"id": "acct-personal", "name": "Personal"},
+    {"id": "acct-work", "name": "Acme Corp"}
+  ]
+}

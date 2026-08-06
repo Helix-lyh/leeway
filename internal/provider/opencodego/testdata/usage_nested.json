@@ -1,0 +1,10 @@
+{
+  "data": {
+    "usage": {
+      "rollingUsage": {"usagePercent": 41, "resetInSec": 3600},
+      "weeklyUsage": {"usagePercent": 60, "resetInSec": 700000},
+      "monthlyUsage": {"usagePercent": 10, "resetInSec": 2000000}
+    },
+    "renewAt": "2026-08-13T12:00:00Z"
+  }
+}

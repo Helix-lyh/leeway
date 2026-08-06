@@ -1,0 +1,65 @@
+{
+  "plan_type": "plus",
+  "rate_limit": {
+    "primary_window": {
+      "used_percent": 32,
+      "reset_at": 1785985200,
+      "limit_window_seconds": 18000
+    },
+    "secondary_window": {
+      "used_percent": 65,
+      "reset_at": 1786233600,
+      "limit_window_seconds": 604800
+    },
+    "individual_limit": {
+      "limit": 120,
+      "used": 45,
+      "remaining_percent": 62.5,
+      "resets_at": 1786233600
+    }
+  },
+  "credits": {
+    "has_credits": true,
+    "unlimited": false,
+    "balance": "34.20"
+  },
+  "additional_rate_limits": [
+    {
+      "limit_name": "GPT-5.3-Codex-Spark",
+      "metered_feature": "gpt-5.3-codex-spark",
+      "rate_limit": {
+        "primary_window": {
+          "used_percent": 18,
+          "reset_at": 1785985200,
+          "limit_window_seconds": 18000
+        },
+        "secondary_window": {
+          "used_percent": 42,
+          "reset_at": 1786233600,
+          "limit_window_seconds": 604800
+        }
+      }
+    },
+    {
+      "limit_name": "GPT-5.3-Codex",
+      "metered_feature": "gpt-5.3-codex",
+      "rate_limit": {
+        "primary_window": {
+          "used_percent": 7,
+          "reset_at": 1785985200,
+          "limit_window_seconds": 18000
+        }
+      }
+    },
+    {
+      "metered_feature": "gpt-4-mini-codex",
+      "rate_limit": {
+        "primary_window": {
+          "used_percent": 3,
+          "reset_at": 1785985200,
+          "limit_window_seconds": 18000
+        }
+      }
+    }
+  ]
+}

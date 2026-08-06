@@ -1,0 +1,33 @@
+{
+  "usages": [
+    {
+      "scope": "FEATURE_CHAT",
+      "detail": {
+        "limit": "5000",
+        "used": "1200",
+        "remaining": "3800",
+        "resetTime": "2026-08-13T00:00:00Z"
+      }
+    },
+    {
+      "scope": "FEATURE_CODING",
+      "detail": {
+        "limit": "1000",
+        "used": "620",
+        "remaining": "380",
+        "resetTime": "2026-08-13T00:00:00Z"
+      },
+      "limits": [
+        {
+          "window": { "duration": 5, "timeUnit": "TIME_UNIT_HOUR" },
+          "detail": {
+            "limit": "200",
+            "used": "82",
+            "remaining": "118",
+            "resetAt": "2026-08-06T15:30:00Z"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "plan_type": "plus",
+  "rate_limit": "oops-not-an-object",
+  "credits": {
+    "has_credits": false
+  }
+}

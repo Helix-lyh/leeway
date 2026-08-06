@@ -1,0 +1,56 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "biz_code": 0,
+    "biz_msg": "success",
+    "biz_data": [
+      {
+        "currency": "CNY",
+        "total": [
+          {
+            "model": "deepseek-chat",
+            "usage": [
+              { "type": "PROMPT_CACHE_HIT_TOKEN", "amount": "0.024000" },
+              { "type": "PROMPT_CACHE_MISS_TOKEN", "amount": "0.060000" },
+              { "type": "RESPONSE_TOKEN", "amount": "0.180000" }
+            ]
+          },
+          {
+            "model": "deepseek-reasoner",
+            "usage": [
+              { "type": "PROMPT_CACHE_MISS_TOKEN", "amount": "0.040000" },
+              { "type": "RESPONSE_TOKEN", "amount": "0.096000" }
+            ]
+          }
+        ],
+        "days": [
+          {
+            "date": "2026-08-01",
+            "data": [
+              {
+                "model": "deepseek-chat",
+                "usage": [
+                  { "type": "PROMPT_CACHE_HIT_TOKEN", "amount": "0.010000" },
+                  { "type": "RESPONSE_TOKEN", "amount": "0.120000" }
+                ]
+              }
+            ]
+          },
+          {
+            "date": "2026-08-05",
+            "data": [
+              {
+                "model": "deepseek-reasoner",
+                "usage": [
+                  { "type": "PROMPT_CACHE_MISS_TOKEN", "amount": "0.040000" },
+                  { "type": "RESPONSE_TOKEN", "amount": "0.096000" }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

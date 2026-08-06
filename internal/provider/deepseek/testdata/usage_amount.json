@@ -1,0 +1,57 @@
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "biz_code": 0,
+    "biz_msg": "success",
+    "biz_data": {
+      "total": [
+        {
+          "model": "deepseek-chat",
+          "usage": [
+            { "type": "PROMPT_CACHE_HIT_TOKEN", "amount": "120000" },
+            { "type": "PROMPT_CACHE_MISS_TOKEN", "amount": "30000" },
+            { "type": "RESPONSE_TOKEN", "amount": "15000" },
+            { "type": "REQUEST", "amount": "10" }
+          ]
+        },
+        {
+          "model": "deepseek-reasoner",
+          "usage": [
+            { "type": "PROMPT_CACHE_MISS_TOKEN", "amount": "20000" },
+            { "type": "RESPONSE_TOKEN", "amount": "8000" },
+            { "type": "REQUEST", "amount": "4" }
+          ]
+        }
+      ],
+      "days": [
+        {
+          "date": "2026-08-01",
+          "data": [
+            {
+              "model": "deepseek-chat",
+              "usage": [
+                { "type": "PROMPT_CACHE_HIT_TOKEN", "amount": "50000" },
+                { "type": "RESPONSE_TOKEN", "amount": "10000" },
+                { "type": "REQUEST", "amount": "5" }
+              ]
+            }
+          ]
+        },
+        {
+          "date": "2026-08-05",
+          "data": [
+            {
+              "model": "deepseek-reasoner",
+              "usage": [
+                { "type": "PROMPT_CACHE_MISS_TOKEN", "amount": "20000" },
+                { "type": "RESPONSE_TOKEN", "amount": "8000" },
+                { "type": "REQUEST", "amount": "4" }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

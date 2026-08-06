@@ -1,0 +1,19 @@
+{
+  "usage": {
+    "limit": 500,
+    "used": 150,
+    "remaining": "350",
+    "reset_time": "2026-08-12T00:00:00Z"
+  },
+  "limits": [
+    {
+      "window": { "duration": 1, "timeUnit": "TIME_UNIT_DAY" },
+      "detail": {
+        "limit": "60",
+        "used": 12,
+        "remaining": 48,
+        "resetAt": "2026-08-07T00:00:00Z"
+      }
+    }
+  ]
+}

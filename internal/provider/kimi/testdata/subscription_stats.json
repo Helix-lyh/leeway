@@ -1,0 +1,13 @@
+{
+  "subscriptionBalance": {
+    "feature": "FEATURE_OMNI",
+    "type": "SUBSCRIPTION",
+    "amountUsedRatio": 0.4,
+    "expireTime": "2026-09-05T00:00:00Z"
+  },
+  "ratelimitCode7d": {
+    "ratio": 0.5,
+    "enabled": true,
+    "resetTime": "2026-08-12T00:00:00Z"
+  }
+}
