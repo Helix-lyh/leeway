@@ -1,4 +1,4 @@
-// Package render formats model.Output as JSON or a human-readable table.
+// Package render formats model.Output as JSON or a human-readable view.
 package render
 
 import (
@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 
@@ -18,11 +18,15 @@ import (
 // Colors (ANSI); applied only when the output is a TTY.
 const (
 	cReset  = "\x1b[0m"
+	cBold   = "\x1b[1m"
 	cGreen  = "\x1b[32m"
 	cYellow = "\x1b[33m"
 	cRed    = "\x1b[31m"
 	cGray   = "\x1b[90m"
 )
+
+// barWidth is the number of cells in a usage bar.
+const barWidth = 8
 
 // IsTTY reports whether stdout is a terminal, honoring the COLOR env var.
 func IsTTY() bool {
@@ -42,101 +46,295 @@ func RenderJSON(w io.Writer, out *model.Output) error {
 	return enc.Encode(out)
 }
 
-// RenderTable writes the human-readable view to w.
+// Quota column slots, in display order. Every account line renders all three
+// quota columns, so bars align vertically across providers; a slot with no
+// matching window shows a dim 0% placeholder.
+const (
+	slot5h = iota
+	slotWeekly
+	slotMonthly
+	numSlots
+)
+
+// tableLine is one provider account: head, then fixed quota columns and a
+// cash column (balances, cost footnotes). A note (error/no data) replaces
+// the columns entirely.
+type tableLine struct {
+	head string
+	note string
+	cols [numSlots]string
+	cash string
+}
+
+// RenderTable writes one aligned line per provider account: a bold status-
+// colored name, then fixed columns — 5-hour, weekly, monthly quota (braille
+// bar + percent + reset) — then cash. Column widths are computed on visible
+// text (ANSI escapes ignored); all-ok status noise is omitted.
 func RenderTable(w io.Writer, out *model.Output, color bool) {
-	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "PROVIDER\tSTATUS\tACCOUNT\tWINDOW\tUSED\tLIMIT\t%\tRESET IN")
-	any := false
+	if len(out.Providers) == 0 {
+		fmt.Fprintln(w, "(no providers)")
+		return
+	}
+	var lines []tableLine
 	for _, pr := range out.Providers {
-		any = true
-		provColor := statusColor(pr.Status, color)
 		accs := pr.Accounts
 		if len(accs) == 0 {
 			accs = []model.AccountResult{{Name: "default", Status: pr.Status, Error: pr.Error}}
 		}
+		multi := len(accs) > 1
 		for _, ar := range accs {
-			status := colored(ar.Status, statusColor(ar.Status, color), color)
-			if ar.Snapshot == nil {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t—\t—\t—\t—\t—\n",
-					colored(pr.DisplayName, provColor, color), status, ar.Name)
-				if ar.Error != "" {
-					fmt.Fprintf(tw, "%s\t%s\t%s\t—\t—\t—\t—\t—\n",
-						"", cGrayNote(colored("└ "+ar.Error, cGray, color), color), "")
-				}
-				continue
-			}
-			windows := ar.Snapshot.Windows
-			if len(windows) == 0 {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t—\t—\t—\t—\t—\n",
-					colored(pr.DisplayName, provColor, color), status, ar.Name)
-				continue
-			}
-			for i, win := range windows {
-				name, account := colored(pr.DisplayName, provColor, color), ar.Name
-				if i > 0 {
-					name, account = "", ""
-				}
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-					name, status, account, win.Title, usedCell(win), limitCell(win),
-					percentCell(win, color), resetCell(win))
-			}
-			if ar.Snapshot.Cost != nil && ar.Snapshot.Cost.Amount != nil {
-				fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t—\t—\t—\n",
-					"", "", "", "cost:"+ar.Snapshot.Cost.Period, money(*ar.Snapshot.Cost.Amount, ar.Snapshot.Cost.Currency))
-			}
-		}
-		if pr.LocalCost != nil && pr.LocalCost.Amount != nil {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t—\t—\t—\n",
-				"", "", "", "local:"+pr.LocalCost.Period, money(*pr.LocalCost.Amount, pr.LocalCost.Currency))
+			lines = append(lines, accountLine(pr, ar, multi, color))
 		}
 	}
-	if !any {
-		fmt.Fprintln(tw, "(no providers)")
+	headW := 0
+	var colW [numSlots]int
+	phW := visibleLen(placeholderCell(false))
+	for i := range colW {
+		colW[i] = phW
 	}
-	tw.Flush()
+	for _, l := range lines {
+		if n := visibleLen(l.head); n > headW {
+			headW = n
+		}
+		if l.note != "" {
+			continue
+		}
+		for i, c := range l.cols {
+			if n := visibleLen(c); n > colW[i] {
+				colW[i] = n
+			}
+		}
+	}
+	pad := func(s string, width int) string {
+		if n := width - visibleLen(s); n > 0 {
+			return s + strings.Repeat(" ", n)
+		}
+		return s
+	}
+	// Header row so humans and agents can name the fixed columns.
+	header := [numSlots]string{"5-HOUR", "WEEKLY", "MONTHLY"}
+	var hb strings.Builder
+	hb.WriteString(pad("PROVIDER", headW) + "  ")
+	for i, h := range header {
+		hb.WriteString(pad(h, colW[i]) + "  ")
+	}
+	hb.WriteString("CASH")
+	fmt.Fprintln(w, colored(hb.String(), cGray, color))
+	for _, l := range lines {
+		head := pad(l.head, headW) + "  "
+		if l.note != "" {
+			fmt.Fprintln(w, head+l.note)
+			continue
+		}
+		var sb strings.Builder
+		sb.WriteString(head)
+		for i, c := range l.cols {
+			if c == "" {
+				c = placeholderCell(color)
+			}
+			sb.WriteString(pad(c, colW[i]) + "  ")
+		}
+		sb.WriteString(l.cash)
+		fmt.Fprintln(w, strings.TrimRight(sb.String(), " "))
+	}
 }
 
-func usedCell(w model.RateWindow) string {
-	if w.Used != nil {
-		return money(*w.Used, w.Currency)
+// accountHead is the provider name (bold, status-colored) plus an optional
+// dim account name and a status badge when anything is not ok.
+func accountHead(pr model.ProviderResult, ar model.AccountResult, multi bool, color bool) string {
+	head := colored(pr.DisplayName, cBold+statusColor(pr.Status, color), color)
+	if multi || ar.Name != "default" {
+		head += " " + colored(ar.Name, cGray, color)
 	}
-	return "—"
+	if ar.Status != "ok" {
+		head += " " + colored(ar.Status, statusColor(ar.Status, color), color)
+	}
+	return head
 }
 
-func limitCell(w model.RateWindow) string {
-	if w.Limit != nil {
-		return money(*w.Limit, w.Currency)
+// accountLine maps one account's snapshot into the fixed columns.
+func accountLine(pr model.ProviderResult, ar model.AccountResult, multi bool, color bool) tableLine {
+	dim := func(s string) string { return colored(s, cGray, color) }
+	l := tableLine{head: accountHead(pr, ar, multi, color)}
+	if ar.Snapshot == nil {
+		if ar.Error != "" {
+			l.note = colored("✗ "+ar.Error, cRed, color)
+		} else {
+			l.note = dim("no data")
+		}
+		return l
 	}
-	return "—"
+	wins := ar.Snapshot.Windows
+	var taken [numSlots]bool
+	var cash []string
+	for _, win := range wins {
+		switch {
+		case win.UsedPercent != nil:
+			slot := quotaSlot(pr.DisplayName, win.Title)
+			if slot < 0 || taken[slot] {
+				continue // unclassified or duplicate slot: the primary window speaks for the provider
+			}
+			taken[slot] = true
+			l.cols[slot] = quotaCell(win, color)
+		case win.Used != nil:
+			cash = append(cash, cashSegment(win, color))
+		}
+	}
+	// Zero-amount cost footnotes ("$0.00 credits") are noise; real balances stay.
+	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, wins) {
+		cash = append(cash, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
+	}
+	if c := pr.LocalCost; c != nil && c.Amount != nil && *c.Amount != 0 {
+		cash = append(cash, dim(money(*c.Amount, c.Currency)+" local "+strings.ToLower(c.Period)))
+	}
+	l.cash = strings.Join(cash, dim(" · "))
+	return l
 }
 
-func percentCell(w model.RateWindow, color bool) string {
-	if w.UsedPercent == nil {
-		return "—"
+// quotaSlot classifies a window title into a column: "5-hour" → 5h,
+// "Weekly" → weekly, "Monthly" → monthly; -1 when nothing matches.
+func quotaSlot(prov, title string) int {
+	t := compactTitle(prov, title)
+	switch {
+	case strings.Contains(t, "hour"):
+		return slot5h
+	case strings.Contains(t, "week"):
+		return slotWeekly
+	case strings.Contains(t, "month"):
+		return slotMonthly
+	default:
+		return -1
 	}
-	pct := *w.UsedPercent
-	if !color {
-		return fmt.Sprintf("%.0f%%", pct)
-	}
-	bar := bar8(pct)
-	return colored(fmt.Sprintf("%s %.0f%%", bar, pct), percentColor(pct), true)
 }
 
-func resetCell(w model.RateWindow) string {
+// quotaCell renders a percent window: "⣿⣿⣿⣿⡇⣀⣀⣀  55% 4d 01h". The fixed
+// columns imply the window kind, so no title is shown.
+func quotaCell(win model.RateWindow, color bool) string {
+	cell := usageBar(*win.UsedPercent, color)
+	if r := resetText(win); r != "" {
+		cell += " " + colored(r, cGray, color)
+	}
+	return cell
+}
+
+// placeholderCell fills a slot that has no window: a dim empty track at 0%.
+func placeholderCell(color bool) string {
+	return colored(strings.Repeat(bTrack, barWidth)+"   0%", cGray, color)
+}
+
+// cashSegment renders a balance window: "¥406.39", optionally " / limit".
+func cashSegment(win model.RateWindow, color bool) string {
+	seg := money(*win.Used, win.Currency)
+	if win.Limit != nil {
+		seg += colored(" / "+money(*win.Limit, win.Currency), cGray, color)
+	}
+	return seg
+}
+
+// compactTitle shortens a window title for inline display by dropping the
+// provider name — "Codex Spark Weekly" → "spark weekly". Words stay whole.
+func compactTitle(prov, title string) string {
+	t := strings.ToLower(title)
+	for _, word := range strings.Fields(strings.ToLower(prov)) {
+		t = strings.ReplaceAll(t, word, "")
+	}
+	return strings.Join(strings.Fields(t), " ")
+}
+
+// resetText renders the reset countdown ("1d 12h"), empty when unknown.
+func resetText(w model.RateWindow) string {
 	if w.ResetsAt == nil {
-		return "—"
+		return ""
 	}
 	return model.DurationShort(time.Until(*w.ResetsAt))
 }
 
-// bar8 renders an 8-cell usage bar.
-func bar8(pct float64) string {
+// costDuplicatesWindow reports whether a cost footnote would repeat a window
+// that already shows the same amount (e.g. DeepSeek "Balance" window + cost).
+func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
+	for _, win := range windows {
+		if win.Used != nil && win.Title == c.Period &&
+			money(*win.Used, win.Currency) == money(*c.Amount, c.Currency) {
+			return true
+		}
+	}
+	return false
+}
+
+// Braille bar glyphs: each cell is a 2×4 dot matrix, so a horizontal bar gets
+// two columns of resolution per cell. bTrack is the bottom dot row, used as
+// the empty track.
+const (
+	bFull  = "⣿" // both columns filled
+	bHalf  = "⡇" // left column only — the smooth edge
+	bTrack = "⣀" // bottom row only
+)
+
+// usageBar renders the quota bar plus percent, e.g. "⣿⣿⣿⣿⡇⣀⣀⣀  54%".
+// The fill is colored by the usage band, the track dimmed.
+func usageBar(pct float64, color bool) string {
+	full, half := barCols(pct)
+	fill := strings.Repeat(bFull, full)
+	if half {
+		fill += bHalf
+	}
+	track := strings.Repeat(bTrack, barWidth-full-bool2int(half))
+	num := fmt.Sprintf(" %3.0f%%", pct)
+	if !color {
+		return fill + track + num
+	}
+	return colored(fill, percentColor(pct), true) + colored(track, cGray, true) +
+		colored(num, percentColor(pct), true)
+}
+
+// bar renders the braille usage bar without color or percent text.
+func bar(pct float64) string {
+	full, half := barCols(pct)
+	s := strings.Repeat(bFull, full)
+	if half {
+		s += bHalf
+	}
+	return s + strings.Repeat(bTrack, barWidth-full-bool2int(half))
+}
+
+// barCols splits a percentage into full and half braille cells; each cell
+// holds two dot columns, so the bar resolves to 1/(2*barWidth).
+func barCols(pct float64) (full int, half bool) {
 	clamped := pct
 	if clamped > 100 {
 		clamped = 100
 	}
-	full := int(clamped / 12.5)
-	return strings.Repeat("█", full) + strings.Repeat("░", 8-full)
+	if clamped < 0 {
+		clamped = 0
+	}
+	cols := int(clamped/100*(barWidth*2) + 0.5)
+	return cols / 2, cols%2 == 1
+}
+
+func bool2int(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// visibleLen counts printable runes, skipping ANSI CSI escape sequences.
+func visibleLen(s string) int {
+	n := 0
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			i = j + 1
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+		n++
+	}
+	return n
 }
 
 func money(v float64, currency string) string {
@@ -190,5 +388,3 @@ func colored(s, code string, color bool) string {
 	}
 	return code + s + cReset
 }
-
-func cGrayNote(s string, _ bool) string { return s }

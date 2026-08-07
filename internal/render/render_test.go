@@ -21,7 +21,7 @@ func TestRenderJSON(t *testing.T) {
 	}
 }
 
-func TestRenderTableColumns(t *testing.T) {
+func TestRenderTablePercentWindow(t *testing.T) {
 	pct := 62.0
 	now := time.Now().Add(3 * 24 * time.Hour)
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
@@ -37,17 +37,24 @@ func TestRenderTableColumns(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	for _, col := range []string{"PROVIDER", "STATUS", "ACCOUNT", "WINDOW", "USED", "LIMIT", "%", "RESET IN"} {
+	if !strings.Contains(s, "Kimi Code") {
+		t.Fatalf("provider head missing:\n%s", s)
+	}
+	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "CASH"} {
 		if !strings.Contains(s, col) {
-			t.Fatalf("table missing column %q:\n%s", col, s)
+			t.Fatalf("header column %q missing:\n%s", col, s)
 		}
 	}
 	if !strings.Contains(s, "62%") {
-		t.Fatalf("table missing percent:\n%s", s)
+		t.Fatalf("window segment missing:\n%s", s)
 	}
 	want := model.DurationShort(time.Until(now))
 	if !strings.Contains(s, want) {
-		t.Fatalf("table missing reset countdown %q:\n%s", want, s)
+		t.Fatalf("reset countdown %q missing:\n%s", want, s)
+	}
+	// An all-ok, default-account provider omits status/account noise.
+	if strings.Contains(s, "ok") || strings.Contains(s, "default") {
+		t.Fatalf("status/account noise should be omitted:\n%s", s)
 	}
 }
 
@@ -59,11 +66,11 @@ func TestRenderTableErrorRow(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "└ session expired") {
-		t.Fatalf("error continuation row missing:\n%s", s)
+	if !strings.Contains(s, "✗ session expired") {
+		t.Fatalf("error segment missing:\n%s", s)
 	}
 	if !strings.Contains(s, "error") {
-		t.Fatalf("status column missing error:\n%s", s)
+		t.Fatalf("status badge missing from head:\n%s", s)
 	}
 }
 
@@ -85,11 +92,32 @@ func TestRenderTableCostRows(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "cost:Balance") || !strings.Contains(s, "¥12.34") {
-		t.Fatalf("snapshot cost row missing:\n%s", s)
+	if !strings.Contains(s, "¥12.34 balance") {
+		t.Fatalf("snapshot cost footnote missing:\n%s", s)
 	}
-	if !strings.Contains(s, "local:today") || !strings.Contains(s, "$12.34") {
-		t.Fatalf("local cost row missing:\n%s", s)
+	if !strings.Contains(s, "$12.34 local today") {
+		t.Fatalf("local cost footnote missing:\n%s", s)
+	}
+}
+
+func TestRenderTableCostDeduplicated(t *testing.T) {
+	amount := 12.34
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "deepseek", DisplayName: "DeepSeek", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows:   []model.RateWindow{{ID: "primary", Title: "Balance", Used: &amount, Currency: "CNY"}},
+				Cost:      &model.Cost{Period: "Balance", Currency: "CNY", Amount: &amount},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if strings.Count(s, "¥12.34") != 1 {
+		t.Fatalf("amount should appear exactly once:\n%s", s)
 	}
 }
 
@@ -101,16 +129,15 @@ func TestRenderTableEmptyOutput(t *testing.T) {
 	}
 }
 
-func TestRenderTableUsedWithoutPercent(t *testing.T) {
+func TestRenderTableUsedWithLimit(t *testing.T) {
 	used := 8.5
 	limit := 10.0
-	now := time.Now()
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "deepseek", DisplayName: "DeepSeek", Status: "ok",
 		Accounts: []model.AccountResult{{
 			Name: "default", Status: "ok",
 			Snapshot: &model.Snapshot{
-				UpdatedAt: now,
+				UpdatedAt: time.Now(),
 				Windows:   []model.RateWindow{{ID: "primary", Title: "Balance", Used: &used, Limit: &limit, Currency: "USD"}},
 			},
 		}},
@@ -118,13 +145,96 @@ func TestRenderTableUsedWithoutPercent(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "$8.50") || !strings.Contains(s, "$10.00") {
-		t.Fatalf("used/limit columns missing:\n%s", s)
+	if !strings.Contains(s, "$8.50 / $10.00") {
+		t.Fatalf("used/limit value missing:\n%s", s)
 	}
-	// No UsedPercent and no ResetsAt: the percent and reset columns render
-	// "—" (tabwriter pads cells with spaces, so check for the two dashes).
-	if strings.Count(s, "—") != 2 {
-		t.Fatalf("percent/reset columns should render —:\n%s", s)
+	if strings.Contains(s, "bal") { // single money window: no title
+		t.Fatalf("single balance window should render bare:\n%s", s)
+	}
+}
+
+func TestRenderTableMultiAccountHeads(t *testing.T) {
+	pct := 10.0
+	snap := func() *model.Snapshot {
+		return &model.Snapshot{UpdatedAt: time.Now(), Windows: []model.RateWindow{{ID: "primary", Title: "Weekly", UsedPercent: &pct}}}
+	}
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
+		Accounts: []model.AccountResult{
+			{Name: "github", Status: "ok", Snapshot: snap()},
+			{Name: "work", Status: "ok", Snapshot: snap()},
+		},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if !strings.Contains(s, "github") || !strings.Contains(s, "work") {
+		t.Fatalf("account names should be shown for multi-account providers:\n%s", s)
+	}
+}
+
+func TestRenderTableOverflowWindowDropped(t *testing.T) {
+	main, spark := 79.0, 0.0
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "codex", DisplayName: "Codex", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows: []model.RateWindow{
+					{ID: "primary", Title: "Weekly", UsedPercent: &main},
+					{ID: "secondary", Title: "Codex Spark Weekly", UsedPercent: &spark},
+				},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if !strings.Contains(s, "79%") {
+		t.Fatalf("primary window missing:\n%s", s)
+	}
+	if strings.Contains(s, "spark weekly") {
+		t.Fatalf("overflow window should be dropped:\n%s", s)
+	}
+}
+
+func TestRenderTableZeroCostFootnoteDropped(t *testing.T) {
+	zero, balance := 0.0, 395.06
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "codex", DisplayName: "Codex", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows:   []model.RateWindow{{ID: "primary", Title: "Balance", Used: &balance, Currency: "CNY"}},
+				Cost:      &model.Cost{Period: "Credits", Currency: "USD", Amount: &zero},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if strings.Contains(s, "$0.00") {
+		t.Fatalf("zero cost footnote should be dropped:\n%s", s)
+	}
+	if !strings.Contains(s, "¥395.06") {
+		t.Fatalf("real balance missing:\n%s", s)
+	}
+}
+
+func TestCompactTitle(t *testing.T) {
+	cases := []struct{ prov, title, want string }{
+		{"Codex", "Codex Spark Weekly", "spark weekly"},
+		{"Kimi Code", "Weekly", "weekly"},
+		{"Kimi Code", "5-hour", "5-hour"},
+		{"OpenCode Go", "Monthly", "monthly"},
+		{"DeepSeek", "Balance", "balance"},
+	}
+	for _, c := range cases {
+		if got := compactTitle(c.prov, c.title); got != c.want {
+			t.Errorf("compactTitle(%q, %q) = %q, want %q", c.prov, c.title, got, c.want)
+		}
 	}
 }
 
@@ -150,38 +260,62 @@ func TestMoney(t *testing.T) {
 	}
 }
 
-func TestBar8Clamping(t *testing.T) {
-	if got := bar8(100); got != strings.Repeat("█", 8) {
-		t.Errorf("bar8(100) = %q, want 8 full cells", got)
+func TestBar(t *testing.T) {
+	if got := bar(100); got != strings.Repeat("⣿", barWidth) {
+		t.Errorf("bar(100) = %q, want %d full cells", got, barWidth)
 	}
-	if got := bar8(150); got != strings.Repeat("█", 8) {
-		t.Errorf("bar8(150) = %q, want clamped to 8 full cells", got)
+	if got := bar(150); got != strings.Repeat("⣿", barWidth) {
+		t.Errorf("bar(150) = %q, want clamped to full", got)
 	}
-	if got := bar8(-5); got != strings.Repeat("░", 8) {
-		t.Errorf("bar8(-5) = %q, want all empty cells", got)
+	if got := bar(-5); got != strings.Repeat("⣀", barWidth) {
+		t.Errorf("bar(-5) = %q, want clamped to empty", got)
 	}
-	if got := bar8(50); got != strings.Repeat("█", 4)+strings.Repeat("░", 4) {
-		t.Errorf("bar8(50) = %q, want 4 full 4 empty", got)
+	if got := bar(50); got != strings.Repeat("⣿", 4)+strings.Repeat("⣀", 4) {
+		t.Errorf("bar(50) = %q, want 4 full 4 track", got)
+	}
+	// 56% of 16 dot columns = 8.96 → 9 columns: 4 full cells + a half edge.
+	if got := bar(56); got != strings.Repeat("⣿", 4)+"⡇"+strings.Repeat("⣀", 3) {
+		t.Errorf("bar(56) = %q, want 4 full + half edge + 3 track", got)
 	}
 }
 
-func TestPercentCellColor(t *testing.T) {
-	pct := func(v float64) *float64 { return &v }
-	w := model.RateWindow{UsedPercent: pct(62)}
-	got := percentCell(w, true)
+func TestUsageBarColor(t *testing.T) {
+	got := usageBar(62, true)
 	if !strings.Contains(got, "\x1b[33m") { // warn band (50-79)
-		t.Errorf("percentCell(62, color) = %q, want yellow warn color", got)
+		t.Errorf("usageBar(62, color) = %q, want yellow warn color", got)
 	}
-	if !strings.Contains(got, "█") {
-		t.Errorf("percentCell(62, color) = %q, want usage bar", got)
+	if !strings.Contains(got, "⣿") {
+		t.Errorf("usageBar(62, color) = %q, want filled braille cells", got)
 	}
-	green := percentCell(model.RateWindow{UsedPercent: pct(30)}, true)
-	if !strings.Contains(green, "\x1b[32m") {
-		t.Errorf("percentCell(30, color) = %q, want green", green)
+	if !strings.Contains(got, "\x1b[90m") {
+		t.Errorf("usageBar(62, color) = %q, want dimmed track", got)
 	}
-	red := percentCell(model.RateWindow{UsedPercent: pct(95)}, true)
-	if !strings.Contains(red, "\x1b[31m") {
-		t.Errorf("percentCell(95, color) = %q, want red", red)
+	if green := usageBar(30, true); !strings.Contains(green, "\x1b[32m") {
+		t.Errorf("usageBar(30, color) = %q, want green", green)
+	}
+	if red := usageBar(95, true); !strings.Contains(red, "\x1b[31m") {
+		t.Errorf("usageBar(95, color) = %q, want red", red)
+	}
+	if green := usageBar(30, true); !strings.Contains(green, "\x1b[32m") {
+		t.Errorf("usageBar(30, color) = %q, want green", green)
+	}
+	if red := usageBar(95, true); !strings.Contains(red, "\x1b[31m") {
+		t.Errorf("usageBar(95, color) = %q, want red", red)
+	}
+	if plain := usageBar(62, false); strings.Contains(plain, "\x1b[") {
+		t.Errorf("usageBar(62, no color) = %q, want no escapes", plain)
+	}
+}
+
+func TestVisibleLen(t *testing.T) {
+	if got := visibleLen("\x1b[32mok\x1b[0m"); got != 2 {
+		t.Errorf("visibleLen(colored ok) = %d, want 2", got)
+	}
+	if got := visibleLen("¥12.34"); got != 6 {
+		t.Errorf("visibleLen(¥12.34) = %d, want 6", got)
+	}
+	if got := visibleLen(strings.Repeat("━", barWidth)); got != barWidth {
+		t.Errorf("visibleLen(bar) = %d, want %d", got, barWidth)
 	}
 }
 
