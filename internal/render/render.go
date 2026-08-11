@@ -57,19 +57,19 @@ const (
 )
 
 // tableLine is one provider account: head, then fixed quota columns and a
-// details column (unclassified/overflow windows, balances, cost footnotes).
-// A note (error/no data) replaces the columns entirely.
+// cash/credits column (balances and monetary cost footnotes). A note
+// (error/no data) replaces the columns entirely.
 type tableLine struct {
-	head    string
-	note    string
-	cols    [numSlots]string
-	details string
+	head string
+	note string
+	cols [numSlots]string
+	cash string
 }
 
 // RenderTable writes one aligned line per provider account: a bold status-
 // colored name, then fixed columns — 5-hour, weekly, monthly quota (braille
-// bar + percent + reset) — then details. Column widths are computed on visible
-// text (ANSI escapes ignored); all-ok status noise is omitted.
+// bar + percent + reset) — then cash/credits. Column widths are computed on
+// visible text (ANSI escapes ignored); all-ok status noise is omitted.
 func RenderTable(w io.Writer, out *model.Output, color bool) {
 	if len(out.Providers) == 0 {
 		fmt.Fprintln(w, "(no providers)")
@@ -118,7 +118,7 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 	for i, h := range header {
 		hb.WriteString(pad(h, colW[i]) + "  ")
 	}
-	hb.WriteString("DETAILS")
+	hb.WriteString("CASH")
 	fmt.Fprintln(w, colored(hb.String(), cGray, color))
 	for _, l := range lines {
 		head := pad(l.head, headW) + "  "
@@ -134,7 +134,7 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 			}
 			sb.WriteString(pad(c, colW[i]) + "  ")
 		}
-		sb.WriteString(l.details)
+		sb.WriteString(l.cash)
 		fmt.Fprintln(w, strings.TrimRight(sb.String(), " "))
 	}
 }
@@ -166,36 +166,30 @@ func accountLine(pr model.ProviderResult, ar model.AccountResult, multi bool, co
 	}
 	wins := ar.Snapshot.Windows
 	var taken [numSlots]bool
-	var details []string
+	var cash []string
 	for _, win := range wins {
 		switch {
 		case win.UsedPercent != nil:
 			slot := quotaSlot(win)
 			if slot < 0 || taken[slot] {
-				// A fixed table has only one primary cell per quota period, but
-				// dropping a real provider window would turn valid data into a
-				// misleading empty/zero-looking row. Preserve it in details.
-				details = append(details, quotaDetail(win, color))
+				// The table is a compact projection with one canonical cell per
+				// period. Additional percent windows remain available in JSON.
 				continue
 			}
 			taken[slot] = true
 			l.cols[slot] = quotaCell(win, color)
 		case win.Used != nil:
-			details = append(details, cashSegment(win, color))
-		case win.ResetsAt != nil:
-			// A time-only marker (for example subscription renewal) is not a
-			// zero-percent quota. Keep it visible without manufacturing usage.
-			details = append(details, timeDetail(win, color))
+			cash = append(cash, cashSegment(win, color))
 		}
 	}
 	// Zero-amount cost footnotes ("$0.00 credits") are noise; real balances stay.
 	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, wins) {
-		details = append(details, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
+		cash = append(cash, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
 	}
 	if c := pr.LocalCost; c != nil && c.Amount != nil && *c.Amount != 0 {
-		details = append(details, dim(money(*c.Amount, c.Currency)+" local "+strings.ToLower(c.Period)))
+		cash = append(cash, dim(money(*c.Amount, c.Currency)+" local "+strings.ToLower(c.Period)))
 	}
-	l.details = strings.Join(details, dim(" · "))
+	l.cash = strings.Join(cash, dim(" · "))
 	return l
 }
 
@@ -231,17 +225,6 @@ func quotaCell(win model.RateWindow, color bool) string {
 // valid usage value, so absence must never be rendered as 0%.
 func placeholderCell(color bool) string {
 	return colored("—", cGray, color)
-}
-
-// quotaDetail preserves a percent window that cannot occupy a fixed quota
-// column (for example Grok "Credits" or a second weekly Codex window).
-func quotaDetail(win model.RateWindow, color bool) string {
-	return win.Title + " " + quotaCell(win, color)
-}
-
-// timeDetail renders a timestamp-only marker such as "Renews 28d 11h".
-func timeDetail(win model.RateWindow, color bool) string {
-	return win.Title + " " + colored(resetText(win), cGray, color)
 }
 
 // cashSegment renders a balance window: "¥406.39", optionally " / limit".

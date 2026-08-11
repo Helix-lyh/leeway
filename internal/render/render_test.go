@@ -43,7 +43,7 @@ func TestRenderTablePercentWindow(t *testing.T) {
 	if !strings.Contains(s, "Kimi Code") {
 		t.Fatalf("provider head missing:\n%s", s)
 	}
-	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "DETAILS"} {
+	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "CASH"} {
 		if !strings.Contains(s, col) {
 			t.Fatalf("header column %q missing:\n%s", col, s)
 		}
@@ -185,7 +185,7 @@ func TestRenderTableMultiAccountHeads(t *testing.T) {
 	}
 }
 
-func TestRenderTableOverflowWindowPreservedInDetails(t *testing.T) {
+func TestRenderTableOverflowWindowOmittedFromCash(t *testing.T) {
 	main, spark := 79.0, 0.0
 	weekly := 7 * 24 * 60
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
@@ -207,12 +207,15 @@ func TestRenderTableOverflowWindowPreservedInDetails(t *testing.T) {
 	if !strings.Contains(s, "79%") {
 		t.Fatalf("primary window missing:\n%s", s)
 	}
-	if !strings.Contains(s, "Codex Spark Weekly") || !strings.Contains(s, "  0%") {
-		t.Fatalf("overflow window must be preserved in details:\n%s", s)
+	if strings.Contains(s, "Codex Spark Weekly") {
+		t.Fatalf("overflow quota must not appear in cash/credits:\n%s", s)
+	}
+	if strings.Count(s, "0%") != 0 {
+		t.Fatalf("the duplicate Spark zero must not leak into the table:\n%s", s)
 	}
 }
 
-func TestRenderTableUnclassifiedPercentPreservedInDetails(t *testing.T) {
+func TestRenderTableUnclassifiedPercentOmittedFromCash(t *testing.T) {
 	pct := 100.0
 	reset := time.Now().Add(2*24*time.Hour + 7*time.Hour)
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
@@ -230,8 +233,8 @@ func TestRenderTableUnclassifiedPercentPreservedInDetails(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "Credits") || !strings.Contains(s, "100%") {
-		t.Fatalf("unclassified percent window must remain visible:\n%s", s)
+	if strings.Contains(s, "Credits") || strings.Contains(s, "100%") {
+		t.Fatalf("unclassified quota must not appear in cash/credits:\n%s", s)
 	}
 	if strings.Count(s, "—") != 3 {
 		t.Fatalf("unclassified window must not occupy a fixed-period slot:\n%s", s)
@@ -284,7 +287,7 @@ func TestQuotaSlotUsesExplicitDurationNotTitle(t *testing.T) {
 	}
 }
 
-func TestRenderTableTimeOnlyMarkerIsNotZeroUsage(t *testing.T) {
+func TestRenderTableTimeOnlyMarkerOmittedFromCash(t *testing.T) {
 	renews := time.Now().Add(28*24*time.Hour + 3*time.Hour)
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
@@ -301,9 +304,8 @@ func TestRenderTableTimeOnlyMarkerIsNotZeroUsage(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	want := "Renews " + model.DurationShort(time.Until(renews))
-	if !strings.Contains(s, want) {
-		t.Fatalf("time-only marker must remain visible:\n%s", s)
+	if strings.Contains(s, "Renews") {
+		t.Fatalf("time-only marker must not appear in cash/credits:\n%s", s)
 	}
 	if strings.Contains(s, "0%") {
 		t.Fatalf("time-only marker must not manufacture zero usage:\n%s", s)
