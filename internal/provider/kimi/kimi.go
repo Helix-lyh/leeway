@@ -181,7 +181,7 @@ func (p kimiProvider) fetchWeb(ctx context.Context, token, account string) (*mod
 		return nil, ctx.Err()
 	}
 
-	return p.buildFromUsage(codingUsage, stats, account), nil
+	return p.buildFromUsage(codingUsage, stats, account)
 }
 
 // fetchRequiredUsage mirrors KimiUsageFetcher.fetchRequiredUsage.
@@ -298,7 +298,10 @@ func (p kimiProvider) fetchCodeAPI(ctx context.Context, apiKey, webToken, accoun
 	if err := json.Unmarshal(data, &usageResp); err != nil {
 		return nil, ParseFailed(err.Error())
 	}
-	snap := p.buildFromUsage(&kimiUsage{Scope: "FEATURE_CODING", Detail: usageResp.Usage, Limits: usageResp.Limits}, nil, account)
+	snap, err := p.buildFromUsage(&kimiUsage{Scope: "FEATURE_CODING", Detail: usageResp.Usage, Limits: usageResp.Limits}, nil, account)
+	if err != nil {
+		return nil, err
+	}
 
 	if webToken == "" {
 		return snap, nil
@@ -313,24 +316,27 @@ func (p kimiProvider) fetchCodeAPI(ctx context.Context, apiKey, webToken, accoun
 	if stats == nil {
 		return snap, nil
 	}
-	return p.buildFromUsage(&kimiUsage{Scope: "FEATURE_CODING", Detail: usageResp.Usage, Limits: usageResp.Limits}, stats, account), nil
+	return p.buildFromUsage(&kimiUsage{Scope: "FEATURE_CODING", Detail: usageResp.Usage, Limits: usageResp.Limits}, stats, account)
 }
 
 // buildFromUsage converts a Kimi usage payload into a model snapshot,
-// mirroring KimiUsageSnapshot.toUsageSnapshot.
-func (p kimiProvider) buildFromUsage(u *kimiUsage, stats *kimiSubscriptionStatsResponse, account string) *model.Snapshot {
+// rejecting a missing/malformed required weekly counter instead of silently
+// presenting it as zero usage.
+func (p kimiProvider) buildFromUsage(u *kimiUsage, stats *kimiSubscriptionStatsResponse, account string) (*model.Snapshot, error) {
+	if u == nil {
+		return nil, ParseFailed("FEATURE_CODING usage is missing")
+	}
+	if _, ok := parseCounts(u.Detail); !ok {
+		return nil, ParseFailed("weekly usage counters are missing or invalid")
+	}
 	var rateLimitDetail *kimiUsageDetail
 	var rateLimitWindow *kimiWindow
-	if u != nil && len(u.Limits) > 0 {
+	if len(u.Limits) > 0 {
 		rl := u.Limits[0]
 		rateLimitDetail = &rl.Detail
 		rateLimitWindow = &rl.Window
 	}
-	weekly := kimiUsageDetail{}
-	if u != nil {
-		weekly = u.Detail
-	}
-	return buildSnapshot(weekly, rateLimitDetail, rateLimitWindow, stats, p.now(), account)
+	return buildSnapshot(u.Detail, rateLimitDetail, rateLimitWindow, stats, p.now(), account), nil
 }
 
 // codeEndpoint resolves the Kimi Code usage endpoint from the base URL,

@@ -139,9 +139,8 @@ type kimiSubscriptionRateLimit struct {
 	ResetTime string   `json:"resetTime"`
 }
 
-// usageCounts mirrors KimiUsageSnapshot.usageCounts: used is authoritative,
-// remaining is a fallback, and an invalid counter yields a reliable=false
-// legacy 0% gauge. ok=false means the limit itself is unusable.
+// usageCounts normalizes one explicit usage counter. used is authoritative
+// and remaining is a fallback. Missing or malformed counters are not zero.
 type usageCounts struct {
 	used     int
 	limit    int
@@ -163,7 +162,7 @@ func parseCounts(d kimiUsageDetail) (usageCounts, bool) {
 			return usageCounts{used: limit - remaining, limit: limit, reliable: true}, true
 		}
 	}
-	return usageCounts{used: 0, limit: limit, reliable: false}, true
+	return usageCounts{}, false
 }
 
 // clampPercent mirrors KimiUsageSnapshot.clampedPercent.

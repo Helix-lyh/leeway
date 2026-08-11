@@ -505,14 +505,17 @@ func TestProviderFetch_SnapshotShape(t *testing.T) {
 		t.Fatalf("windows = %d, want exactly 1 (Swift web path emits secondary=nil)", len(snap.Windows))
 	}
 	w := snap.Windows[0]
-	if w.ID != "primary" || w.Title != "Credits" {
-		t.Errorf("window id/title = %q/%q, want primary/Credits (Jan 2027 reset is >45 days away)", w.ID, w.Title)
+	if w.ID != "primary" || w.Title != "Weekly" {
+		t.Errorf("window id/title = %q/%q, want primary/Weekly", w.ID, w.Title)
 	}
 	if w.UsedPercent == nil || *w.UsedPercent != 62.5 {
 		t.Errorf("usedPercent = %v, want 62.5", w.UsedPercent)
 	}
-	if w.Used != nil || w.Limit != nil || w.WindowMinutes != nil {
+	if w.Used != nil || w.Limit != nil {
 		t.Errorf("raw window fields must stay nil, got %+v", w)
+	}
+	if w.WindowMinutes == nil || *w.WindowMinutes != weeklyWindowMinutes {
+		t.Errorf("windowMinutes = %v, want %d", w.WindowMinutes, weeklyWindowMinutes)
 	}
 	if w.ResetsAt == nil || w.ResetsAt.Unix() != futureReset {
 		t.Errorf("resetsAt = %v, want unix %d", w.ResetsAt, futureReset)
@@ -590,44 +593,6 @@ func TestProviderFetch_ExpiredSessionRefreshFails(t *testing.T) {
 	}
 }
 
-// --- window label (GrokProviderDescriptor.primaryLabel) ---------------------
-
-func TestPrimaryLabel(t *testing.T) {
-	d := 24 * time.Hour
-	cases := []struct {
-		resetsAt time.Time
-		want     string
-	}{
-		{testNow.Add(-time.Hour), ""},    // past
-		{testNow.Add(time.Hour), ""},     // <= 3600s guard
-		{testNow.Add(2 * time.Hour), ""}, // < 1 day
-		{testNow.Add(2 * d), ""},         // 2 days
-		{testNow.Add(4 * d), "Weekly"},   // 4..12
-		{testNow.Add(12 * d), "Weekly"},
-		{testNow.Add(13 * d), ""}, // 13..19: no label (Swift range)
-		{testNow.Add(19 * d), ""},
-		{testNow.Add(20 * d), "Monthly"}, // 20..45
-		{testNow.Add(45 * d), "Monthly"},
-		{testNow.Add(46 * d), ""},
-	}
-	for _, c := range cases {
-		if got := primaryLabel(c.resetsAt, testNow); got != c.want {
-			t.Errorf("primaryLabel(%v) = %q, want %q", c.resetsAt, got, c.want)
-		}
-	}
-}
-
-func TestPrimaryLabel_Rounding(t *testing.T) {
-	d := 24 * time.Hour
-	// 12.6 days rounds to 13 -> no label; 19.6 days rounds to 20 -> Monthly.
-	if got := primaryLabel(testNow.Add(12*d+14*time.Hour), testNow); got != "" {
-		t.Errorf("12.6 days = %q, want empty", got)
-	}
-	if got := primaryLabel(testNow.Add(19*d+14*time.Hour), testNow); got != "Monthly" {
-		t.Errorf("19.6 days = %q, want Monthly", got)
-	}
-}
-
 func TestToModel_IdentityAndWindow(t *testing.T) {
 	percent := 40.0
 	reset := time.Unix(futureReset, 0)
@@ -635,7 +600,8 @@ func TestToModel_IdentityAndWindow(t *testing.T) {
 	if snap.Identity == nil || snap.Identity.Account != "work" {
 		t.Errorf("identity = %+v, want account work", snap.Identity)
 	}
-	if len(snap.Windows) != 1 || snap.Windows[0].Title == "" {
+	if len(snap.Windows) != 1 || snap.Windows[0].Title != "Weekly" ||
+		snap.Windows[0].WindowMinutes == nil || *snap.Windows[0].WindowMinutes != weeklyWindowMinutes {
 		t.Errorf("unexpected windows: %+v", snap.Windows)
 	}
 	if snap.Cost != nil {
@@ -645,7 +611,8 @@ func TestToModel_IdentityAndWindow(t *testing.T) {
 
 func TestDeclaredWindows(t *testing.T) {
 	specs := New().DeclaredWindows()
-	if len(specs) != 2 || specs[0].Title != "Credits" || specs[1].Title != "On-demand" {
-		t.Errorf("declared windows = %+v, want Credits primary + On-demand secondary", specs)
+	if len(specs) != 1 || specs[0].Title != "Weekly" ||
+		specs[0].WindowMinutes == nil || *specs[0].WindowMinutes != weeklyWindowMinutes {
+		t.Errorf("declared windows = %+v, want one 7-day Weekly window", specs)
 	}
 }

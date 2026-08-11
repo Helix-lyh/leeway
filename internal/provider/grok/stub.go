@@ -7,7 +7,6 @@ package grok
 
 import (
 	"context"
-	"math"
 	"net/http"
 	"time"
 
@@ -17,13 +16,18 @@ import (
 
 func init() { provider.Register(New()) }
 
+// Grok's paid-plan allowance is one shared weekly pool across Build, Chat,
+// Imagine, Voice, and API. The billing endpoint returns the used percentage
+// and the current weekly reset timestamp, not a duration discriminator.
+const weeklyWindowMinutes = 7 * 24 * 60
+
 // New returns the Grok provider.
 func New() provider.Provider { return &grokProvider{client: defaultClient, now: time.Now} }
 
 type grokProvider struct {
 	// client is injectable for tests; production uses defaultClient.
 	client *http.Client
-	// now is the clock used for expiry checks and snapshot labeling;
+	// now is the clock used for expiry checks and snapshot timestamps;
 	// injectable so tests do not depend on wall time.
 	now func() time.Time
 }
@@ -39,21 +43,19 @@ func (*grokProvider) AuthSpec() provider.AuthSpec {
 	}
 }
 
-// DeclaredWindows mirrors GrokProviderDescriptor: the primary lane is labeled
-// "Credits" (sessionLabel) and the secondary lane "On-demand" (weeklyLabel).
-// The web billing path only ever emits the primary window (CodexBar's
-// toUsageSnapshot sets secondary to nil), so Fetch never produces a snapshot
-// with an On-demand lane.
+// DeclaredWindows exposes the shared weekly subscription pool. Extra Usage
+// Credits are a separate purchased balance and are not decoded by this
+// provider's current protobuf scanner.
 func (*grokProvider) DeclaredWindows() []provider.WindowSpec {
+	weekly := weeklyWindowMinutes
 	return []provider.WindowSpec{
-		{ID: "primary", Title: "Credits", Kind: provider.PercentWindow},
-		{ID: "secondary", Title: "On-demand", Kind: provider.PercentWindow},
+		{ID: "primary", Title: "Weekly", WindowMinutes: &weekly, Kind: provider.PercentWindow},
 	}
 }
 
 // Fetch probes grok.com web billing with the resolved cookie header, falling
 // back to the `grok login` local session (OIDC bearer, refreshed when
-// expired), and returns a single primary credits window.
+// expired), and returns the shared weekly subscription window.
 func (g *grokProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*model.Snapshot, error) {
 	var snap billingSnapshot
 	var err error
@@ -75,18 +77,12 @@ func (g *grokProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*m
 	return snap.toModel(req.Account, g.now()), nil
 }
 
-// toModel projects the parsed billing snapshot into the leeway model,
-// mirroring GrokUsageSnapshot.toUsageSnapshot for the web path: a single
-// primary window with usedPercent + resetsAt, no windowMinutes, and the title
-// derived from the reset distance ("Weekly"/"Monthly"/"Credits").
+// toModel projects the parsed billing snapshot into the leeway model. The
+// endpoint's reset timestamp is the end of the current weekly cycle; the time
+// remaining until that timestamp must not be mistaken for the cycle length.
 func (s billingSnapshot) toModel(account string, now time.Time) *model.Snapshot {
 	percent := *s.usedPercent
-	title := "Credits"
-	if s.resetsAt != nil {
-		if label := primaryLabel(*s.resetsAt, now); label != "" {
-			title = label
-		}
-	}
+	weekly := weeklyWindowMinutes
 	var resetsAt *time.Time
 	if s.resetsAt != nil {
 		r := *s.resetsAt
@@ -96,29 +92,11 @@ func (s billingSnapshot) toModel(account string, now time.Time) *model.Snapshot 
 		UpdatedAt: now,
 		Identity:  &model.Identity{Account: account},
 		Windows: []model.RateWindow{{
-			ID:          "primary",
-			Title:       title,
-			UsedPercent: &percent,
-			ResetsAt:    resetsAt,
+			ID:            "primary",
+			Title:         "Weekly",
+			UsedPercent:   &percent,
+			ResetsAt:      resetsAt,
+			WindowMinutes: &weekly,
 		}},
 	}
-}
-
-// primaryLabel mirrors GrokProviderDescriptor.primaryLabel(resetsAt:now:):
-// "Weekly" for 4-12 days until reset, "Monthly" for 20-45 days, otherwise ""
-// (the caller falls back to the session label "Credits"). Note the Swift
-// exact ranges: 13-19 days and 46+ days get no label at all.
-func primaryLabel(resetsAt, now time.Time) string {
-	seconds := resetsAt.Sub(now).Seconds()
-	if seconds <= 3600 {
-		return ""
-	}
-	days := int(math.Round(seconds / 86400))
-	if days >= 4 && days <= 12 {
-		return "Weekly"
-	}
-	if days >= 20 && days <= 45 {
-		return "Monthly"
-	}
-	return ""
 }

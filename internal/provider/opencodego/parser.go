@@ -206,17 +206,9 @@ func parseUsageFromCandidates(object any, now time.Time, inherited *time.Time) *
 			monthlyC = append(monthlyC, c)
 		}
 	}
-	nonRollingIDs := map[uint64]bool{}
-	for _, c := range append(append([]windowCandidate{}, weeklyC...), monthlyC...) {
-		nonRollingIDs[c.id] = true
-	}
-	var fallback []windowCandidate
-	for _, c := range candidates {
-		if !nonRollingIDs[c.id] {
-			fallback = append(fallback, c)
-		}
-	}
-	rolling := pickCandidate(rollingC, fallback, true)
+	// A short reset countdown does not prove that a generic window is the
+	// 5-hour lane. Require an explicit period name in the response path.
+	rolling := pickCandidateList(rollingC, true)
 	if rolling == nil {
 		return nil
 	}
@@ -294,13 +286,6 @@ func collectWindowCandidates(object any, now time.Time) []windowCandidate {
 	}
 	walk(object, nil)
 	return out
-}
-
-func pickCandidate(preferred, fallback []windowCandidate, pickShorter bool) *windowCandidate {
-	if c := pickCandidateList(preferred, pickShorter); c != nil {
-		return c
-	}
-	return pickCandidateList(fallback, pickShorter)
 }
 
 func pickCandidateList(cs []windowCandidate, pickShorter bool) *windowCandidate {
@@ -430,10 +415,14 @@ func parseWindow(dict map[string]any, now time.Time) (parsedWindow, bool) {
 			if resetAt := dateValue(dict[key]); resetAt != nil {
 				if interval, ok := resetInterval(*resetAt, now); ok {
 					resetInSec = interval
+					foundReset = true
 					break
 				}
 			}
 		}
+	}
+	if !foundReset {
+		return parsedWindow{}, false
 	}
 	return parsedWindow{percent: resolvedPercent, resetInSec: resetInSec}, true
 }
@@ -450,10 +439,11 @@ func parseSubscriptionRegex(text string, now time.Time) (*subscription, error) {
 	hasWeekly := okW1 && okW2
 	monthlyPercent, okM1 := extractDouble(monthlyUsageRegex, text)
 	monthlyReset, okM2 := extractInt(monthlyResetRegex, text)
+	hasMonthly := okM1 && okM2
 
 	sub := &subscription{
 		hasWeeklyUsage:  hasWeekly,
-		hasMonthlyUsage: okM1 || okM2,
+		hasMonthlyUsage: hasMonthly,
 		rollingPercent:  rollingPercent,
 		rollingResetSec: rollingReset,
 	}
@@ -461,10 +451,8 @@ func parseSubscriptionRegex(text string, now time.Time) (*subscription, error) {
 		sub.weeklyPercent = weeklyPercent
 		sub.weeklyResetSec = weeklyReset
 	}
-	if okM1 {
+	if hasMonthly {
 		sub.monthlyPercent = monthlyPercent
-	}
-	if okM2 {
 		sub.monthlyResetSec = monthlyReset
 	}
 	return sub, nil

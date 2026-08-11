@@ -202,11 +202,10 @@ func (p *opencodeGo) buildSnapshot(sub *subscription, now time.Time, zen *float6
 		})
 	}
 	if sub.renewsAt != nil {
-		zero := 0.0
 		snap.Windows = append(snap.Windows, model.RateWindow{
-			ID: "renewal", Title: "Renews",
-			UsedPercent: &zero,
-			ResetsAt:    sub.renewsAt,
+			ID:       "renewal",
+			Title:    "Renews",
+			ResetsAt: sub.renewsAt,
 		})
 	}
 	return snap

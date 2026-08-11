@@ -47,8 +47,8 @@ func RenderJSON(w io.Writer, out *model.Output) error {
 }
 
 // Quota column slots, in display order. Every account line renders all three
-// quota columns, so bars align vertically across providers; a slot with no
-// matching window shows a dim 0% placeholder.
+// quota columns, so bars align vertically across providers. A slot with no
+// matching window shows an unavailable marker, never a synthetic 0%.
 const (
 	slot5h = iota
 	slotWeekly
@@ -57,18 +57,18 @@ const (
 )
 
 // tableLine is one provider account: head, then fixed quota columns and a
-// cash column (balances, cost footnotes). A note (error/no data) replaces
-// the columns entirely.
+// details column (unclassified/overflow windows, balances, cost footnotes).
+// A note (error/no data) replaces the columns entirely.
 type tableLine struct {
-	head string
-	note string
-	cols [numSlots]string
-	cash string
+	head    string
+	note    string
+	cols    [numSlots]string
+	details string
 }
 
 // RenderTable writes one aligned line per provider account: a bold status-
 // colored name, then fixed columns — 5-hour, weekly, monthly quota (braille
-// bar + percent + reset) — then cash. Column widths are computed on visible
+// bar + percent + reset) — then details. Column widths are computed on visible
 // text (ANSI escapes ignored); all-ok status noise is omitted.
 func RenderTable(w io.Writer, out *model.Output, color bool) {
 	if len(out.Providers) == 0 {
@@ -86,11 +86,12 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 			lines = append(lines, accountLine(pr, ar, multi, color))
 		}
 	}
-	headW := 0
+	headW := visibleLen("PROVIDER")
 	var colW [numSlots]int
+	header := [numSlots]string{"5-HOUR", "WEEKLY", "MONTHLY"}
 	phW := visibleLen(placeholderCell(false))
 	for i := range colW {
-		colW[i] = phW
+		colW[i] = max(phW, visibleLen(header[i]))
 	}
 	for _, l := range lines {
 		if n := visibleLen(l.head); n > headW {
@@ -112,13 +113,12 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 		return s
 	}
 	// Header row so humans and agents can name the fixed columns.
-	header := [numSlots]string{"5-HOUR", "WEEKLY", "MONTHLY"}
 	var hb strings.Builder
 	hb.WriteString(pad("PROVIDER", headW) + "  ")
 	for i, h := range header {
 		hb.WriteString(pad(h, colW[i]) + "  ")
 	}
-	hb.WriteString("CASH")
+	hb.WriteString("DETAILS")
 	fmt.Fprintln(w, colored(hb.String(), cGray, color))
 	for _, l := range lines {
 		head := pad(l.head, headW) + "  "
@@ -134,7 +134,7 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 			}
 			sb.WriteString(pad(c, colW[i]) + "  ")
 		}
-		sb.WriteString(l.cash)
+		sb.WriteString(l.details)
 		fmt.Fprintln(w, strings.TrimRight(sb.String(), " "))
 	}
 }
@@ -166,41 +166,51 @@ func accountLine(pr model.ProviderResult, ar model.AccountResult, multi bool, co
 	}
 	wins := ar.Snapshot.Windows
 	var taken [numSlots]bool
-	var cash []string
+	var details []string
 	for _, win := range wins {
 		switch {
 		case win.UsedPercent != nil:
-			slot := quotaSlot(pr.DisplayName, win.Title)
+			slot := quotaSlot(win)
 			if slot < 0 || taken[slot] {
-				continue // unclassified or duplicate slot: the primary window speaks for the provider
+				// A fixed table has only one primary cell per quota period, but
+				// dropping a real provider window would turn valid data into a
+				// misleading empty/zero-looking row. Preserve it in details.
+				details = append(details, quotaDetail(win, color))
+				continue
 			}
 			taken[slot] = true
 			l.cols[slot] = quotaCell(win, color)
 		case win.Used != nil:
-			cash = append(cash, cashSegment(win, color))
+			details = append(details, cashSegment(win, color))
+		case win.ResetsAt != nil:
+			// A time-only marker (for example subscription renewal) is not a
+			// zero-percent quota. Keep it visible without manufacturing usage.
+			details = append(details, timeDetail(win, color))
 		}
 	}
 	// Zero-amount cost footnotes ("$0.00 credits") are noise; real balances stay.
 	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, wins) {
-		cash = append(cash, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
+		details = append(details, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
 	}
 	if c := pr.LocalCost; c != nil && c.Amount != nil && *c.Amount != 0 {
-		cash = append(cash, dim(money(*c.Amount, c.Currency)+" local "+strings.ToLower(c.Period)))
+		details = append(details, dim(money(*c.Amount, c.Currency)+" local "+strings.ToLower(c.Period)))
 	}
-	l.cash = strings.Join(cash, dim(" · "))
+	l.details = strings.Join(details, dim(" · "))
 	return l
 }
 
-// quotaSlot classifies a window title into a column: "5-hour" → 5h,
-// "Weekly" → weekly, "Monthly" → monthly; -1 when nothing matches.
-func quotaSlot(prov, title string) int {
-	t := compactTitle(prov, title)
-	switch {
-	case strings.Contains(t, "hour"):
+// quotaSlot classifies only explicit canonical durations. Titles are display
+// text and reset countdowns are remaining time; neither is a period contract.
+func quotaSlot(win model.RateWindow) int {
+	if win.WindowMinutes == nil {
+		return -1
+	}
+	switch *win.WindowMinutes {
+	case 5 * 60:
 		return slot5h
-	case strings.Contains(t, "week"):
+	case 7 * 24 * 60:
 		return slotWeekly
-	case strings.Contains(t, "month"):
+	case 30 * 24 * 60:
 		return slotMonthly
 	default:
 		return -1
@@ -217,9 +227,21 @@ func quotaCell(win model.RateWindow, color bool) string {
 	return cell
 }
 
-// placeholderCell fills a slot that has no window: a dim empty track at 0%.
+// placeholderCell marks a slot that the provider did not return. Zero is a
+// valid usage value, so absence must never be rendered as 0%.
 func placeholderCell(color bool) string {
-	return colored(strings.Repeat(bTrack, barWidth)+"   0%", cGray, color)
+	return colored("—", cGray, color)
+}
+
+// quotaDetail preserves a percent window that cannot occupy a fixed quota
+// column (for example Grok "Credits" or a second weekly Codex window).
+func quotaDetail(win model.RateWindow, color bool) string {
+	return win.Title + " " + quotaCell(win, color)
+}
+
+// timeDetail renders a timestamp-only marker such as "Renews 28d 11h".
+func timeDetail(win model.RateWindow, color bool) string {
+	return win.Title + " " + colored(resetText(win), cGray, color)
 }
 
 // cashSegment renders a balance window: "¥406.39", optionally " / limit".
@@ -229,16 +251,6 @@ func cashSegment(win model.RateWindow, color bool) string {
 		seg += colored(" / "+money(*win.Limit, win.Currency), cGray, color)
 	}
 	return seg
-}
-
-// compactTitle shortens a window title for inline display by dropping the
-// provider name — "Codex Spark Weekly" → "spark weekly". Words stay whole.
-func compactTitle(prov, title string) string {
-	t := strings.ToLower(title)
-	for _, word := range strings.Fields(strings.ToLower(prov)) {
-		t = strings.ReplaceAll(t, word, "")
-	}
-	return strings.Join(strings.Fields(t), " ")
 }
 
 // resetText renders the reset countdown ("1d 12h"), empty when unknown.

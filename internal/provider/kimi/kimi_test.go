@@ -718,9 +718,9 @@ func TestParseCounts(t *testing.T) {
 		{"used over limit", kimiUsageDetail{Limit: "100", Used: "150"}, 150, 100, true, true},
 		{"remaining fallback", kimiUsageDetail{Limit: "100", Remaining: "38"}, 62, 100, true, true},
 		{"remaining zero", kimiUsageDetail{Limit: "100", Remaining: "0"}, 100, 100, true, true},
-		{"remaining over limit", kimiUsageDetail{Limit: "100", Remaining: "101"}, 0, 100, false, true},
-		{"remaining negative", kimiUsageDetail{Limit: "100", Remaining: "-1"}, 0, 100, false, true},
-		{"unreliable legacy", kimiUsageDetail{Limit: "100"}, 0, 100, false, true},
+		{"remaining over limit", kimiUsageDetail{Limit: "100", Remaining: "101"}, 0, 0, false, false},
+		{"remaining negative", kimiUsageDetail{Limit: "100", Remaining: "-1"}, 0, 0, false, false},
+		{"missing counters", kimiUsageDetail{Limit: "100"}, 0, 0, false, false},
 		{"bad limit", kimiUsageDetail{Limit: "nope", Used: "5"}, 0, 0, false, false},
 		{"zero limit", kimiUsageDetail{Limit: "0"}, 0, 0, false, false},
 	}
@@ -866,14 +866,28 @@ func TestSnapshotExtrasFiltering(t *testing.T) {
 	}
 }
 
-func TestUnreliableCounterYieldsLegacyGauge(t *testing.T) {
-	// Valid limit but no usable counters: 0% window, no windowMinutes,
-	// mirrored from KimiUsageSnapshot.usageCounts.
+func TestMissingCounterDoesNotYieldZeroGauge(t *testing.T) {
+	// A valid limit without used/remaining is unknown, not zero usage.
 	snap := buildSnapshot(kimiUsageDetail{Limit: "100"}, nil, nil, nil, fixedNow, "default")
-	primary := findWindow(t, snap, "primary")
-	wantPercent(t, primary, 0)
-	if primary.WindowMinutes != nil {
-		t.Fatalf("WindowMinutes = %v, want nil for unreliable counter", *primary.WindowMinutes)
+	if len(snap.Windows) != 0 {
+		t.Fatalf("missing counters must omit the window, got %+v", snap.Windows)
+	}
+}
+
+func TestFetchCodeAPIRejectsMissingWeeklyCounters(t *testing.T) {
+	p, _ := newTestProvider(t, func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != codeAPIUsagePath {
+			return jsonResponse(http.StatusNotFound, `{"error":"not found"}`), nil
+		}
+		return jsonResponse(http.StatusOK, `{"usage":{"limit":"100"}}`), nil
+	})
+	_, err := p.Fetch(context.Background(), provider.FetchRequest{
+		Account: "default",
+		Creds:   provider.Credentials{APIKey: "test-key"},
+	})
+	var kimiErr *Error
+	if !errors.As(err, &kimiErr) || kimiErr.Kind != KindParse {
+		t.Fatalf("missing weekly counters must be a parse error, got %T %v", err, err)
 	}
 }
 

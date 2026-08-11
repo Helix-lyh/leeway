@@ -150,7 +150,8 @@ func TestParseSubscriptionJSONNestedKeyNames(t *testing.T) {
 }
 
 func TestParseSubscriptionJSONCandidates(t *testing.T) {
-	// Window dicts with generic keys: only the candidates walk finds them.
+	// Generic windows without period-bearing paths must not be guessed from
+	// reset distance.
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	text := `{
 		"usageStats": {
@@ -161,15 +162,16 @@ func TestParseSubscriptionJSONCandidates(t *testing.T) {
 		}
 	}`
 	sub, ok := parseSubscriptionJSON(text, now)
-	if !ok {
-		t.Fatalf("expected parse success via candidates")
+	if ok || sub != nil {
+		t.Fatalf("generic reset-distance candidates must be rejected: %+v", sub)
 	}
-	// Rolling picks the shorter reset (w0); no weekly/monthly candidates.
-	if sub.rollingPercent != 80 || sub.rollingResetSec != 100 {
-		t.Fatalf("candidate rolling wrong: %+v", sub)
-	}
-	if sub.hasWeeklyUsage || sub.hasMonthlyUsage {
-		t.Fatalf("candidate window flags wrong: %+v", sub)
+}
+
+func TestParseSubscriptionJSONRequiresReset(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	text := `{"rollingUsage":{"usagePercent":41}}`
+	if sub, ok := parseSubscriptionJSON(text, now); ok || sub != nil {
+		t.Fatalf("usage without an explicit reset must be rejected: %+v", sub)
 	}
 }
 
@@ -199,6 +201,18 @@ func TestParseSubscriptionRegexMissingFields(t *testing.T) {
 	}
 	if !isMissingUsageFields(err) {
 		t.Fatalf("must classify as the balance-only fallback trigger")
+	}
+}
+
+func TestParseSubscriptionRegexRequiresCompleteMonthlyWindow(t *testing.T) {
+	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	text := `rollingUsage usagePercent:41 resetInSec:1234 monthlyUsage resetInSec:999999`
+	sub, err := parseSubscriptionRegex(text, now)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sub.hasMonthlyUsage {
+		t.Fatalf("partial monthly window must not manufacture 0%%: %+v", sub)
 	}
 }
 
@@ -345,7 +359,7 @@ func TestSnapshotFromSubscription(t *testing.T) {
 		t.Fatalf("tertiary wrong: %+v", tertiary)
 	}
 	renewal := snap.Windows[3]
-	if renewal.ID != "renewal" || renewal.Title != "Renews" || renewal.UsedPercent == nil || *renewal.UsedPercent != 0 {
+	if renewal.ID != "renewal" || renewal.Title != "Renews" || renewal.UsedPercent != nil || renewal.ResetsAt == nil {
 		t.Fatalf("renewal wrong: %+v", renewal)
 	}
 	if snap.Cost == nil || snap.Cost.Period != "Zen balance" || snap.Cost.Currency != "USD" || snap.Cost.Amount == nil || *snap.Cost.Amount != 18.5 {

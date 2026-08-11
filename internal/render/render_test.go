@@ -23,6 +23,7 @@ func TestRenderJSON(t *testing.T) {
 
 func TestRenderTablePercentWindow(t *testing.T) {
 	pct := 62.0
+	weekly := 7 * 24 * 60
 	now := time.Now().Add(3 * 24 * time.Hour)
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "kimi", DisplayName: "Kimi Code", Status: "ok",
@@ -30,7 +31,9 @@ func TestRenderTablePercentWindow(t *testing.T) {
 			Name: "default", Status: "ok",
 			Snapshot: &model.Snapshot{
 				UpdatedAt: time.Now(),
-				Windows:   []model.RateWindow{{ID: "primary", Title: "Weekly", UsedPercent: &pct, ResetsAt: &now}},
+				Windows: []model.RateWindow{{
+					ID: "primary", Title: "Weekly", UsedPercent: &pct, ResetsAt: &now, WindowMinutes: &weekly,
+				}},
 			},
 		}},
 	}}}
@@ -40,13 +43,19 @@ func TestRenderTablePercentWindow(t *testing.T) {
 	if !strings.Contains(s, "Kimi Code") {
 		t.Fatalf("provider head missing:\n%s", s)
 	}
-	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "CASH"} {
+	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "DETAILS"} {
 		if !strings.Contains(s, col) {
 			t.Fatalf("header column %q missing:\n%s", col, s)
 		}
 	}
 	if !strings.Contains(s, "62%") {
 		t.Fatalf("window segment missing:\n%s", s)
+	}
+	if strings.Contains(s, "0%") {
+		t.Fatalf("missing quota slots must not be rendered as synthetic 0%%:\n%s", s)
+	}
+	if strings.Count(s, "—") != 2 {
+		t.Fatalf("missing 5-hour/monthly slots must be unavailable markers:\n%s", s)
 	}
 	want := model.DurationShort(time.Until(now))
 	if !strings.Contains(s, want) {
@@ -155,8 +164,11 @@ func TestRenderTableUsedWithLimit(t *testing.T) {
 
 func TestRenderTableMultiAccountHeads(t *testing.T) {
 	pct := 10.0
+	weekly := 7 * 24 * 60
 	snap := func() *model.Snapshot {
-		return &model.Snapshot{UpdatedAt: time.Now(), Windows: []model.RateWindow{{ID: "primary", Title: "Weekly", UsedPercent: &pct}}}
+		return &model.Snapshot{UpdatedAt: time.Now(), Windows: []model.RateWindow{{
+			ID: "primary", Title: "Weekly", UsedPercent: &pct, WindowMinutes: &weekly,
+		}}}
 	}
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
@@ -173,8 +185,9 @@ func TestRenderTableMultiAccountHeads(t *testing.T) {
 	}
 }
 
-func TestRenderTableOverflowWindowDropped(t *testing.T) {
+func TestRenderTableOverflowWindowPreservedInDetails(t *testing.T) {
 	main, spark := 79.0, 0.0
+	weekly := 7 * 24 * 60
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "codex", DisplayName: "Codex", Status: "ok",
 		Accounts: []model.AccountResult{{
@@ -182,8 +195,8 @@ func TestRenderTableOverflowWindowDropped(t *testing.T) {
 			Snapshot: &model.Snapshot{
 				UpdatedAt: time.Now(),
 				Windows: []model.RateWindow{
-					{ID: "primary", Title: "Weekly", UsedPercent: &main},
-					{ID: "secondary", Title: "Codex Spark Weekly", UsedPercent: &spark},
+					{ID: "primary", Title: "Weekly", UsedPercent: &main, WindowMinutes: &weekly},
+					{ID: "secondary", Title: "Codex Spark Weekly", UsedPercent: &spark, WindowMinutes: &weekly},
 				},
 			},
 		}},
@@ -194,8 +207,106 @@ func TestRenderTableOverflowWindowDropped(t *testing.T) {
 	if !strings.Contains(s, "79%") {
 		t.Fatalf("primary window missing:\n%s", s)
 	}
-	if strings.Contains(s, "spark weekly") {
-		t.Fatalf("overflow window should be dropped:\n%s", s)
+	if !strings.Contains(s, "Codex Spark Weekly") || !strings.Contains(s, "  0%") {
+		t.Fatalf("overflow window must be preserved in details:\n%s", s)
+	}
+}
+
+func TestRenderTableUnclassifiedPercentPreservedInDetails(t *testing.T) {
+	pct := 100.0
+	reset := time.Now().Add(2*24*time.Hour + 7*time.Hour)
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "custom", DisplayName: "Custom", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows: []model.RateWindow{{
+					ID: "primary", Title: "Credits", UsedPercent: &pct, ResetsAt: &reset,
+				}},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if !strings.Contains(s, "Credits") || !strings.Contains(s, "100%") {
+		t.Fatalf("unclassified percent window must remain visible:\n%s", s)
+	}
+	if strings.Count(s, "—") != 3 {
+		t.Fatalf("unclassified window must not occupy a fixed-period slot:\n%s", s)
+	}
+}
+
+func TestRenderTableExplicitZeroRemainsZero(t *testing.T) {
+	zero := 0.0
+	fiveHours := 5 * 60
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "kimi", DisplayName: "Kimi Code", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows: []model.RateWindow{{
+					ID: "primary", Title: "5-hour", UsedPercent: &zero, WindowMinutes: &fiveHours,
+				}},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if strings.Count(s, "0%") != 1 {
+		t.Fatalf("an explicit provider zero must render exactly once:\n%s", s)
+	}
+	if strings.Count(s, "—") != 2 {
+		t.Fatalf("only absent weekly/monthly slots should be unavailable:\n%s", s)
+	}
+}
+
+func TestQuotaSlotUsesExplicitDurationNotTitle(t *testing.T) {
+	fiveHours, weekly, monthly, unknown := 300, 10080, 43200, 1234
+	cases := []struct {
+		name string
+		win  model.RateWindow
+		want int
+	}{
+		{"five-hour", model.RateWindow{Title: "Monthly", WindowMinutes: &fiveHours}, slot5h},
+		{"weekly", model.RateWindow{Title: "Credits", WindowMinutes: &weekly}, slotWeekly},
+		{"monthly", model.RateWindow{Title: "Weekly", WindowMinutes: &monthly}, slotMonthly},
+		{"title without duration", model.RateWindow{Title: "Weekly"}, -1},
+		{"unknown duration", model.RateWindow{Title: "5-hour", WindowMinutes: &unknown}, -1},
+	}
+	for _, tc := range cases {
+		if got := quotaSlot(tc.win); got != tc.want {
+			t.Errorf("%s: quotaSlot = %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestRenderTableTimeOnlyMarkerIsNotZeroUsage(t *testing.T) {
+	renews := time.Now().Add(28*24*time.Hour + 3*time.Hour)
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows: []model.RateWindow{{
+					ID: "renewal", Title: "Renews", ResetsAt: &renews,
+				}},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	want := "Renews " + model.DurationShort(time.Until(renews))
+	if !strings.Contains(s, want) {
+		t.Fatalf("time-only marker must remain visible:\n%s", s)
+	}
+	if strings.Contains(s, "0%") {
+		t.Fatalf("time-only marker must not manufacture zero usage:\n%s", s)
 	}
 }
 
@@ -220,21 +331,6 @@ func TestRenderTableZeroCostFootnoteDropped(t *testing.T) {
 	}
 	if !strings.Contains(s, "¥395.06") {
 		t.Fatalf("real balance missing:\n%s", s)
-	}
-}
-
-func TestCompactTitle(t *testing.T) {
-	cases := []struct{ prov, title, want string }{
-		{"Codex", "Codex Spark Weekly", "spark weekly"},
-		{"Kimi Code", "Weekly", "weekly"},
-		{"Kimi Code", "5-hour", "5-hour"},
-		{"OpenCode Go", "Monthly", "monthly"},
-		{"DeepSeek", "Balance", "balance"},
-	}
-	for _, c := range cases {
-		if got := compactTitle(c.prov, c.title); got != c.want {
-			t.Errorf("compactTitle(%q, %q) = %q, want %q", c.prov, c.title, got, c.want)
-		}
 	}
 }
 

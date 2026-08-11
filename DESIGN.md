@@ -86,7 +86,7 @@ type Provider interface {
 |---|---|---|---|---|
 | **deepseek** | `DEEPSEEK_API_KEY` env 或 `config set-api-key`（交互式无回显 / --key 直传） | **`api.deepseek.com/user/balance`**（公共 API，Swift 的 API-key 路径；`platform.deepseek.com` 有 WAF 会拦 API key）+ 平台 token 增强：`/api/v0/usage/amount` + `/api/v0/usage/cost` | 余额（¥）+ 当日用量 | 实测真实余额 ¥418.40 |
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `kimi login`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
-| **grok** | 三选一：**`grok login` 会话**（`~/.grok/auth.json`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写文件）/ L2 Chrome cookie / 手动 header | `grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig`（grpc-web，5 零字节 body，**启发式 protobuf 扫描**：fixed32→percent，varint→resetsAt） | Weekly/Monthly 额度（4-12 天→Weekly，20-45 天→Monthly） | 实测过期 token 自动刷新成功 |
+| **grok** | 三选一：**`grok login` 会话**（`~/.grok/auth.json`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写文件）/ L2 Chrome cookie / 手动 header | `grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig`（grpc-web，5 零字节 body，**启发式 protobuf 扫描**：fixed32→percent，varint→resetsAt） | 共享 Weekly（7d）额度；Extra Usage Credits 是独立余额，当前未解析 | 实测过期 token 自动刷新成功 |
 | **codex** | 复用 Codex CLI 已登录会话：`~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 实测真实数据（Weekly 78%） |
 | **opencode-go** | **多账户**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID；CLI 的 `auth.json` API key 走不通 `_server`（500），服务器窗口需要真实浏览器会话 | ① 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户）② 本地 `~/.local/share/opencode/opencode.db`（只读，成本历史，**机器级一份不区分账户**） | 每账户：5-hour + Weekly + Monthly + Zen 余额；provider 级：本地成本 | SQLite `mode=ro&immutable=1`；多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 doctor 提示 |
 
@@ -152,7 +152,7 @@ leeway doctor                                         # 诊断：缺什么凭据
 PROVIDER     STATUS  WINDOW    USED     LIMIT   %     RESET IN
 deepseek     ok      balance   ¥12.34   –       –     –
 kimi         ok      weekly    –        –       62%   3d 04h
-grok         ok      monthly   –        –       38%   12d 11h
+grok         ok      weekly    –        –       38%   12d 11h
 codex        error   –         –        –       –     session expired → run `codex login`
 opencode-go  ok      5-hour    –        –       41%   1h 52m
 ```
