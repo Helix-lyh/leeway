@@ -41,7 +41,7 @@ const usageText = `leeway — 余量·裕度：AI 编程额度仪表盘
   leeway cookie list / clear                   查看 / 清除已导入的 cookie
   leeway config set-api-key --provider X       配置 API key（deepseek 等）
   leeway config set-api-key --provider X --account NAME   配置 opencode-go 某个订阅的命名 key
-  leeway config keys --provider X              列出命名订阅（值脱敏）
+  leeway config keys --provider X              列出命名订阅（值脱敏，标出当前激活）
   leeway use --provider X --account NAME       切换激活订阅：把该订阅的 API key 写入目标（默认 DSH 凭据文件）
   leeway config path                           查看配置文件位置
 
@@ -547,6 +547,11 @@ func configSetAPIKey(args []string) int {
 		return 2
 	}
 	if account != "" {
+		if keepCookieDefault(cfg, providerID, account) {
+			pc := cfg.Provider(providerID)
+			pc.Accounts = append(pc.Accounts, config.AccountConfig{Name: "default"})
+			cfg.Providers[providerID] = pc
+		}
 		if err := cfg.SetAccountKey(providerID, account, key); err != nil {
 			fmt.Fprintln(os.Stderr, "config save:", err)
 			return 2
@@ -563,8 +568,8 @@ func configSetAPIKey(args []string) int {
 }
 
 // configKeys lists the named API-key subscriptions for a provider, masking the
-// values. The active subscription (last `leeway use`) is not tracked in config;
-// which account is live is whatever its key was last written to the target.
+// values. Active is whichever stored key currently matches the target file
+// (the last `leeway use` write).
 func configKeys(args []string) int {
 	var (
 		providerID string
@@ -581,26 +586,49 @@ func configKeys(args []string) int {
 		fmt.Fprintln(os.Stderr, "config:", err)
 		return 2
 	}
+	target := cfg.KeyTarget(providerID)
+	live := credwrite.Lookup(target.File, target.Key)
 	type row struct {
 		Account string `json:"account"`
 		Key     string `json:"key"`
 		Set     bool   `json:"set"`
+		Active  bool   `json:"active"`
 	}
 	rows := []row{}
 	for _, a := range cfg.Accounts(providerID) {
-		rows = append(rows, row{Account: a.Name, Key: maskKey(a.APIKey), Set: a.APIKey != ""})
+		rows = append(rows, row{
+			Account: a.Name,
+			Key:     maskKey(a.APIKey),
+			Set:     a.APIKey != "",
+			Active:  a.APIKey != "" && live != "" && a.APIKey == live,
+		})
 	}
 	if jsonOut {
 		return newJSONEncoder().Encode(rows)
 	}
 	for _, r := range rows {
+		mark := ""
+		if r.Active {
+			mark = "  active"
+		}
 		if r.Set {
-			fmt.Printf("%-12s %s\n", r.Account, r.Key)
+			fmt.Printf("%-12s %s%s\n", r.Account, r.Key, mark)
 		} else {
-			fmt.Printf("%-12s (no key)\n", r.Account)
+			fmt.Printf("%-12s (no key)%s\n", r.Account, mark)
 		}
 	}
 	return 0
+}
+
+// keepCookieDefault is true when the first named key would replace an
+// implicit cookie session stored in the import cache (manual headers are
+// handled inside SetAccountKey).
+func keepCookieDefault(cfg *config.Config, id, account string) bool {
+	if account == "default" || len(cfg.Provider(id).Accounts) > 0 || cfg.Provider(id).ManualCookieHeader != "" {
+		return false
+	}
+	h, err := auth.ResolveCookieHeader(id, cfg.Provider(id), "default")
+	return err == nil && h != ""
 }
 
 func maskKey(key string) string {

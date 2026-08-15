@@ -1,11 +1,15 @@
 package cli
 
 import (
+	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"leeway/internal/auth"
+	"leeway/internal/config"
 	"leeway/internal/model"
 
 	// Provider registration side effects (each stub registers itself in init),
@@ -168,4 +172,91 @@ func TestRunConfigKeys(t *testing.T) {
 	if got := Run([]string{"config", "keys", "--provider", "opencode-go"}); got != 0 {
 		t.Fatalf("config keys = %d, want 0", got)
 	}
+}
+
+func TestRunSetAccountKeyKeepsCookieDefault(t *testing.T) {
+	isolateEnv(t)
+	if got := Run([]string{"cookie", "set", "--provider", "opencode-go", "--manual", "sess=x"}); got != 0 {
+		t.Fatalf("cookie set = %d, want 0", got)
+	}
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
+		t.Fatalf("set-api-key = %d, want 0", got)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	accs := cfg.Accounts("opencode-go")
+	if len(accs) != 2 || accs[0].Name != "default" || accs[1].Name != "work" {
+		t.Fatalf("expected cookie default + work, got %+v", accs)
+	}
+}
+
+func TestRunSetAccountKeyKeepsImportedCookieDefault(t *testing.T) {
+	isolateEnv(t)
+	if err := auth.SaveCookieCache("opencode-go", "", "sess=imported", "chrome"); err != nil {
+		t.Fatal(err)
+	}
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
+		t.Fatalf("set-api-key = %d, want 0", got)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	accs := cfg.Accounts("opencode-go")
+	if len(accs) != 2 || accs[0].Name != "default" || accs[1].Name != "work" {
+		t.Fatalf("expected imported cookie default + work, got %+v", accs)
+	}
+}
+
+func TestRunConfigKeysMarksActive(t *testing.T) {
+	isolateEnv(t)
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
+		t.Fatalf("set work = %d", got)
+	}
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "personal", "--key", "sk-pers456"}); got != 0 {
+		t.Fatalf("set personal = %d", got)
+	}
+	if got := Run([]string{"use", "--provider", "opencode-go", "--account", "work"}); got != 0 {
+		t.Fatalf("use = %d", got)
+	}
+	out, code := captureStdout(t, func() int {
+		return Run([]string{"config", "keys", "--provider", "opencode-go", "--json"})
+	})
+	if code != 0 {
+		t.Fatalf("config keys = %d out=%s", code, out)
+	}
+	var rows []struct {
+		Account string `json:"account"`
+		Active  bool   `json:"active"`
+	}
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	active := map[string]bool{}
+	for _, r := range rows {
+		active[r.Account] = r.Active
+	}
+	if !active["work"] || active["personal"] {
+		t.Fatalf("active map = %v, want work only", active)
+	}
+}
+
+func captureStdout(t *testing.T, fn func() int) (string, int) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	code := fn()
+	w.Close()
+	os.Stdout = old
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw), code
 }

@@ -67,6 +67,21 @@ func load(path string) (*yaml.Node, error) {
 	return root, nil
 }
 
+// Lookup returns the string value of key in the YAML mapping at path.
+// Missing files, missing keys, and unreadable documents yield "".
+func Lookup(path, key string) string {
+	root, err := load(path)
+	if err != nil {
+		return ""
+	}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == key {
+			return root.Content[i+1].Value
+		}
+	}
+	return ""
+}
+
 // set updates an existing key's value node in place or appends a new pair,
 // preserving document order and any comments.
 func set(root *yaml.Node, key, value string) {

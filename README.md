@@ -26,7 +26,7 @@ go build -o leeway ./cmd/leeway && ./leeway usage
 | `leeway cookie list` / `leeway cookie clear --provider ID` | 查看 / 清除导入的 cookie 缓存 |
 | `leeway config path` | 显示配置文件路径 |
 | `leeway config set-api-key --provider ID [--account NAME] [--key VALUE]` | 写入 API key（不传 `--key` 时交互式无回显输入）；带 `--account` 时写入该 provider 的一个命名订阅 key |
-| `leeway config keys --provider ID [--json]` | 列出命名订阅（值脱敏） |
+| `leeway config keys --provider ID [--json]` | 列出命名订阅（值脱敏；对照目标凭据文件标出当前激活） |
 | `leeway use --provider ID --account NAME` | 快速切换：把该订阅的 API key 写入目标文件（默认 DSH 凭据文件，见下） |
 | `leeway doctor [--json]` | 诊断各 provider 缺什么凭据 |
 
@@ -55,7 +55,7 @@ go build -o leeway ./cmd/leeway && ./leeway usage
 
 `accounts[].apiKey` 声明一个 **opencode-go 订阅**（一套 API key），`leeway usage` 会经网关
 `GET https://opencode.ai/zen/go/v1/usage` 按订阅直接查 5-hour / Weekly / Monthly 用量，不需要 cookie。
-配置了 `accounts` 之后不再注入隐式 `default`：cookie 会话也要写成显式账户（或先 `cookie import --account`）。
+第一个命名订阅若会顶掉已有的 cookie 会话（手动 header 或已 import 的缓存），会自动保留一个 cookie `default` 账户。
 `keyTarget` 是 `leeway use` 切换时写入的目标文件与凭据引用；`file` / `key` 可单独覆盖，`~/` 会展开到家目录。省略时默认 DSH 的
 `~/.dsh/.credentials.yaml` + `<PROVIDER>_API_KEY`（如 `OPENCODE_GO_API_KEY`）。
 
@@ -77,7 +77,7 @@ Linux 上 L2 未实现，用 L0/L1。`cookie clear` 只清导入缓存，手动 
 ```sh
 leeway config set-api-key --provider opencode-go --account work --key sk-xxx   # 注册订阅
 leeway config set-api-key --provider opencode-go --account personal --key sk-yyy
-leeway config keys --provider opencode-go       # work  sk-…  / personal sk-…
+leeway config keys --provider opencode-go       # work  sk-…  active / personal sk-…
 leeway usage --provider opencode-go             # 按订阅逐个查 5h/weekly/monthly
 leeway use --provider opencode-go --account work  # 切换：把 work 的 key 写入 DSH 凭据文件
 ```

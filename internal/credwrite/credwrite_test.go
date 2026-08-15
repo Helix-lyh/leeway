@@ -74,6 +74,24 @@ func TestPatchAddsNewKey(t *testing.T) {
 	}
 }
 
+func TestLookup(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "nope.yaml")
+	if got := Lookup(missing, "K"); got != "" {
+		t.Fatalf("missing file = %q", got)
+	}
+	p := filepath.Join(dir, "creds.yaml")
+	if err := os.WriteFile(p, []byte("OPENCODE_GO_API_KEY: sk-live\nOTHER: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := Lookup(p, "OPENCODE_GO_API_KEY"); got != "sk-live" {
+		t.Fatalf("Lookup = %q", got)
+	}
+	if got := Lookup(p, "MISSING"); got != "" {
+		t.Fatalf("missing key = %q", got)
+	}
+}
+
 func TestPatchRefusesNonMapping(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "creds.yaml")
 	if err := os.WriteFile(p, []byte("- a\n- b\n"), 0o600); err != nil {

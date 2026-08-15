@@ -274,7 +274,8 @@ iv  = 16 × 0x20(空格)
 - 本地 opencode.db 成本历史是**机器级**的,一份放 provider 级 `localCost`;服务器窗口按账户各一份。
 - `--account NAME` 过滤;没配置的账户名直接报 `error`。
 - **快速切换**:`leeway use --provider opencode-go --account <订阅名>` 把该订阅 key 写入 `keyTarget`
-  (默认 DSH `~/.dsh/.credentials.yaml` 的 `OPENCODE_GO_API_KEY`);`leeway config keys` 列出命名订阅(脱敏)。
+  (默认 DSH `~/.dsh/.credentials.yaml` 的 `OPENCODE_GO_API_KEY`);`leeway config keys` 列出命名订阅(脱敏,对照目标文件标 active)。
+  第一个命名 key 在已有 cookie 会话(手动 header 或 import 缓存)时保留 cookie `default`,避免隐式会话被顶掉。
 
 ---
 
