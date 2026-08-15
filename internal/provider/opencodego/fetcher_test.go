@@ -20,6 +20,7 @@ import (
 //	GET /_server?id=<billingServerID>&args=[..]  -> billing JSON
 //	GET /workspace/<id>/go                       -> usage page
 //	GET /workspace/<id>                          -> zen dashboard page
+//	GET /zen/go/v1/usage                         -> subscription usage (API key)
 type fakeOpenCode struct {
 	t              *testing.T
 	server         *httptest.Server
@@ -27,6 +28,7 @@ type fakeOpenCode struct {
 	zenPage        string
 	workspacesResp string
 	billingResp    string
+	usageAPI       string
 
 	workspacesHits int32
 	zenPageHits    int32
@@ -39,10 +41,25 @@ func newFakeOpenCode(t *testing.T) *fakeOpenCode {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/_server", f.handleServer)
 	mux.HandleFunc("/workspace/", f.handleWorkspace)
+	mux.HandleFunc("/zen/go/v1/usage", f.handleUsageAPI)
 	// TLS: the fetcher's redirect guard only follows https redirects.
 	f.server = httptest.NewTLSServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+func (f *fakeOpenCode) handleUsageAPI(w http.ResponseWriter, r *http.Request) {
+	if got := r.Header.Get("Authorization"); !strings.HasPrefix(got, "Bearer ") {
+		f.t.Errorf("usage API authorization = %q, want Bearer", got)
+	}
+	if got := r.Header.Get("Accept"); !strings.HasPrefix(got, "application/json") {
+		f.t.Errorf("usage API accept = %q", got)
+	}
+	if r.Method != http.MethodGet {
+		f.t.Errorf("usage API method = %s", r.Method)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Write([]byte(f.usageAPI))
 }
 
 func (f *fakeOpenCode) handleServer(w http.ResponseWriter, r *http.Request) {
@@ -115,9 +132,10 @@ func (f *fakeOpenCode) provider() *opencodeGo {
 	// redirect guard.
 	client.Transport = f.server.Client().Transport
 	return &opencodeGo{
-		client: client,
-		base:   f.server.URL,
-		server: f.server.URL + "/_server",
+		client:    client,
+		base:      f.server.URL,
+		server:    f.server.URL + "/_server",
+		zenGoBase: f.server.URL + "/zen/go/v1",
 	}
 }
 
@@ -474,6 +492,55 @@ func TestFetchNoWorkspaceIDError(t *testing.T) {
 	_, err := f.provider().Fetch(context.Background(), req)
 	if err == nil || !strings.Contains(err.Error(), "Missing workspace id") {
 		t.Fatalf("expected missing workspace id error, got %v", err)
+	}
+}
+
+func TestFetchAPIKeyUsage(t *testing.T) {
+	f := newFakeOpenCode(t)
+	f.usageAPI = fixture(t, "api_usage.json")
+
+	req := provider.FetchRequest{Creds: provider.Credentials{APIKey: "sk-sub123"}, Account: "work"}
+	snap, err := f.provider().Fetch(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Fetch error: %v", err)
+	}
+	if len(snap.Windows) != 3 {
+		t.Fatalf("windows = %d, want 3", len(snap.Windows))
+	}
+	if snap.Windows[0].ID != "primary" || snap.Windows[0].Title != "5-hour" || *snap.Windows[0].UsedPercent != 15 {
+		t.Fatalf("rolling window wrong: %+v", snap.Windows[0])
+	}
+	if snap.Windows[1].ID != "secondary" || snap.Windows[1].Title != "Weekly" || *snap.Windows[1].UsedPercent != 90 {
+		t.Fatalf("weekly window wrong: %+v", snap.Windows[1])
+	}
+	if snap.Windows[2].ID != "tertiary" || snap.Windows[2].Title != "Monthly" || *snap.Windows[2].UsedPercent != 55 {
+		t.Fatalf("monthly window wrong: %+v", snap.Windows[2])
+	}
+	// The API-key surface has no Zen balance.
+	if snap.Cost != nil {
+		t.Fatalf("API-key fetch must not carry a balance: %+v", snap.Cost)
+	}
+}
+
+func TestFetchAPIKeyUnauthorized(t *testing.T) {
+	f := newFakeOpenCode(t)
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	_, err := f.provider().Fetch(context.Background(),
+		provider.FetchRequest{Creds: provider.Credentials{APIKey: "sk-bad"}})
+	if err == nil || !strings.Contains(err.Error(), "invalid or expired") {
+		t.Fatalf("expected invalid credentials, got %v", err)
+	}
+}
+
+func TestFetchAPIKeyMissingUsage(t *testing.T) {
+	f := newFakeOpenCode(t)
+	f.usageAPI = `{"error": "no usage"}`
+	_, err := f.provider().Fetch(context.Background(),
+		provider.FetchRequest{Creds: provider.Credentials{APIKey: "sk-sub"}})
+	if err == nil || !strings.Contains(err.Error(), "Missing usage fields") {
+		t.Fatalf("expected missing usage fields, got %v", err)
 	}
 }
 

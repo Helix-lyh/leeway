@@ -34,10 +34,12 @@ func isolateEnv(t *testing.T) {
 	t.Setenv("KIMI_CODE_HOME", t.TempDir())
 	t.Setenv("GROK_HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("DSH_HOME", t.TempDir())
 	for _, k := range []string{
 		"DEEPSEEK_API_KEY", "DEEPSEEK_KEY",
 		"KIMI_CODE_API_KEY", "KIMI_AUTH_TOKEN", "kimi_auth_token",
 		"DEEPSEEK_PLATFORM_TOKEN", "DEEPSEEK_USER_TOKEN",
+		"OPENCODE_GO_API_KEY",
 	} {
 		t.Setenv(k, "")
 	}
@@ -162,6 +164,28 @@ func TestResolveCredentialsPrecedence(t *testing.T) {
 	t.Setenv("LEEWAY_CACHE", t.TempDir()) // fresh, empty cache
 	if creds := ResolveCredentials(gp, cfg, ""); creds.CookieHeader != "" {
 		t.Fatalf("CookieHeader = %q, want empty when nothing is stored", creds.CookieHeader)
+	}
+}
+
+func TestOverlayAccountCreds(t *testing.T) {
+	base := provider.Credentials{APIKey: "env-key", CookieHeader: "prov=cookie"}
+
+	got := overlayAccountCreds(base, config.AccountConfig{Name: "work", APIKey: "sk-work"}, "prov=cookie")
+	if got.APIKey != "sk-work" {
+		t.Fatalf("named key = %q, want sk-work", got.APIKey)
+	}
+
+	got = overlayAccountCreds(base, config.AccountConfig{Name: "personal", WorkspaceID: "ws_1"}, "sess=x")
+	if got.APIKey != "" {
+		t.Fatalf("cookie account inherited env key %q", got.APIKey)
+	}
+	if got.CookieHeader != "sess=x" {
+		t.Fatalf("CookieHeader = %q, want sess=x", got.CookieHeader)
+	}
+
+	got = overlayAccountCreds(base, config.AccountConfig{Name: "default"}, "")
+	if got.APIKey != "env-key" {
+		t.Fatalf("key-only default = %q, want env-key", got.APIKey)
 	}
 }
 

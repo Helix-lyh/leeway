@@ -15,6 +15,7 @@ import (
 
 	"leeway/internal/auth"
 	"leeway/internal/config"
+	"leeway/internal/credwrite"
 	"leeway/internal/fetch"
 	"leeway/internal/model"
 	"leeway/internal/provider"
@@ -39,6 +40,9 @@ const usageText = `leeway — 余量·裕度：AI 编程额度仪表盘
   leeway cookie set --provider X --manual "..." 手动粘贴 cookie header
   leeway cookie list / clear                   查看 / 清除已导入的 cookie
   leeway config set-api-key --provider X       配置 API key（deepseek 等）
+  leeway config set-api-key --provider X --account NAME   配置 opencode-go 某个订阅的命名 key
+  leeway config keys --provider X              列出命名订阅（值脱敏）
+  leeway use --provider X --account NAME       切换激活订阅：把该订阅的 API key 写入目标（默认 DSH 凭据文件）
   leeway config path                           查看配置文件位置
 
 退出码：0 = 全部正常；1 = 有 provider 异常或未配置；2 = 命令用法错误
@@ -53,6 +57,8 @@ func Run(args []string) int {
 	switch args[0] {
 	case "usage":
 		return runUsage(args[1:])
+	case "use":
+		return runUse(args[1:])
 	case "providers":
 		return runProviders(args[1:])
 	case "cookie":
@@ -146,6 +152,51 @@ func runUsage(args []string) int {
 	}
 	_, code := runOnce()
 	return code
+}
+
+// --- use ----------------------------------------------------------------
+
+// runUse switches the active named subscription for a provider: it writes that
+// subscription's API key into the provider's key target (default: DSH
+// credentials file, key "<PROVIDER>_API_KEY"), which hot-reloads on next use.
+func runUse(args []string) int {
+	var (
+		providerID string
+		account    string
+	)
+	fs := newFlagSet("use", nil)
+	fs.StringVar(&providerID, "provider", "", "provider ID")
+	fs.StringVar(&account, "account", "", "named subscription/account to make active")
+	if !fs.Parse(args) || providerID == "" || account == "" {
+		fmt.Fprintln(os.Stderr, "usage: leeway use --provider ID --account NAME")
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		return 2
+	}
+	acc, ok := cfg.Account(providerID, account)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "account %q not found for provider %q\n", account, providerID)
+		return 2
+	}
+	if acc.APIKey == "" {
+		fmt.Fprintf(os.Stderr, "account %q of %q has no API key — set one with: leeway config set-api-key --provider %s --account %s\n",
+			account, providerID, providerID, account)
+		return 2
+	}
+	target := cfg.KeyTarget(providerID)
+	if target.File == "" || target.Key == "" {
+		fmt.Fprintln(os.Stderr, "key target is not configured (file and key required)")
+		return 2
+	}
+	if err := credwrite.Patch(target.File, target.Key, acc.APIKey); err != nil {
+		fmt.Fprintln(os.Stderr, "write target:", err)
+		return 1
+	}
+	fmt.Printf("switched %s to account %q (wrote %s to %s)\n", providerID, account, target.Key, target.File)
+	return 0
 }
 
 // --- providers -----------------------------------------------------------
@@ -444,7 +495,7 @@ func cookieClear(args []string) int {
 
 func runConfig(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "config: subcommand required (path|set-api-key)")
+		fmt.Fprintln(os.Stderr, "config: subcommand required (path|set-api-key|keys)")
 		return 2
 	}
 	switch args[0] {
@@ -453,6 +504,8 @@ func runConfig(args []string) int {
 		return 0
 	case "set-api-key":
 		return configSetAPIKey(args[1:])
+	case "keys":
+		return configKeys(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "config: unknown subcommand %q\n", args[0])
 		return 2
@@ -462,13 +515,15 @@ func runConfig(args []string) int {
 func configSetAPIKey(args []string) int {
 	var (
 		providerID string
+		account    string
 		key        string
 	)
 	fs := newFlagSet("config set-api-key", nil)
 	fs.StringVar(&providerID, "provider", "", "provider ID")
+	fs.StringVar(&account, "account", "", "named subscription to store the key on (multi-key providers)")
 	fs.StringVar(&key, "key", "", "API key (omit for interactive input)")
 	if !fs.Parse(args) || providerID == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway config set-api-key --provider ID [--key VALUE]")
+		fmt.Fprintln(os.Stderr, "usage: leeway config set-api-key --provider ID [--account NAME] [--key VALUE]")
 		return 2
 	}
 	if key == "" {
@@ -491,12 +546,68 @@ func configSetAPIKey(args []string) int {
 		fmt.Fprintln(os.Stderr, "config:", err)
 		return 2
 	}
+	if account != "" {
+		if err := cfg.SetAccountKey(providerID, account, key); err != nil {
+			fmt.Fprintln(os.Stderr, "config save:", err)
+			return 2
+		}
+		fmt.Printf("saved API key for account %q of %q\n", account, providerID)
+		return 0
+	}
 	if err := cfg.SetAPIKey(providerID, key); err != nil {
 		fmt.Fprintln(os.Stderr, "config save:", err)
 		return 2
 	}
 	fmt.Printf("saved API key for %q\n", providerID)
 	return 0
+}
+
+// configKeys lists the named API-key subscriptions for a provider, masking the
+// values. The active subscription (last `leeway use`) is not tracked in config;
+// which account is live is whatever its key was last written to the target.
+func configKeys(args []string) int {
+	var (
+		providerID string
+		jsonOut    bool
+	)
+	fs := newFlagSet("config keys", &jsonOut)
+	fs.StringVar(&providerID, "provider", "", "provider ID")
+	if !fs.Parse(args) || providerID == "" {
+		fmt.Fprintln(os.Stderr, "usage: leeway config keys --provider ID")
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		return 2
+	}
+	type row struct {
+		Account string `json:"account"`
+		Key     string `json:"key"`
+		Set     bool   `json:"set"`
+	}
+	rows := []row{}
+	for _, a := range cfg.Accounts(providerID) {
+		rows = append(rows, row{Account: a.Name, Key: maskKey(a.APIKey), Set: a.APIKey != ""})
+	}
+	if jsonOut {
+		return newJSONEncoder().Encode(rows)
+	}
+	for _, r := range rows {
+		if r.Set {
+			fmt.Printf("%-12s %s\n", r.Account, r.Key)
+		} else {
+			fmt.Printf("%-12s (no key)\n", r.Account)
+		}
+	}
+	return 0
+}
+
+func maskKey(key string) string {
+	if len(key) < 8 {
+		return "sk-…"
+	}
+	return key[:6] + "…"
 }
 
 // --- doctor --------------------------------------------------------------
@@ -521,17 +632,30 @@ func runDoctor(args []string) int {
 	checks := []check{}
 	for _, p := range provider.All() {
 		spec := p.AuthSpec()
+		var apiOK, cookieOK bool
+		var apiHint, cookieHint string
 		if len(spec.EnvAPIKey) > 0 {
-			ok := false
 			for _, k := range spec.EnvAPIKey {
 				if os.Getenv(k) != "" {
-					ok = true
+					apiOK = true
 				}
 			}
-			if !ok && cfg.APIKey(p.ID()) != "" {
-				ok = true
+			if !apiOK && cfg.APIKey(p.ID()) != "" {
+				apiOK = true
 			}
-			checks = append(checks, check{p.DisplayName(), "api key", ok, hintIf(!ok, "set "+strings.Join(spec.EnvAPIKey, " or ")+", or: leeway config set-api-key --provider "+p.ID())})
+			if !apiOK {
+				for _, a := range cfg.Accounts(p.ID()) {
+					if a.APIKey != "" {
+						apiOK = true
+						break
+					}
+				}
+			}
+			hint := "set " + strings.Join(spec.EnvAPIKey, " or ") + ", or: leeway config set-api-key --provider " + p.ID()
+			if spec.SupportsAccounts {
+				hint += " --account NAME"
+			}
+			apiHint = hintIf(!apiOK, hint)
 		}
 		if spec.UsesCookies {
 			pc := cfg.Provider(p.ID())
@@ -543,21 +667,28 @@ func runDoctor(args []string) int {
 			if len(accounts) == 0 {
 				accounts = []config.AccountConfig{{Name: "default"}}
 			}
-			ok := false
 			for _, a := range accounts {
 				if h, err := auth.ResolveCookieHeader(p.ID(), pc, a.Name); err == nil && h != "" {
-					ok = true
+					cookieOK = true
 					break
 				}
 			}
-			hint := hintIf(!ok, "leeway cookie import --provider "+p.ID())
-			if !ok {
-				hint += " (or --manual)"
+			cookieHint = hintIf(!cookieOK, "leeway cookie import --provider "+p.ID())
+			if !cookieOK {
+				cookieHint += " (or --manual)"
 				for _, fb := range spec.CookieFallbacks {
-					hint += "; or: leeway cookie import --provider " + p.ID() + " --browser " + fb
+					cookieHint += "; or: leeway cookie import --provider " + p.ID() + " --browser " + fb
 				}
 			}
-			checks = append(checks, check{p.DisplayName(), "cookies", ok, hint})
+		}
+		// Dual-path (api key + cookies) is configured if either method works;
+		// do not AND-require the unused one.
+		dual := len(spec.EnvAPIKey) > 0 && spec.UsesCookies
+		if len(spec.EnvAPIKey) > 0 && (!dual || apiOK || !cookieOK) {
+			checks = append(checks, check{p.DisplayName(), "api key", apiOK, apiHint})
+		}
+		if spec.UsesCookies && (!dual || cookieOK || !apiOK) {
+			checks = append(checks, check{p.DisplayName(), "cookies", cookieOK, cookieHint})
 		}
 		if spec.UsesCodexCLI {
 			ok := fetch.HasCodexAuth()

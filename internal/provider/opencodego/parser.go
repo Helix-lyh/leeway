@@ -78,6 +78,55 @@ var (
 // Subscription parsing
 // ---------------------------------------------------------------------------
 
+// parseAPIUsage parses the subscription usage gateway response
+// (GET {zenGoBase}/usage): {"usage": {"rolling": {...}, "weekly": {...},
+// "monthly": {...}}} where each window carries status/percent/resetsAt. Lanes
+// are independent — a malformed or absent weekly/monthly lane is dropped, not
+// fatal; the rolling lane is required.
+func parseAPIUsage(text string, now time.Time) (*subscription, error) {
+	object, ok := decodeJSON(text)
+	if !ok {
+		return nil, parseErrorf("invalid usage JSON.")
+	}
+	root, ok := object.(map[string]any)
+	if !ok {
+		return nil, parseErrorf("usage response is not an object.")
+	}
+	usage, ok := root["usage"].(map[string]any)
+	if !ok {
+		return nil, parseErrorf("Missing usage fields.")
+	}
+	sub := &subscription{}
+	hasRolling := false
+	if w, ok := parseAPIWindow(usage["rolling"], now); ok {
+		sub.rollingPercent = w.percent
+		sub.rollingResetSec = w.resetInSec
+		hasRolling = true
+	}
+	if w, ok := parseAPIWindow(usage["weekly"], now); ok {
+		sub.weeklyPercent = w.percent
+		sub.weeklyResetSec = w.resetInSec
+		sub.hasWeeklyUsage = true
+	}
+	if w, ok := parseAPIWindow(usage["monthly"], now); ok {
+		sub.monthlyPercent = w.percent
+		sub.monthlyResetSec = w.resetInSec
+		sub.hasMonthlyUsage = true
+	}
+	if !hasRolling {
+		return nil, parseErrorf("Missing usage fields.")
+	}
+	return sub, nil
+}
+
+func parseAPIWindow(v any, now time.Time) (parsedWindow, bool) {
+	dict, ok := v.(map[string]any)
+	if !ok {
+		return parsedWindow{}, false
+	}
+	return parseWindow(dict, now)
+}
+
 // parseSubscription mirrors OpenCodeGoUsageFetcher.parseSubscription.
 func parseSubscription(text string, now time.Time) (*subscription, error) {
 	if snap, ok := parseSubscriptionJSON(text, now); ok {

@@ -225,8 +225,8 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 
 			ar := model.AccountResult{Name: acc.Name, Status: "not_configured"}
 			if !hasCreds {
-				if acc.ManualCookieHeader == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil {
-					ar.Error = missingCredentialHint(p.AuthSpec())
+				if acc.ManualCookieHeader == "" && acc.APIKey == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil {
+					ar.Error = missingCredentialHint(p.ID(), p.AuthSpec())
 					results[i] = accResult{acc, ar}
 					return
 				}
@@ -235,7 +235,7 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 			if acc.WorkspaceID != "" {
 				req.Extra = map[string]string{"workspaceID": acc.WorkspaceID}
 			}
-			req.Creds.CookieHeader = resolveAccountCookie(p.ID(), cfg, acc, creds.CookieHeader)
+			req.Creds = overlayAccountCreds(creds, acc, resolveAccountCookie(p.ID(), cfg, acc, creds.CookieHeader))
 
 			actx, cancel := context.WithTimeout(ctx, timeout())
 			defer cancel()
@@ -280,6 +280,20 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 	return res
 }
 
+// overlayAccountCreds applies per-account secrets. Named apiKey wins;
+// cookie/workspace accounts drop the inherited provider/env key so they
+// stay on the cookie path.
+func overlayAccountCreds(base provider.Credentials, acc config.AccountConfig, cookieHeader string) provider.Credentials {
+	creds := base
+	creds.CookieHeader = cookieHeader
+	if acc.APIKey != "" {
+		creds.APIKey = acc.APIKey
+	} else if acc.ManualCookieHeader != "" || acc.Profile != "" || acc.WorkspaceID != "" || cookieHeader != "" {
+		creds.APIKey = ""
+	}
+	return creds
+}
+
 // resolveAccountCookie resolves the cookie header for one account: the
 // account's manual header wins, then the account-bound profile's imported
 // session ("opencode-go@Profile 1"), then the provider-level header.
@@ -295,8 +309,10 @@ func resolveAccountCookie(providerID string, cfg *config.Config, acc config.Acco
 	return providerLevel
 }
 
-func missingCredentialHint(spec provider.AuthSpec) string {
+func missingCredentialHint(id string, spec provider.AuthSpec) string {
 	switch {
+	case len(spec.EnvAPIKey) > 0 && spec.UsesCookies:
+		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key --provider %s --account NAME (or: leeway cookie import --provider %s)", spec.EnvAPIKey[0], id, id)
 	case len(spec.EnvAPIKey) > 0:
 		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key", spec.EnvAPIKey[0])
 	case spec.UsesCookies:

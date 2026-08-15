@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ProviderIDs are the built-in providers (registry order-independent).
@@ -17,6 +18,14 @@ type AccountConfig struct {
 	ManualCookieHeader string `json:"manualCookieHeader,omitempty"`
 	WorkspaceID        string `json:"workspaceID,omitempty"`
 	Profile            string `json:"profile,omitempty"` // Chrome profile this account's session lives in
+	APIKey             string `json:"apiKey,omitempty"`  // API-key subscription (opencode-go); overrides provider-level key
+}
+
+// KeyTarget is where `leeway use` writes the active subscription's API key:
+// the YAML file path and the credential reference (key name) inside it.
+type KeyTarget struct {
+	File string `json:"file,omitempty"`
+	Key  string `json:"key,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -24,6 +33,7 @@ type ProviderConfig struct {
 	CookieSource       string          `json:"cookieSource,omitempty"`
 	ManualCookieHeader string          `json:"manualCookieHeader,omitempty"`
 	Accounts           []AccountConfig `json:"accounts,omitempty"`
+	KeyTarget          *KeyTarget      `json:"keyTarget,omitempty"` // nil = DSH default
 }
 
 type Config struct {
@@ -156,4 +166,78 @@ func (c *Config) ManualHeader(id, account string) string {
 		}
 	}
 	return ""
+}
+
+// Account returns the named account config for a provider (ok false when absent).
+func (c *Config) Account(id, name string) (AccountConfig, bool) {
+	for _, a := range c.Providers[id].Accounts {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return AccountConfig{}, false
+}
+
+// SetAccountKey stores an API key on a named account, creating the account
+// entry if it does not exist, and persists the config.
+func (c *Config) SetAccountKey(id, name, key string) error {
+	pc := c.Provider(id)
+	for i := range pc.Accounts {
+		if pc.Accounts[i].Name == name {
+			pc.Accounts[i].APIKey = key
+			c.Providers[id] = pc
+			return c.Save()
+		}
+	}
+	pc.Accounts = append(pc.Accounts, AccountConfig{Name: name, APIKey: key})
+	c.Providers[id] = pc
+	return c.Save()
+}
+
+// KeyTarget returns the target file/key for `leeway use` on a provider.
+// Configured file/key overlay the DSH default independently; a `~/` file
+// expands to the user's home. Default credential reference is the provider
+// id uppercased, e.g. "opencode-go" → "OPENCODE_GO_API_KEY".
+func (c *Config) KeyTarget(id string) KeyTarget {
+	got := defaultKeyTarget(id)
+	if pc := c.Provider(id); pc.KeyTarget != nil {
+		if pc.KeyTarget.File != "" {
+			got.File = expandHome(pc.KeyTarget.File)
+		}
+		if pc.KeyTarget.Key != "" {
+			got.Key = pc.KeyTarget.Key
+		}
+	}
+	return got
+}
+
+func expandHome(p string) string {
+	if p != "~" && !strings.HasPrefix(p, "~/") {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return p
+	}
+	if p == "~" {
+		return home
+	}
+	return filepath.Join(home, p[2:])
+}
+
+func defaultKeyTarget(id string) KeyTarget {
+	key := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_").Replace(id)) + "_API_KEY"
+	return KeyTarget{File: defaultDSHCredentialsPath(), Key: key}
+}
+
+// defaultDSHCredentialsPath resolves the DeepSeek Harness credentials file:
+// $DSH_HOME/.credentials.yaml, defaulting to ~/.dsh.
+func defaultDSHCredentialsPath() string {
+	if h := os.Getenv("DSH_HOME"); h != "" {
+		return filepath.Join(h, ".credentials.yaml")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		return filepath.Join(home, ".dsh", ".credentials.yaml")
+	}
+	return ".credentials.yaml"
 }

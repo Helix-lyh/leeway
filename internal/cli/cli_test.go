@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"leeway/internal/model"
@@ -27,9 +28,11 @@ func isolateEnv(t *testing.T) {
 	t.Setenv("KIMI_CODE_HOME", t.TempDir())
 	t.Setenv("GROK_HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir())
+	t.Setenv("DSH_HOME", t.TempDir())
 	for _, k := range []string{
 		"DEEPSEEK_API_KEY", "DEEPSEEK_KEY",
 		"KIMI_CODE_API_KEY", "KIMI_AUTH_TOKEN", "kimi_auth_token",
+		"OPENCODE_GO_API_KEY",
 	} {
 		t.Setenv(k, "")
 	}
@@ -109,5 +112,60 @@ func TestRunCookieListCorruptConfig(t *testing.T) {
 	}
 	if got := Run([]string{"cookie", "list"}); got != 2 {
 		t.Fatalf("cookie list with corrupt config = %d, want 2", got)
+	}
+}
+
+func TestRunUseDispatch(t *testing.T) {
+	isolateEnv(t)
+	cases := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{"no flags", []string{"use"}, 2},
+		{"missing account", []string{"use", "--provider", "opencode-go"}, 2},
+		{"unknown account", []string{"use", "--provider", "opencode-go", "--account", "nope"}, 2},
+		{"account without key", []string{"use", "--provider", "opencode-go", "--account", "plain"}, 2},
+	}
+	for _, c := range cases {
+		if got := Run(c.args); got != c.want {
+			t.Errorf("%s: Run(%v) = %d, want %d", c.name, c.args, got, c.want)
+		}
+	}
+}
+
+func TestRunUseWritesTarget(t *testing.T) {
+	isolateEnv(t)
+	// Register a named subscription key.
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
+		t.Fatalf("set-api-key = %d, want 0", got)
+	}
+	if got := Run([]string{"use", "--provider", "opencode-go", "--account", "work"}); got != 0 {
+		t.Fatalf("use = %d, want 0", got)
+	}
+	credPath := filepath.Join(os.Getenv("DSH_HOME"), ".credentials.yaml")
+	raw, err := os.ReadFile(credPath)
+	if err != nil {
+		t.Fatalf("credentials file not written: %v", err)
+	}
+	if !strings.Contains(string(raw), "OPENCODE_GO_API_KEY: sk-work123") {
+		t.Fatalf("key not written to target:\n%s", raw)
+	}
+	if fi, err := os.Stat(credPath); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("target perms = %o, want 600", fi.Mode().Perm())
+	}
+}
+
+func TestRunConfigKeys(t *testing.T) {
+	isolateEnv(t)
+	if got := Run([]string{"config", "keys"}); got != 2 {
+		t.Fatalf("config keys without provider = %d, want 2", got)
+	}
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-abc12345"}); got != 0 {
+		t.Fatalf("set-api-key = %d, want 0", got)
+	}
+	// Human output must show the account with a masked key.
+	if got := Run([]string{"config", "keys", "--provider", "opencode-go"}); got != 0 {
+		t.Fatalf("config keys = %d, want 0", got)
 	}
 }

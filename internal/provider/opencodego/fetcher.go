@@ -20,6 +20,7 @@ import (
 const (
 	baseURL            = "https://opencode.ai"
 	serverURL          = "https://opencode.ai/_server"
+	zenGoBaseURL       = "https://opencode.ai/zen/go/v1"
 	workspacesServerID = "def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f"
 	billingServerID    = "c83b78a614689c38ebee981f9b39a8b377716db85c1fd7dbab604adc02d3313d"
 
@@ -198,6 +199,21 @@ func (p *opencodeGo) fetchPageText(ctx context.Context, pageURL, cookieHeader st
 	req.Header.Set("Cookie", cookieHeader)
 	req.Header.Set("User-Agent", userAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	return p.doRequest(ctx, req)
+}
+
+// fetchUsageByKey queries a subscription's usage windows via the
+// OpenAI-compatible gateway with the subscription API key
+// (GET {zenGoBase}/usage, bearer auth). This is the per-subscription surface:
+// one key = one subscription, no browser session required.
+func (p *opencodeGo) fetchUsageByKey(ctx context.Context, apiKey string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", p.zenGoBase+"/usage", nil)
+	if err != nil {
+		return "", networkErrorf("%v", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json")
 	return p.doRequest(ctx, req)
 }
 

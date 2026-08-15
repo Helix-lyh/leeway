@@ -29,18 +29,20 @@ func init() { provider.Register(New()) }
 func New() provider.Provider { return newProvider() }
 
 type opencodeGo struct {
-	client *http.Client
-	local  *localCostReader
-	base   string // "https://opencode.ai"
-	server string // "https://opencode.ai/_server"
+	client    *http.Client
+	local     *localCostReader
+	base      string // "https://opencode.ai"
+	server    string // "https://opencode.ai/_server"
+	zenGoBase string // "https://opencode.ai/zen/go/v1"
 }
 
 func newProvider() *opencodeGo {
 	return &opencodeGo{
-		client: newHTTPClient(),
-		local:  &localCostReader{dbPath: defaultLocalDBPath(), now: time.Now},
-		base:   baseURL,
-		server: serverURL,
+		client:    newHTTPClient(),
+		local:     &localCostReader{dbPath: defaultLocalDBPath(), now: time.Now},
+		base:      baseURL,
+		server:    serverURL,
+		zenGoBase: zenGoBaseURL,
 	}
 }
 
@@ -54,6 +56,7 @@ func (p *opencodeGo) DisplayName() string { return "OpenCode Go" }
 
 func (p *opencodeGo) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
+		EnvAPIKey:        []string{"OPENCODE_GO_API_KEY"},
 		UsesCookies:      true,
 		CookieDomains:    []string{"opencode.ai"},
 		SupportsAccounts: true,
@@ -71,9 +74,13 @@ func (p *opencodeGo) DeclaredWindows() []provider.WindowSpec {
 	}
 }
 
-// Fetch probes one account: workspace usage windows (5-hour / Weekly /
-// Monthly) plus the Zen balance. Mirror of OpenCodeGoUsageFetcher.fetchUsage.
+// Fetch probes one account. An API-key subscription (req.Creds.APIKey) queries
+// the gateway usage endpoint directly; a cookie account walks the workspace
+// usage page + Zen balance path below.
 func (p *opencodeGo) Fetch(ctx context.Context, req provider.FetchRequest) (*model.Snapshot, error) {
+	if req.Creds.APIKey != "" {
+		return p.fetchByAPIKey(ctx, req.Creds.APIKey)
+	}
 	rawCookie := req.Creds.CookieHeader
 	if strings.TrimSpace(rawCookie) == "" {
 		return nil, fmt.Errorf("missing cookies — run: leeway cookie import (or: leeway cookie set --manual ...) for %q", p.ID())
@@ -139,6 +146,22 @@ func (p *opencodeGo) Fetch(ctx context.Context, req provider.FetchRequest) (*mod
 		}
 	}
 	return p.buildSnapshot(sub, now, zen), nil
+}
+
+// fetchByAPIKey queries one subscription's usage windows (rolling 5-hour /
+// Weekly / Monthly) via the OpenAI-compatible gateway with the subscription
+// API key. No Zen balance is available on this surface.
+func (p *opencodeGo) fetchByAPIKey(ctx context.Context, apiKey string) (*model.Snapshot, error) {
+	now := time.Now()
+	text, err := p.fetchUsageByKey(ctx, apiKey)
+	if err != nil {
+		return nil, err
+	}
+	sub, err := parseAPIUsage(text, now)
+	if err != nil {
+		return nil, err
+	}
+	return p.buildSnapshot(sub, now, nil), nil
 }
 
 // requiredZenFallback mirrors Swift's requiredZenBalanceFallback: the Zen
