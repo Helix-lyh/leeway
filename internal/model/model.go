@@ -22,6 +22,7 @@ type RateWindow struct {
 	Currency      string     `json:"currency,omitempty"` // "CNY"/"USD"
 	ResetsAt      *time.Time `json:"resetsAt,omitempty"`
 	WindowMinutes *int       `json:"windowMinutes,omitempty"`
+	RateLimited   bool       `json:"rateLimited,omitempty"` // provider reports this lane as rate-limited
 }
 
 // Cost is a monetary snapshot (balance, Zen balance, daily cost).

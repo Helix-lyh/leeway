@@ -126,6 +126,26 @@ func TestRenderTableCostDeduplicated(t *testing.T) {
 	}
 }
 
+func TestRenderTableRateLimitedMarker(t *testing.T) {
+	pct := 100.0
+	week := 7 * 24 * 60
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "github", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows:   []model.RateWindow{{ID: "secondary", Title: "Weekly", UsedPercent: &pct, WindowMinutes: &week, RateLimited: true}},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	if !strings.Contains(buf.String(), "rate-limited") {
+		t.Fatalf("rate-limited marker missing:\n%s", buf.String())
+	}
+}
+
 func TestRenderTableEmptyOutput(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, &model.Output{Version: 1}, false)

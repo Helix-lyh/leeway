@@ -69,6 +69,26 @@ func TestParseAPIUsagePercentIsDirect(t *testing.T) {
 	if sub.monthlyPercent != 0 {
 		t.Fatalf("monthly percent = %v, want 0", sub.monthlyPercent)
 	}
+	if sub.rollingLimited || !sub.weeklyLimited || sub.monthlyLimited {
+		t.Fatalf("rate-limited flags wrong: rolling=%v weekly=%v monthly=%v",
+			sub.rollingLimited, sub.weeklyLimited, sub.monthlyLimited)
+	}
+}
+
+func TestParseAPIWindowRateLimitedWithoutPercent(t *testing.T) {
+	// A rate-limited lane without a percent means the quota is exhausted:
+	// report 100% rather than dropping the lane.
+	now := time.Date(2026, 8, 16, 8, 0, 0, 0, time.UTC)
+	w, ok := parseAPIWindow(map[string]any{
+		"status":   "rate-limited",
+		"resetsAt": "2026-08-17T00:00:00Z",
+	}, now)
+	if !ok {
+		t.Fatal("rate-limited lane without percent must not be dropped")
+	}
+	if w.percent != 100 || !w.rateLimited {
+		t.Fatalf("want percent 100 + rateLimited, got %+v", w)
+	}
 }
 
 func TestParseAPIUsageRequiresRolling(t *testing.T) {

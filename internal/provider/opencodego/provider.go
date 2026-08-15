@@ -194,6 +194,7 @@ func (p *opencodeGo) buildSnapshot(sub *subscription, now time.Time, zen *float6
 		UsedPercent:   &sub.rollingPercent,
 		ResetsAt:      &rollingReset,
 		WindowMinutes: &fiveHours,
+		RateLimited:   sub.rollingLimited,
 	})
 	if sub.hasWeeklyUsage {
 		weeklyReset := now.Add(time.Duration(sub.weeklyResetSec) * time.Second)
@@ -203,6 +204,7 @@ func (p *opencodeGo) buildSnapshot(sub *subscription, now time.Time, zen *float6
 			UsedPercent:   &sub.weeklyPercent,
 			ResetsAt:      &weeklyReset,
 			WindowMinutes: &week,
+			RateLimited:   sub.weeklyLimited,
 		})
 	}
 	if sub.hasMonthlyUsage {
@@ -213,6 +215,7 @@ func (p *opencodeGo) buildSnapshot(sub *subscription, now time.Time, zen *float6
 			UsedPercent:   &sub.monthlyPercent,
 			ResetsAt:      &monthlyReset,
 			WindowMinutes: &month,
+			RateLimited:   sub.monthlyLimited,
 		})
 	}
 	if sub.renewsAt != nil {

@@ -209,11 +209,15 @@ func quotaSlot(win model.RateWindow) int {
 }
 
 // quotaCell renders a percent window: "⣿⣿⣿⣿⡇⣀⣀⣀  55% 4d 01h". The fixed
-// columns imply the window kind, so no title is shown.
+// columns imply the window kind, so no title is shown; a rate-limited lane
+// appends a red marker.
 func quotaCell(win model.RateWindow, color bool) string {
 	cell := usageBar(*win.UsedPercent, color)
 	if r := resetText(win); r != "" {
 		cell += " " + colored(r, cGray, color)
+	}
+	if win.RateLimited {
+		cell += " " + colored("rate-limited", cRed, color)
 	}
 	return cell
 }

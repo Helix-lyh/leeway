@@ -28,15 +28,20 @@ type subscription struct {
 	rollingResetSec int
 	weeklyResetSec  int
 	monthlyResetSec int
+	rollingLimited  bool
+	weeklyLimited   bool
+	monthlyLimited  bool
 	renewsAt        *time.Time
 }
 
 func balanceOnly() *subscription { return &subscription{isBalanceOnly: true} }
 
-// parsedWindow is the normalized (percent, resetInSec) of one window dict.
+// parsedWindow is the normalized (percent, resetInSec, rateLimited) of one
+// window dict.
 type parsedWindow struct {
-	percent    float64
-	resetInSec int
+	percent     float64
+	resetInSec  int
+	rateLimited bool
 }
 
 var (
@@ -101,16 +106,19 @@ func parseAPIUsage(text string, now time.Time) (*subscription, error) {
 	if w, ok := parseAPIWindow(usage["rolling"], now); ok {
 		sub.rollingPercent = w.percent
 		sub.rollingResetSec = w.resetInSec
+		sub.rollingLimited = w.rateLimited
 		hasRolling = true
 	}
 	if w, ok := parseAPIWindow(usage["weekly"], now); ok {
 		sub.weeklyPercent = w.percent
 		sub.weeklyResetSec = w.resetInSec
+		sub.weeklyLimited = w.rateLimited
 		sub.hasWeeklyUsage = true
 	}
 	if w, ok := parseAPIWindow(usage["monthly"], now); ok {
 		sub.monthlyPercent = w.percent
 		sub.monthlyResetSec = w.resetInSec
+		sub.monthlyLimited = w.rateLimited
 		sub.hasMonthlyUsage = true
 	}
 	if !hasRolling {
@@ -128,9 +136,15 @@ func parseAPIWindow(v any, now time.Time) (parsedWindow, bool) {
 	if !ok {
 		return parsedWindow{}, false
 	}
+	rateLimited := statusIsRateLimited(dict["status"])
 	percent, ok := doubleValue(dict["percent"])
 	if !ok {
-		return parsedWindow{}, false
+		// A rate-limited lane means the quota is exhausted; report it as 100%
+		// even when the API omits the percent, so the lane is never dropped.
+		if !rateLimited {
+			return parsedWindow{}, false
+		}
+		percent = 100
 	}
 	resetInSec := 0
 	foundReset := false
@@ -147,7 +161,12 @@ func parseAPIWindow(v any, now time.Time) (parsedWindow, bool) {
 		return parsedWindow{}, false
 	}
 	percent = math.Max(0, math.Min(100, percent))
-	return parsedWindow{percent: percent, resetInSec: resetInSec}, true
+	return parsedWindow{percent: percent, resetInSec: resetInSec, rateLimited: rateLimited}, true
+}
+
+func statusIsRateLimited(v any) bool {
+	s, ok := v.(string)
+	return ok && strings.EqualFold(strings.TrimSpace(s), "rate-limited")
 }
 
 // parseSubscription mirrors OpenCodeGoUsageFetcher.parseSubscription.
