@@ -186,9 +186,6 @@ func accountLine(pr model.ProviderResult, ar model.AccountResult, multi bool, co
 	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, wins) {
 		cash = append(cash, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
 	}
-	if c := pr.LocalCost; c != nil && c.Amount != nil && *c.Amount != 0 {
-		cash = append(cash, dim(money(*c.Amount, c.Currency)+" local "+strings.ToLower(c.Period)))
-	}
 	l.cash = strings.Join(cash, dim(" · "))
 	return l
 }

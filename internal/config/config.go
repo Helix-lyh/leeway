@@ -179,9 +179,7 @@ func (c *Config) Account(id, name string) (AccountConfig, bool) {
 }
 
 // SetAccountKey stores an API key on a named account, creating the account
-// entry if it does not exist, and persists the config. The first named key
-// on an empty accounts list keeps a cookie "default" when a provider-level
-// manual cookie header is already set, so that implicit session is not dropped.
+// entry if it does not exist, and persists the config.
 func (c *Config) SetAccountKey(id, name, key string) error {
 	pc := c.Provider(id)
 	for i := range pc.Accounts {
@@ -190,9 +188,6 @@ func (c *Config) SetAccountKey(id, name, key string) error {
 			c.Providers[id] = pc
 			return c.Save()
 		}
-	}
-	if len(pc.Accounts) == 0 && name != "default" && pc.ManualCookieHeader != "" {
-		pc.Accounts = append(pc.Accounts, AccountConfig{Name: "default"})
 	}
 	pc.Accounts = append(pc.Accounts, AccountConfig{Name: name, APIKey: key})
 	c.Providers[id] = pc

@@ -96,16 +96,12 @@ func TestRenderTableCostRows(t *testing.T) {
 				Cost:      &model.Cost{Period: "Balance", Currency: "CNY", Amount: &amount},
 			},
 		}},
-		LocalCost: &model.Cost{Period: "today", Currency: "USD", Amount: &amount},
 	}}}
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
 	if !strings.Contains(s, "¥12.34 balance") {
 		t.Fatalf("snapshot cost footnote missing:\n%s", s)
-	}
-	if !strings.Contains(s, "$12.34 local today") {
-		t.Fatalf("local cost footnote missing:\n%s", s)
 	}
 }
 

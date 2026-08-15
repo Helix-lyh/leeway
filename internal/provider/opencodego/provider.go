@@ -1,15 +1,16 @@
 // Package opencodego implements the OpenCode Go provider for leeway.
 //
-// It mirrors CodexBar's OpenCodeGoUsageFetcher / OpenCodeGoLocalUsageReader:
+// It mirrors CodexBar's OpenCodeGoUsageFetcher:
 //
 //   - per account: the opencode.ai web API (workspace usage page + the
 //     opencode.ai/_server RPC for workspace IDs and the Zen billing balance)
-//   - machine-level: the local opencode SQLite history in
-//     ~/.local/share/opencode/opencode.db (read-only, never modified)
+//   - per subscription: the OpenAI-compatible gateway usage endpoint
+//     (https://opencode.ai/zen/go/v1/usage) keyed by the subscription API key
 //
 // The provider is multi-account: each account is one browser login session
-// (a Cookie header) plus an optional workspace ID. When no workspace ID is
-// configured the server is queried for the account's first workspace.
+// (a Cookie header) plus an optional workspace ID, or a named API-key
+// subscription. When no workspace ID is configured the server is queried for
+// the account's first workspace.
 package opencodego
 
 import (
@@ -30,7 +31,6 @@ func New() provider.Provider { return newProvider() }
 
 type opencodeGo struct {
 	client    *http.Client
-	local     *localCostReader
 	base      string // "https://opencode.ai"
 	server    string // "https://opencode.ai/_server"
 	zenGoBase string // "https://opencode.ai/zen/go/v1"
@@ -39,7 +39,6 @@ type opencodeGo struct {
 func newProvider() *opencodeGo {
 	return &opencodeGo{
 		client:    newHTTPClient(),
-		local:     &localCostReader{dbPath: defaultLocalDBPath(), now: time.Now},
 		base:      baseURL,
 		server:    serverURL,
 		zenGoBase: zenGoBaseURL,
@@ -176,14 +175,6 @@ func (p *opencodeGo) requiredZenFallback(zenCh chan zenResult, fallbackErr error
 		return nil, fallbackErr
 	}
 	return p.buildSnapshot(balanceOnly(), now, zr.balance), nil
-}
-
-// FetchLocalCost implements provider-local machine-level cost history
-// (LocalCostProvider): sum of the latest calendar-day bucket from the local
-// opencode.db. A missing database or empty history yields (nil, nil) so the
-// orchestrator simply leaves LocalCost unset.
-func (p *opencodeGo) FetchLocalCost(ctx context.Context) (*model.Cost, error) {
-	return p.local.fetch(ctx)
 }
 
 func (p *opencodeGo) buildSnapshot(sub *subscription, now time.Time, zen *float64) *model.Snapshot {

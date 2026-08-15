@@ -55,7 +55,6 @@ go build -o leeway ./cmd/leeway && ./leeway usage
 
 `accounts[].apiKey` 声明一个 **opencode-go 订阅**（一套 API key），`leeway usage` 会经网关
 `GET https://opencode.ai/zen/go/v1/usage` 按订阅直接查 5-hour / Weekly / Monthly 用量，不需要 cookie。
-第一个命名订阅若会顶掉已有的 cookie 会话（手动 header 或已 import 的缓存），会自动保留一个 cookie `default` 账户。
 `keyTarget` 是 `leeway use` 切换时写入的目标文件与凭据引用；`file` / `key` 可单独覆盖，`~/` 会展开到家目录。省略时默认 DSH 的
 `~/.dsh/.credentials.yaml` + `<PROVIDER>_API_KEY`（如 `OPENCODE_GO_API_KEY`）。
 
@@ -94,7 +93,7 @@ DSH 对凭据文件热重载，切换后下一次请求即用新 key。
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页会话 JWT（`kimi-auth` cookie 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期时提示 `kimi login`） | `www.kimi.com/apiv2` gRPC-style JSON | Weekly 7d + 5-hour 限速 |
 | **grok** | 三选一：**`grok login` 会话**（`~/.grok/auth.json`，过期自动 OIDC 刷新）/ cookie（L0 手动或 L2 Chrome 导入） | `grok.com` GetGrokCreditsConfig（grpc-web） | Credits 窗口（按重置距离标 Weekly/Monthly） |
 | **codex** | 复用 Codex CLI 会话 `~/.codex/auth.json`（无需自实现 OAuth；过期提示重跑 `codex login`） | `chatgpt.com/backend-api`（可用 `chatgpt_base_url` 覆盖，见 `$CODEX_HOME/config.toml`） | Session 5h + Weekly 7d + 额外窗口 + Credits 余额 |
-| **opencode-go** | 双认证：① **订阅 API key**（`OPENCODE_GO_API_KEY` / `config set-api-key --account NAME`，多订阅，经网关 `/usage` 直接查）；② 多账户 cookie（`auth`/`__Host-auth`）+ 可选 `workspaceID` | ① 网关 `opencode.ai/zen/go/v1/usage`（每订阅）；② 服务器 `opencode.ai` 用量页 + Zen 余额；机器级：本地 `opencode.db` 成本历史 | 每订阅 / 每账户 5-hour / Weekly / Monthly；cookie 账户另有 Zen 余额；provider 级本地成本 |
+| **opencode-go** | 双认证：① **订阅 API key**（`OPENCODE_GO_API_KEY` / `config set-api-key --account NAME`，多订阅，经网关 `/usage` 直接查）；② 多账户 cookie（`auth`/`__Host-auth`）+ 可选 `workspaceID` | ① 网关 `opencode.ai/zen/go/v1/usage`（每订阅）；② 服务器 `opencode.ai` 用量页 + Zen 余额 | 每订阅 / 每账户 5-hour / Weekly / Monthly；cookie 账户另有 Zen 余额 |
 
 ## JSON 契约（`leeway usage --json` 真实输出）
 
@@ -132,8 +131,7 @@ DSH 对凭据文件热重载，切换后下一次请求即用新 key。
 ```
 
 配置好凭据后，`status` 变为 `ok`，`accounts[].snapshot.windows[]` 携带各档窗口
-（`usedPercent`/`used`/`limit`/`resetsAt`/`windowMinutes`），`cost` 携带余额类数据；
-opencode-go 另有 provider 级 `localCost`（机器级本地历史）。
+（`usedPercent`/`used`/`limit`/`resetsAt`/`windowMinutes`），`cost` 携带余额类数据。
 
 ## 退出码
 

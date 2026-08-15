@@ -105,19 +105,6 @@ func TestSetAccountKeyCreatesAndUpdates(t *testing.T) {
 	}
 }
 
-func TestSetAccountKeyKeepsCookieDefault(t *testing.T) {
-	t.Setenv("LEEWAY_CONFIG", filepath.Join(t.TempDir(), "config.json"))
-	cfg := Default()
-	cfg.Providers["opencode-go"] = ProviderConfig{ManualCookieHeader: "sess=x"}
-	if err := cfg.SetAccountKey("opencode-go", "work", "sk-work"); err != nil {
-		t.Fatal(err)
-	}
-	accs := cfg.Accounts("opencode-go")
-	if len(accs) != 2 || accs[0].Name != "default" || accs[1].Name != "work" || accs[1].APIKey != "sk-work" {
-		t.Fatalf("expected cookie default + work, got %+v", accs)
-	}
-}
-
 func TestKeyTargetDefault(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

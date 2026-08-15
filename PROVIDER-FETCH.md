@@ -221,7 +221,7 @@ iv  = 16 × 0x20(空格)
 - 兜底:没有 primary/secondary 窗口时,只有 credits 存在快照才存活(`stub.go:75`)。
 - 401/403 → `kindUnauthorized`,提示重跑 `codex login`。
 
-### 3.5 opencode-go —— 订阅 API key + 多账户 cookie + 本地成本
+### 3.5 opencode-go —— 订阅 API key + 多账户 cookie
 
 | 项 | 值 |
 |---|---|
@@ -229,9 +229,8 @@ iv  = 16 × 0x20(空格)
 | 订阅端点 | `GET https://opencode.ai/zen/go/v1/usage`(OpenAI 兼容网关,`Authorization: Bearer <key>`),返回 `{usage:{rolling,weekly,monthly}}`,每订阅独立,无需 cookie |
 | 服务器 | `https://opencode.ai/_server` RPC(带 `X-Server-Id` / `X-Server-Instance: server-fn:<uuid>`),含 workspace 枚举与 Zen billing |
 | 页面 | `GET /workspace/<ws>/go`(用量页,解析 HTML 里的用量字段) |
-| 本地成本 | `~/.local/share/opencode/opencode.db`(SQLite `mode=ro&immutable=1`,机器级一份,不区分账户) |
-| 窗口 | 订阅 key:`5-hour`(rolling)/ `Weekly` / `Monthly`;cookie 账户:同上 + `Renews` + Cost `Zen balance`;provider 级 `localCost` |
-| 实现 | `provider/opencodego/{provider,fetcher,local,cookie,zen,parser}.go` |
+| 窗口 | 订阅 key:`5-hour`(rolling)/ `Weekly` / `Monthly`;cookie 账户:同上 + `Renews` + Cost `Zen balance` |
+| 实现 | `provider/opencodego/{provider,fetcher,cookie,zen,parser}.go` |
 
 要点:
 - **订阅 key 路径**(`provider.go` `fetchByAPIKey`):`Fetch` 里 `req.Creds.APIKey` 非空即走网关
@@ -245,7 +244,6 @@ iv  = 16 × 0x20(空格)
   2. 用法页与 **Zen 余额并发**(余额带 25ms 起始延迟,镜像 Swift);用法页缺字段时**余额单独成为快照**(`requiredZenFallback`)。
   3. 可选加入余额:最多等 `optionalZenBalanceTimeout`(5s)。
 - 反爬:多账户并发 ≤3 + 快照 TTL;`looksSignedOut` 检测登录失效 → `invalidCredentials`。
-- 本地成本只取**最新日历天桶的总额**;库缺失/空 → `(nil,nil)` 静默跳过(`local.go`)。
 
 ---
 
@@ -271,11 +269,11 @@ iv  = 16 × 0x20(空格)
 - **订阅 = 一个命名 API key**(`accounts[].apiKey`),走网关 `/usage` 端点;与 cookie 账户共存于同一 `accounts[]`。
 - 每个账户的 cookie 来源:账户级 `manualCookieHeader` → 账户绑定的 Chrome `profile` 导入缓存(`opencode-go@Profile 1`)→ provider 级(`fetch.go:286 resolveAccountCookie`)。
 - `cookie import --provider opencode-go --account work` 会把导入的会话直接绑成一个账户。
-- 本地 opencode.db 成本历史是**机器级**的,一份放 provider 级 `localCost`;服务器窗口按账户各一份。
+- 服务器窗口按账户各一份。
 - `--account NAME` 过滤;没配置的账户名直接报 `error`。
 - **快速切换**:`leeway use --provider opencode-go --account <订阅名>` 把该订阅 key 写入 `keyTarget`
   (默认 DSH `~/.dsh/.credentials.yaml` 的 `OPENCODE_GO_API_KEY`);`leeway config keys` 列出命名订阅(脱敏,对照目标文件标 active)。
-  第一个命名 key 在已有 cookie 会话(手动 header 或 import 缓存)时保留 cookie `default`,避免隐式会话被顶掉。
+- 订阅走纯 API-key 查询:注册命名 key 不会保留 cookie `default` 账户;要查 cookie 会话,显式配一个 cookie 账户。
 
 ---
 

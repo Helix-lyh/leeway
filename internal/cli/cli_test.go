@@ -174,8 +174,10 @@ func TestRunConfigKeys(t *testing.T) {
 	}
 }
 
-func TestRunSetAccountKeyKeepsCookieDefault(t *testing.T) {
+func TestRunSetAccountKeyDoesNotKeepCookieDefault(t *testing.T) {
 	isolateEnv(t)
+	// A manual cookie header (and an imported cache) must NOT spawn a "default"
+	// account: the API-key subscription is the only account.
 	if got := Run([]string{"cookie", "set", "--provider", "opencode-go", "--manual", "sess=x"}); got != 0 {
 		t.Fatalf("cookie set = %d, want 0", got)
 	}
@@ -187,26 +189,23 @@ func TestRunSetAccountKeyKeepsCookieDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	accs := cfg.Accounts("opencode-go")
-	if len(accs) != 2 || accs[0].Name != "default" || accs[1].Name != "work" {
-		t.Fatalf("expected cookie default + work, got %+v", accs)
+	if len(accs) != 1 || accs[0].Name != "work" || accs[0].APIKey != "sk-work123" {
+		t.Fatalf("expected only the api-key subscription, got %+v", accs)
 	}
-}
 
-func TestRunSetAccountKeyKeepsImportedCookieDefault(t *testing.T) {
-	isolateEnv(t)
 	if err := auth.SaveCookieCache("opencode-go", "", "sess=imported", "chrome"); err != nil {
 		t.Fatal(err)
 	}
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
-		t.Fatalf("set-api-key = %d, want 0", got)
+	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "personal", "--key", "sk-pers456"}); got != 0 {
+		t.Fatalf("set personal = %d, want 0", got)
 	}
-	cfg, err := config.Load()
+	cfg, err = config.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	accs := cfg.Accounts("opencode-go")
-	if len(accs) != 2 || accs[0].Name != "default" || accs[1].Name != "work" {
-		t.Fatalf("expected imported cookie default + work, got %+v", accs)
+	accs = cfg.Accounts("opencode-go")
+	if len(accs) != 2 || accs[0].Name != "work" || accs[1].Name != "personal" {
+		t.Fatalf("expected only named api-key accounts, got %+v", accs)
 	}
 }
 

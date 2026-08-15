@@ -32,12 +32,6 @@ const CacheTTL = 60 * time.Second
 // (anti-abuse on opencode.ai etc.).
 const MaxAccountConcurrency = 3
 
-// LocalCostProvider is implemented by providers that surface machine-level
-// cost data (opencode-go local history).
-type LocalCostProvider interface {
-	FetchLocalCost(ctx context.Context) (*model.Cost, error)
-}
-
 type Options struct {
 	UseCache       bool
 	ProviderFilter string // "" = all
@@ -268,15 +262,6 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 		}
 	}
 
-	// Machine-level cost (opencode-go local history). Best-effort: a failure
-	// (corrupt/locked local db) must not fail the probe, but should be visible.
-	if lcp, ok := p.(LocalCostProvider); ok && res.Status != "disabled" {
-		if cost, err := lcp.FetchLocalCost(ctx); err == nil {
-			res.LocalCost = cost
-		} else if ctx.Err() == nil {
-			log.Printf("%s: local cost unavailable: %v", p.ID(), err)
-		}
-	}
 	return res
 }
 

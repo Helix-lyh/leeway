@@ -547,11 +547,6 @@ func configSetAPIKey(args []string) int {
 		return 2
 	}
 	if account != "" {
-		if keepCookieDefault(cfg, providerID, account) {
-			pc := cfg.Provider(providerID)
-			pc.Accounts = append(pc.Accounts, config.AccountConfig{Name: "default"})
-			cfg.Providers[providerID] = pc
-		}
 		if err := cfg.SetAccountKey(providerID, account, key); err != nil {
 			fmt.Fprintln(os.Stderr, "config save:", err)
 			return 2
@@ -618,17 +613,6 @@ func configKeys(args []string) int {
 		}
 	}
 	return 0
-}
-
-// keepCookieDefault is true when the first named key would replace an
-// implicit cookie session stored in the import cache (manual headers are
-// handled inside SetAccountKey).
-func keepCookieDefault(cfg *config.Config, id, account string) bool {
-	if account == "default" || len(cfg.Provider(id).Accounts) > 0 || cfg.Provider(id).ManualCookieHeader != "" {
-		return false
-	}
-	h, err := auth.ResolveCookieHeader(id, cfg.Provider(id), "default")
-	return err == nil && h != ""
 }
 
 func maskKey(key string) string {

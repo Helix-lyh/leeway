@@ -88,7 +88,7 @@ type Provider interface {
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `kimi login`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
 | **grok** | 三选一：**`grok login` 会话**（`~/.grok/auth.json`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写文件）/ L2 Chrome cookie / 手动 header | `grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig`（grpc-web，5 零字节 body，**启发式 protobuf 扫描**：fixed32→percent，varint→resetsAt） | 共享 Weekly（7d）额度；Extra Usage Credits 是独立余额，当前未解析 | 实测过期 token 自动刷新成功 |
 | **codex** | 复用 Codex CLI 已登录会话：`~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 实测真实数据（Weekly 78%） |
-| **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `config set-api-key --account`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户）③ 本地 `~/.local/share/opencode/opencode.db`（只读，成本历史，**机器级一份不区分账户**） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额；provider 级：本地成本 | SQLite `mode=ro&immutable=1`；多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 doctor 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
+| **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `config set-api-key --account`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额 | 多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 doctor 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
 
 ## 6. Cookie 导入方案（L0/L1/L2 分级）
 
@@ -113,7 +113,7 @@ L2 步骤（macOS）：
 
 - **账户 = 一次浏览器登录会话（一组 cookie）+ 可选 workspaceID**
 - **订阅 = 一个命名 API key**（`accounts[].apiKey`），走网关 `GET /zen/go/v1/usage` 按订阅直接查 5h/weekly/monthly，无需 cookie
-- 本地 opencode.db 成本历史是机器级，一份放 provider 级；服务器窗口按账户各一份
+- 服务器窗口按账户各一份
 - `cookie import --provider opencode-go` 扫描全部 Chrome profile，每个登录态 = 一个账户候选
 - 多账户并发 ≤3；`--account work` 可过滤
 - 快速切换：`leeway use --provider opencode-go --account <订阅>` 把 key 写入 DSH 凭据（`keyTarget`，可配置）
@@ -143,8 +143,7 @@ leeway doctor                                         # 诊断：缺什么凭据
                    "used": null, "limit": null, "currency": null,
                    "resetsAt": "…", "windowMinutes": 300}],
       "cost": {"period": "Zen balance", "currency": "USD", "amount": 18.5}
-    }],
-    "localCost": {"period": "local history", "currency": "USD", "amount": 3.21}
+    }]
   }]
 }
 ```
@@ -181,6 +180,6 @@ opencode-go  ok      5-hour    –        –       41%   1h 52m
 
 - macOS 钥匙串/TCC：L2 首次弹授权（可接受）；doctor 区分"未配置"与"已配置但失败"
 - cookie 过期（grok 会话短）：`import --force` + 明确报错
-- WAL 模式 SQLite：cookie 库与 opencode.db 只读打开 + immutable 回退
+- WAL 模式 SQLite：cookie 库只读打开 + immutable 回退
 - 反爬限流：chatgpt.com / grok.com / opencode.ai 保守默认间隔 + TTL
 - 隐私：cookie/token 文件 0600

@@ -60,8 +60,7 @@ type ProviderResult struct {
 	Status      string          `json:"status"` // "ok" | "error" | "not_configured" | "disabled"
 	Error       string          `json:"error,omitempty"`
 	UpdatedAt   time.Time       `json:"updatedAt"`
-	Accounts    []AccountResult `json:"accounts"`            // single-account providers get one "default" account
-	LocalCost   *Cost           `json:"localCost,omitempty"` // machine-level cost (opencode-go local history)
+	Accounts    []AccountResult `json:"accounts"` // single-account providers get one "default" account
 }
 
 // Output is the top-level JSON contract emitted by `leeway usage --json`.
