@@ -119,12 +119,35 @@ func parseAPIUsage(text string, now time.Time) (*subscription, error) {
 	return sub, nil
 }
 
+// parseAPIWindow parses one lane of the subscription usage gateway response.
+// Unlike the workspace-page parser, this shape reports percent as an integer
+// 0-100 directly plus an absolute resetsAt — never a fraction — so the value
+// is taken as-is (the fraction-scaling heuristic would turn 1% into 100%).
 func parseAPIWindow(v any, now time.Time) (parsedWindow, bool) {
 	dict, ok := v.(map[string]any)
 	if !ok {
 		return parsedWindow{}, false
 	}
-	return parseWindow(dict, now)
+	percent, ok := doubleValue(dict["percent"])
+	if !ok {
+		return parsedWindow{}, false
+	}
+	resetInSec := 0
+	foundReset := false
+	for _, key := range resetAtKeys {
+		if resetAt := dateValue(dict[key]); resetAt != nil {
+			if interval, ok := resetInterval(*resetAt, now); ok {
+				resetInSec = interval
+				foundReset = true
+				break
+			}
+		}
+	}
+	if !foundReset {
+		return parsedWindow{}, false
+	}
+	percent = math.Max(0, math.Min(100, percent))
+	return parsedWindow{percent: percent, resetInSec: resetInSec}, true
 }
 
 // parseSubscription mirrors OpenCodeGoUsageFetcher.parseSubscription.
