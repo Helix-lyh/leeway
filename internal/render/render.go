@@ -118,7 +118,7 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 	for i, h := range header {
 		hb.WriteString(pad(h, colW[i]) + "  ")
 	}
-	hb.WriteString("CASH/Credits")
+	hb.WriteString("CASH/CREDITS")
 	fmt.Fprintln(w, colored(hb.String(), cGray, color))
 	for _, l := range lines {
 		head := pad(l.head, headW) + "  "
@@ -229,10 +229,16 @@ func placeholderCell(color bool) string {
 }
 
 // cashSegment renders a balance window: "¥406.39", optionally " / limit".
+// Windows without a currency symbol carry a plain unit from their Title
+// (e.g. Cursor credits → "17649.00 / 40000.00 credits") so the column is
+// self-describing.
 func cashSegment(win model.RateWindow, color bool) string {
 	seg := money(*win.Used, win.Currency)
 	if win.Limit != nil {
 		seg += colored(" / "+money(*win.Limit, win.Currency), cGray, color)
+	}
+	if win.Currency == "" && win.Title != "" {
+		seg += colored(" "+strings.ToLower(win.Title), cGray, color)
 	}
 	return seg
 }
