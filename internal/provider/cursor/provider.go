@@ -70,14 +70,15 @@ func (*cursorProvider) AuthSpec() provider.AuthSpec {
 	}
 }
 
-// DeclaredWindows exposes the Monthly plan-usage lane plus the two server
-// buckets (Auto / API) that remain visible in JSON output.
+// DeclaredWindows exposes the Monthly plan-usage lane (API bucket — the
+// consumption that depletes a named-model plan) plus the Total and Auto
+// buckets that remain visible in JSON output.
 func (*cursorProvider) DeclaredWindows() []provider.WindowSpec {
 	monthly := monthlyWindowMinutes
 	return []provider.WindowSpec{
 		{ID: "primary", Title: "Monthly", WindowMinutes: &monthly, Kind: provider.PercentWindow},
+		{ID: "total", Title: "Total", Kind: provider.PercentWindow},
 		{ID: "auto", Title: "Auto", Kind: provider.PercentWindow},
-		{ID: "api", Title: "API", Kind: provider.PercentWindow},
 	}
 }
 

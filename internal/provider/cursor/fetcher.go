@@ -113,10 +113,14 @@ func (p *cursorProvider) fetchUsage(ctx context.Context, token string) (*usageDa
 }
 
 // toModel projects the usage payload onto the leeway snapshot. The billing
-// cycle end is the reset time; the Monthly window carries the server-computed
-// total percent. Auto/API buckets are kept as extra percent windows (JSON
-// only — the table projects one canonical window per period). The remaining/
-// limit balance renders as the cash lane.
+// cycle end is the reset time. Cursor splits usage into two buckets — the
+// Auto bucket (composer/default models) and the API bucket (explicitly
+// selected / API models). leeway surfaces the bucket the user actually pays
+// through: the primary Monthly window carries the API-bucket percent (named
+// model usage), since Cursor's own dashboard labels that lane
+// "You've used X% of your included API usage". The total and auto buckets
+// stay as extra windows (JSON only — the table projects one canonical
+// window per period). The remaining/limit balance renders as the cash lane.
 func (d *usageData) toModel(account string, now time.Time) *model.Snapshot {
 	monthly := monthlyWindowMinutes
 	snap := &model.Snapshot{
@@ -125,22 +129,24 @@ func (d *usageData) toModel(account string, now time.Time) *model.Snapshot {
 		Windows:   []model.RateWindow{},
 	}
 
-	total := d.PlanUsage.TotalPercent
+	// Primary lane: the API bucket, i.e. named-model / self-selected model
+	// usage — the consumption that actually depletes a named-model plan.
+	api := d.PlanUsage.APIPercentUsed
 	snap.Windows = append(snap.Windows, model.RateWindow{
 		ID:            "primary",
 		Title:         "Monthly",
-		UsedPercent:   &total,
+		UsedPercent:   &api,
 		ResetsAt:      millisToTime(d.BillingCycleEnd),
 		WindowMinutes: &monthly,
 	})
 
+	total := d.PlanUsage.TotalPercent
 	auto := d.PlanUsage.AutoPercentUsed
-	api := d.PlanUsage.APIPercentUsed
 	snap.Windows = append(snap.Windows, model.RateWindow{
-		ID: "auto", Title: "Auto", UsedPercent: &auto,
+		ID: "total", Title: "Total", UsedPercent: &total,
 	})
 	snap.Windows = append(snap.Windows, model.RateWindow{
-		ID: "api", Title: "API", UsedPercent: &api,
+		ID: "auto", Title: "Auto", UsedPercent: &auto,
 	})
 
 	if d.PlanUsage.Limit > 0 {

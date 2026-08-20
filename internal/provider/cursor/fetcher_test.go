@@ -62,12 +62,12 @@ func TestFetchOK(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(snap.Windows) < 3 {
-		t.Fatalf("expected >=3 windows, got %d", len(snap.Windows))
+	if len(snap.Windows) < 4 {
+		t.Fatalf("expected >=4 windows, got %d", len(snap.Windows))
 	}
 	primary := snap.Windows[0]
-	if primary.UsedPercent == nil || *primary.UsedPercent != 8.7684 {
-		t.Fatalf("primary percent = %v, want 8.7684", primary.UsedPercent)
+	if primary.UsedPercent == nil || *primary.UsedPercent != 43.842 {
+		t.Fatalf("primary (API bucket) percent = %v, want 43.842", primary.UsedPercent)
 	}
 	if primary.ResetsAt == nil {
 		t.Fatal("expected billing cycle end as resetsAt")
@@ -80,9 +80,13 @@ func TestFetchOK(t *testing.T) {
 		t.Fatalf("primary windowMinutes = %v", primary.WindowMinutes)
 	}
 
-	api := snap.Windows[2]
-	if api.UsedPercent == nil || *api.UsedPercent != 43.842 {
-		t.Fatalf("api percent = %v, want 43.842", api.UsedPercent)
+	total := snap.Windows[1]
+	if total.UsedPercent == nil || *total.UsedPercent != 8.7684 {
+		t.Fatalf("total percent = %v, want 8.7684", total.UsedPercent)
+	}
+	auto := snap.Windows[2]
+	if auto.UsedPercent == nil || *auto.UsedPercent != 0 {
+		t.Fatalf("auto percent = %v, want 0", auto.UsedPercent)
 	}
 
 	var credits *float64
