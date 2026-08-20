@@ -249,7 +249,16 @@ func TestRenderTableUnclassifiedPercentOmittedFromCash(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if strings.Contains(s, "Credits") || strings.Contains(s, "100%") {
+	// The unclassified percent window must not leak into the data area as
+	// cash/credits. The header row legitimately contains "Credits" now
+	// (CASH/Credits), so scan the provider data line instead of the whole
+	// table. The Custom row is the last line; take everything after it.
+	if i := strings.LastIndex(s, "Custom"); i >= 0 {
+		row := s[i:]
+		if strings.Contains(row, "Credits") || strings.Contains(row, "100%") {
+			t.Fatalf("unclassified quota must not appear in cash/credits:\n%s", s)
+		}
+	} else if strings.Contains(s, "Credits") || strings.Contains(s, "100%") {
 		t.Fatalf("unclassified quota must not appear in cash/credits:\n%s", s)
 	}
 	if strings.Count(s, "—") != 3 {
