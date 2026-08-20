@@ -43,7 +43,7 @@ func TestRenderTablePercentWindow(t *testing.T) {
 	if !strings.Contains(s, "Kimi Code") {
 		t.Fatalf("provider head missing:\n%s", s)
 	}
-	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "CASH"} {
+	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "CASH/Credits"} {
 		if !strings.Contains(s, col) {
 			t.Fatalf("header column %q missing:\n%s", col, s)
 		}

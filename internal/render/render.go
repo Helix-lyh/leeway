@@ -118,7 +118,7 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 	for i, h := range header {
 		hb.WriteString(pad(h, colW[i]) + "  ")
 	}
-	hb.WriteString("CASH")
+	hb.WriteString("CASH/Credits")
 	fmt.Fprintln(w, colored(hb.String(), cGray, color))
 	for _, l := range lines {
 		head := pad(l.head, headW) + "  "
