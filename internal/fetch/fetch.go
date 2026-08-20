@@ -149,14 +149,9 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 
 	for _, p := range providers {
 		if !cfg.IsEnabled(p.ID()) {
-			res := model.ProviderResult{
-				ID: p.ID(), DisplayName: p.DisplayName(), Status: "disabled", UpdatedAt: time.Now(),
-			}
-			// The provider goroutines below append under mu; the disabled
-			// branch must too, or both sides race on the same slice.
-			mu.Lock()
-			out.Providers = append(out.Providers, res)
-			mu.Unlock()
+			// Disabled providers are omitted entirely: no data is probed and
+			// no placeholder row is emitted, so `leeway usage` only shows the
+			// providers the user actually wants monitored.
 			continue
 		}
 		wg.Add(1)
