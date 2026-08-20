@@ -495,7 +495,7 @@ func cookieClear(args []string) int {
 
 func runConfig(args []string) int {
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "config: subcommand required (path|set-api-key|keys)")
+		fmt.Fprintln(os.Stderr, "config: subcommand required (path|set-api-key|set-auth-file|keys)")
 		return 2
 	}
 	switch args[0] {
@@ -504,12 +504,44 @@ func runConfig(args []string) int {
 		return 0
 	case "set-api-key":
 		return configSetAPIKey(args[1:])
+	case "set-auth-file":
+		return configSetAuthFile(args[1:])
 	case "keys":
 		return configKeys(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "config: unknown subcommand %q\n", args[0])
 		return 2
 	}
+}
+
+// configSetAuthFile binds a session-file override (e.g. grok's auth.json) to
+// a named account so one provider can track several CLI sessions. The value
+// is plain text (a path), so it is echoed back like the keys listing.
+func configSetAuthFile(args []string) int {
+	var (
+		providerID string
+		account    string
+		authFile   string
+	)
+	fs := newFlagSet("config set-auth-file", nil)
+	fs.StringVar(&providerID, "provider", "", "provider ID")
+	fs.StringVar(&account, "account", "", "named account to bind the session file to")
+	fs.StringVar(&authFile, "auth-file", "", "session file path (tilde-expanded), e.g. ~/.grok-acc2/auth.json")
+	if !fs.Parse(args) || providerID == "" || account == "" || authFile == "" {
+		fmt.Fprintln(os.Stderr, "usage: leeway config set-auth-file --provider ID --account NAME --auth-file PATH")
+		return 2
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		return 2
+	}
+	if err := cfg.SetAccountAuthFile(providerID, account, authFile); err != nil {
+		fmt.Fprintln(os.Stderr, "config save:", err)
+		return 2
+	}
+	fmt.Printf("saved auth-file %q for account %q of %q\n", authFile, account, providerID)
+	return 0
 }
 
 func configSetAPIKey(args []string) int {

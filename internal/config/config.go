@@ -10,15 +10,16 @@ import (
 )
 
 // ProviderIDs are the built-in providers (registry order-independent).
-var ProviderIDs = []string{"deepseek", "kimi", "grok", "codex", "opencode-go"}
+var ProviderIDs = []string{"deepseek", "kimi", "grok", "codex", "opencode-go", "cursor"}
 
 type AccountConfig struct {
 	Name               string `json:"name"`
 	CookieSource       string `json:"cookieSource,omitempty"`
 	ManualCookieHeader string `json:"manualCookieHeader,omitempty"`
 	WorkspaceID        string `json:"workspaceID,omitempty"`
-	Profile            string `json:"profile,omitempty"` // Chrome profile this account's session lives in
-	APIKey             string `json:"apiKey,omitempty"`  // API-key subscription (opencode-go); overrides provider-level key
+	Profile            string `json:"profile,omitempty"`   // Chrome profile this account's session lives in
+	APIKey             string `json:"apiKey,omitempty"`    // API-key subscription (opencode-go); overrides provider-level key
+	AuthFile           string `json:"authFile,omitempty"`  // provider-owned session file override (grok); tilde-expanded
 }
 
 // KeyTarget is where `leeway use` writes the active subscription's API key:
@@ -190,6 +191,22 @@ func (c *Config) SetAccountKey(id, name, key string) error {
 		}
 	}
 	pc.Accounts = append(pc.Accounts, AccountConfig{Name: name, APIKey: key})
+	c.Providers[id] = pc
+	return c.Save()
+}
+
+// SetAccountAuthFile stores a session-file override on a named account
+// (grok multi-account), creating the account entry if needed, and persists.
+func (c *Config) SetAccountAuthFile(id, name, authFile string) error {
+	pc := c.Provider(id)
+	for i := range pc.Accounts {
+		if pc.Accounts[i].Name == name {
+			pc.Accounts[i].AuthFile = authFile
+			c.Providers[id] = pc
+			return c.Save()
+		}
+	}
+	pc.Accounts = append(pc.Accounts, AccountConfig{Name: name, AuthFile: authFile})
 	c.Providers[id] = pc
 	return c.Save()
 }

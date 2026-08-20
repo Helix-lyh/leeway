@@ -110,6 +110,12 @@ func HasCredentials(p provider.Provider, creds provider.Credentials) bool {
 	if spec.UsesCodexCLI && creds.CodexAuth != nil && creds.CodexAuth.AccessToken != "" {
 		return true
 	}
+	if spec.UsesKeychain {
+		// The provider resolves its token from the macOS keychain itself;
+		// treat it as provisionally present and let Fetch report the real
+		// failure (missing/expired) so the error carries a login hint.
+		return true
+	}
 	for _, f := range spec.LocalAuthFiles {
 		if path, err := provider.HomePath(f); err == nil {
 			if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
@@ -214,7 +220,7 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 
 			ar := model.AccountResult{Name: acc.Name, Status: "not_configured"}
 			if !hasCreds {
-				if acc.ManualCookieHeader == "" && acc.APIKey == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil {
+				if acc.ManualCookieHeader == "" && acc.APIKey == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil && !p.AuthSpec().UsesKeychain {
 					ar.Error = missingCredentialHint(p.ID(), p.AuthSpec())
 					results[i] = accResult{acc, ar}
 					return
@@ -223,6 +229,12 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 			req := provider.FetchRequest{Creds: creds, Account: acc.Name}
 			if acc.WorkspaceID != "" {
 				req.Extra = map[string]string{"workspaceID": acc.WorkspaceID}
+			}
+			if acc.AuthFile != "" {
+				if req.Extra == nil {
+					req.Extra = map[string]string{}
+				}
+				req.Extra["authFile"] = acc.AuthFile
 			}
 			req.Creds = overlayAccountCreds(creds, acc, resolveAccountCookie(p.ID(), cfg, acc, creds.CookieHeader))
 
@@ -291,6 +303,8 @@ func resolveAccountCookie(providerID string, cfg *config.Config, acc config.Acco
 
 func missingCredentialHint(id string, spec provider.AuthSpec) string {
 	switch {
+	case spec.UsesKeychain:
+		return "missing Cursor token — set CURSOR_ACCESS_TOKEN, or: leeway config set-api-key --provider cursor --account NAME (or sign in with the Cursor CLI)"
 	case len(spec.EnvAPIKey) > 0 && spec.UsesCookies:
 		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key --provider %s --account NAME (or: leeway cookie import --provider %s)", spec.EnvAPIKey[0], id, id)
 	case len(spec.EnvAPIKey) > 0:

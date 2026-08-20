@@ -27,7 +27,7 @@ func TestLoadGrokSessionPrefersOIDC(t *testing.T) {
   "https://auth.x.ai::scope1": {"key": "oidc-key", "refresh_token": "rt", "expires_at": "2099-01-01T00:00:00Z", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "cid"},
   "https://legacy.example::s": {"key": "legacy-key"}
 }`)
-	sess, err := loadGrokSession()
+	sess, err := loadGrokSession("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,8 +38,47 @@ func TestLoadGrokSessionPrefersOIDC(t *testing.T) {
 
 func TestLoadGrokSessionMissingFile(t *testing.T) {
 	t.Setenv("GROK_HOME", t.TempDir())
-	if _, err := loadGrokSession(); err == nil {
+	if _, err := loadGrokSession(""); err == nil {
 		t.Fatal("expected error for missing auth.json")
+	}
+}
+
+// TestLoadGrokSessionAuthFile verifies the multi-account override: an
+// explicit authFile path wins over GROK_HOME and loads a distinct session.
+func TestLoadGrokSessionAuthFile(t *testing.T) {
+	defDir := t.TempDir()
+	t.Setenv("GROK_HOME", defDir)
+	writeGrokAuth(t, defDir, `{
+  "https://auth.x.ai::default": {"key": "default-key", "refresh_token": "rt", "expires_at": "2099-01-01T00:00:00Z", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "cid"}
+}`)
+	altDir := t.TempDir()
+	writeGrokAuth(t, altDir, `{
+  "https://auth.x.ai::alt": {"key": "alt-key", "refresh_token": "rt2", "expires_at": "2099-01-01T00:00:00Z", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "cid"}
+}`)
+
+	def, err := loadGrokSession("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.entry.Key != "default-key" {
+		t.Fatalf("default session: expected default-key, got %q", def.entry.Key)
+	}
+
+	altFile := filepath.Join(altDir, "auth.json")
+	alt, err := loadGrokSession(altFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alt.entry.Key != "alt-key" {
+		t.Fatalf("alt session: expected alt-key, got %q", alt.entry.Key)
+	}
+	if alt.path != altFile {
+		t.Fatalf("alt session path = %q, want %q", alt.path, altFile)
+	}
+
+	// Missing override file yields an error naming the path.
+	if _, err := loadGrokSession(filepath.Join(t.TempDir(), "auth.json")); err == nil {
+		t.Fatal("expected error for missing authFile")
 	}
 }
 
@@ -88,7 +127,7 @@ func TestGrokRefreshAndWriteBack(t *testing.T) {
   "https://auth.x.ai::scope1": {"key": "old-key", "refresh_token": "rt-1", "expires_at": "2026-08-06T11:00:00Z", "oidc_issuer": "`+srv.URL+`", "oidc_client_id": "cid"},
   "other": {"key": "keep-me"}
 }`)
-	sess, err := loadGrokSession()
+	sess, err := loadGrokSession("")
 	if err != nil {
 		t.Fatal(err)
 	}

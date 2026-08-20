@@ -39,6 +39,7 @@ type AuthSpec struct {
 	CookieDomains    []string // e.g. ["grok.com"]
 	CookieFallbacks  []string // extra auth fallbacks surfaced by doctor, e.g. "kimi-desktop"
 	UsesCodexCLI     bool     // reuse ~/.codex/auth.json session
+	UsesKeychain     bool     // provider resolves its token from the macOS keychain itself (cursor)
 	LocalAuthFiles   []string // provider-owned CLI session files (e.g. "~/.grok/auth.json"), resolved by the provider itself
 	LoginHint        string   // command to restore the session, e.g. "run: grok login"
 	SupportsAccounts bool     // per-account fetch loop (opencode-go)

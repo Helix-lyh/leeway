@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"leeway/internal/provider"
 )
 
 // grokHomeDir returns ~/.grok (GROK_HOME overrides, tilde-expanded), mirroring
@@ -55,21 +57,37 @@ type grokSessionEntry struct {
 // grokSession pairs a selected entry with its scope key in the file so a
 // refreshed entry can be written back to the right slot.
 type grokSession struct {
+	path  string // auth.json path this entry was loaded from (write-back target)
 	scope string
 	entry *grokSessionEntry
+}
+
+// sessionPath resolves the auth.json to read: an explicit authFile (account
+// override, tilde-expanded) wins, otherwise $GROK_HOME/auth.json, else
+// ~/.grok/auth.json.
+func sessionPath(authFile string) (string, error) {
+	if authFile != "" {
+		return provider.HomePath(authFile)
+	}
+	dir, err := grokHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "auth.json"), nil
 }
 
 // loadGrokSession reads the auth file and selects the usable entry: the OIDC
 // scope entry (prefix "https://auth.x.ai::") is preferred, otherwise the
 // first entry carrying a non-empty key (GrokAuth selection semantics).
-func loadGrokSession() (*grokSession, error) {
-	dir, err := grokHomeDir()
+// authFile overrides the default location for multi-account setups.
+func loadGrokSession(authFile string) (*grokSession, error) {
+	p, err := sessionPath(authFile)
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "auth.json"))
+	raw, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, errors.New("grok auth.json not found — run: grok login")
+		return nil, fmt.Errorf("grok auth.json not found (%s) — run: grok login", p)
 	}
 	if err != nil {
 		return nil, err
@@ -85,11 +103,11 @@ func loadGrokSession() (*grokSession, error) {
 			continue
 		}
 		if strings.HasPrefix(scope, "https://auth.x.ai::") {
-			oidc = &grokSession{scope: scope, entry: &e}
+			oidc = &grokSession{path: p, scope: scope, entry: &e}
 			break
 		}
 		if first == nil {
-			first = &grokSession{scope: scope, entry: &e}
+			first = &grokSession{path: p, scope: scope, entry: &e}
 		}
 	}
 	if oidc != nil {
@@ -163,16 +181,19 @@ func (s *grokSession) refresh(ctx context.Context) error {
 	return s.writeBack()
 }
 
-// writeBack replaces the selected entry in ~/.grok/auth.json, preserving all
+// writeBack replaces the selected entry in its auth.json, preserving all
 // other entries, then restores 0600 permissions. The write is atomic (temp
 // file + rename) so a crash mid-write cannot truncate the session file the
 // grok CLI itself depends on.
 func (s *grokSession) writeBack() error {
-	dir, err := grokHomeDir()
-	if err != nil {
-		return err
+	p := s.path
+	if p == "" {
+		dir, err := grokHomeDir()
+		if err != nil {
+			return err
+		}
+		p = filepath.Join(dir, "auth.json")
 	}
-	p := filepath.Join(dir, "auth.json")
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		return err
@@ -226,8 +247,9 @@ func writeFileAtomic(path string, data []byte) error {
 // bearerTokenFromLocalSession returns a usable bearer token for the web
 // billing call, refreshing when needed. Errors carry a re-login hint. ctx
 // bounds the refresh request so a hung OIDC issuer cannot block the fetch.
-func bearerTokenFromLocalSession(ctx context.Context, now time.Time) (string, error) {
-	sess, err := loadGrokSession()
+// authFile overrides the default auth.json location (multi-account setups).
+func bearerTokenFromLocalSession(ctx context.Context, now time.Time, authFile string) (string, error) {
+	sess, err := loadGrokSession(authFile)
 	if err != nil {
 		return "", err
 	}

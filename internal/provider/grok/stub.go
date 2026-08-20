@@ -36,10 +36,11 @@ func (*grokProvider) ID() string          { return "grok" }
 func (*grokProvider) DisplayName() string { return "Grok" }
 func (*grokProvider) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
-		UsesCookies:    true,
-		CookieDomains:  []string{"grok.com"},
-		LocalAuthFiles: []string{"~/.grok/auth.json"},
-		LoginHint:      "run: grok login",
+		UsesCookies:      true,
+		CookieDomains:    []string{"grok.com"},
+		LocalAuthFiles:   []string{"~/.grok/auth.json"},
+		LoginHint:        "run: grok login",
+		SupportsAccounts: true, // per-account auth.json via account.authFile
 	}
 }
 
@@ -55,7 +56,9 @@ func (*grokProvider) DeclaredWindows() []provider.WindowSpec {
 
 // Fetch probes grok.com web billing with the resolved cookie header, falling
 // back to the `grok login` local session (OIDC bearer, refreshed when
-// expired), and returns the shared weekly subscription window.
+// expired), and returns the shared weekly subscription window. When the
+// account declares an authFile (req.Extra["authFile"]), that session file is
+// used instead of the default ~/.grok/auth.json — multi-account support.
 func (g *grokProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*model.Snapshot, error) {
 	var snap billingSnapshot
 	var err error
@@ -63,7 +66,7 @@ func (g *grokProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*m
 	case req.Creds.CookieHeader != "":
 		snap, err = fetchWebBilling(ctx, req.Creds.CookieHeader, "", g.client, g.now())
 	default:
-		bearer, lerr := bearerTokenFromLocalSession(ctx, g.now())
+		bearer, lerr := bearerTokenFromLocalSession(ctx, g.now(), req.Extra["authFile"])
 		if lerr != nil {
 			// Classify local-session failures (missing/expired/unrefreshable)
 			// as missing credentials so callers can distinguish them.
