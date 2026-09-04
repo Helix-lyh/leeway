@@ -19,22 +19,18 @@ import (
 
 // subscription is the parsed usage state, mirroring OpenCodeGoUsageSnapshot.
 type subscription struct {
-	isBalanceOnly   bool
-	hasWeeklyUsage  bool
-	hasMonthlyUsage bool
-	rollingPercent  float64
-	weeklyPercent   float64
-	monthlyPercent  float64
-	rollingResetSec int
-	weeklyResetSec  int
-	monthlyResetSec int
-	rollingLimited  bool
-	weeklyLimited   bool
-	monthlyLimited  bool
-	renewsAt        *time.Time
+	isBalanceOnly bool
+	rolling       parsedWindow
+	weekly        *parsedWindow
+	monthly       *parsedWindow
+	renewsAt      *time.Time
 }
 
 func balanceOnly() *subscription { return &subscription{isBalanceOnly: true} }
+
+func newSubscription(rolling parsedWindow, weekly, monthly *parsedWindow, renewsAt *time.Time) *subscription {
+	return &subscription{rolling: rolling, weekly: weekly, monthly: monthly, renewsAt: renewsAt}
+}
 
 // parsedWindow is the normalized (percent, resetInSec, rateLimited) of one
 // window dict.
@@ -101,30 +97,23 @@ func parseAPIUsage(text string, now time.Time) (*subscription, error) {
 	if !ok {
 		return nil, parseErrorf("Missing usage fields.")
 	}
-	sub := &subscription{}
+	var rolling parsedWindow
+	var weekly, monthly *parsedWindow
 	hasRolling := false
 	if w, ok := parseAPIWindow(usage["rolling"], now); ok {
-		sub.rollingPercent = w.percent
-		sub.rollingResetSec = w.resetInSec
-		sub.rollingLimited = w.rateLimited
+		rolling = w
 		hasRolling = true
 	}
 	if w, ok := parseAPIWindow(usage["weekly"], now); ok {
-		sub.weeklyPercent = w.percent
-		sub.weeklyResetSec = w.resetInSec
-		sub.weeklyLimited = w.rateLimited
-		sub.hasWeeklyUsage = true
+		weekly = &w
 	}
 	if w, ok := parseAPIWindow(usage["monthly"], now); ok {
-		sub.monthlyPercent = w.percent
-		sub.monthlyResetSec = w.resetInSec
-		sub.monthlyLimited = w.rateLimited
-		sub.hasMonthlyUsage = true
+		monthly = &w
 	}
 	if !hasRolling {
 		return nil, parseErrorf("Missing usage fields.")
 	}
-	return sub, nil
+	return newSubscription(rolling, weekly, monthly, nil), nil
 }
 
 // parseAPIWindow parses one lane of the subscription usage gateway response.
@@ -314,22 +303,15 @@ func parseUsageFromCandidates(object any, now time.Time, inherited *time.Time) *
 		renewsAt = inherited
 	}
 
-	sub := &subscription{
-		hasWeeklyUsage:  weekly != nil,
-		hasMonthlyUsage: monthly != nil,
-		rollingPercent:  rolling.percent,
-		rollingResetSec: rolling.resetInSec,
-		renewsAt:        renewsAt,
-	}
+	rw := parsedWindow{percent: rolling.percent, resetInSec: rolling.resetInSec}
+	var weeklyW, monthlyW *parsedWindow
 	if weekly != nil {
-		sub.weeklyPercent = weekly.percent
-		sub.weeklyResetSec = weekly.resetInSec
+		weeklyW = &parsedWindow{percent: weekly.percent, resetInSec: weekly.resetInSec}
 	}
 	if monthly != nil {
-		sub.monthlyPercent = monthly.percent
-		sub.monthlyResetSec = monthly.resetInSec
+		monthlyW = &parsedWindow{percent: monthly.percent, resetInSec: monthly.resetInSec}
 	}
-	return sub
+	return newSubscription(rw, weeklyW, monthlyW, renewsAt)
 }
 
 func idOrZero(w *windowCandidate) uint64 {
@@ -433,22 +415,7 @@ func buildSnapshot(rolling, weekly, monthly map[string]any, now time.Time, renew
 			monthlyWindow = &w
 		}
 	}
-	sub := &subscription{
-		hasWeeklyUsage:  weeklyWindow != nil,
-		hasMonthlyUsage: monthlyWindow != nil,
-		rollingPercent:  rw.percent,
-		rollingResetSec: rw.resetInSec,
-		renewsAt:        renewsAt,
-	}
-	if weeklyWindow != nil {
-		sub.weeklyPercent = weeklyWindow.percent
-		sub.weeklyResetSec = weeklyWindow.resetInSec
-	}
-	if monthlyWindow != nil {
-		sub.monthlyPercent = monthlyWindow.percent
-		sub.monthlyResetSec = monthlyWindow.resetInSec
-	}
-	return sub
+	return newSubscription(rw, weeklyWindow, monthlyWindow, renewsAt)
 }
 
 // parseWindow mirrors parseWindow: a direct percent field (fraction <= 1
@@ -532,21 +499,14 @@ func parseSubscriptionRegex(text string, now time.Time) (*subscription, error) {
 	monthlyReset, okM2 := extractInt(monthlyResetRegex, text)
 	hasMonthly := okM1 && okM2
 
-	sub := &subscription{
-		hasWeeklyUsage:  hasWeekly,
-		hasMonthlyUsage: hasMonthly,
-		rollingPercent:  rollingPercent,
-		rollingResetSec: rollingReset,
-	}
+	var weekly, monthly *parsedWindow
 	if hasWeekly {
-		sub.weeklyPercent = weeklyPercent
-		sub.weeklyResetSec = weeklyReset
+		weekly = &parsedWindow{percent: weeklyPercent, resetInSec: weeklyReset}
 	}
 	if hasMonthly {
-		sub.monthlyPercent = monthlyPercent
-		sub.monthlyResetSec = monthlyReset
+		monthly = &parsedWindow{percent: monthlyPercent, resetInSec: monthlyReset}
 	}
-	return sub, nil
+	return newSubscription(parsedWindow{percent: rollingPercent, resetInSec: rollingReset}, weekly, monthly, nil), nil
 }
 
 // usageFieldsPresent mirrors the guard in fetchUsagePage.

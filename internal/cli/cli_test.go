@@ -15,6 +15,7 @@ import (
 	// Provider registration side effects (each stub registers itself in init),
 	// mirroring cmd/leeway/main.go.
 	_ "leeway/internal/provider/codex"
+	_ "leeway/internal/provider/commandcode"
 	_ "leeway/internal/provider/deepseek"
 	_ "leeway/internal/provider/grok"
 	_ "leeway/internal/provider/kimi"
@@ -37,6 +38,7 @@ func isolateEnv(t *testing.T) {
 		"DEEPSEEK_API_KEY", "DEEPSEEK_KEY",
 		"KIMI_CODE_API_KEY", "KIMI_AUTH_TOKEN", "kimi_auth_token",
 		"OPENCODE_GO_API_KEY",
+		"COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY",
 	} {
 		t.Setenv(k, "")
 	}
@@ -72,6 +74,18 @@ func TestExitCodeFor(t *testing.T) {
 	}
 }
 
+func TestRootHelpMentionsSubscriptions(t *testing.T) {
+	if !strings.Contains(usageText, "leeway auth status") {
+		t.Fatal("root help should show auth status")
+	}
+	if !strings.Contains(usageText, "把某个订阅的 key 写给 DSH") {
+		t.Fatal("root help should distinguish leeway use from usage --account")
+	}
+	if !strings.Contains(authHelp, "opencode-go") || !strings.Contains(authHelp, "commandcode") {
+		t.Fatal("auth help should list API-key providers")
+	}
+}
+
 func TestRunDispatch(t *testing.T) {
 	isolateEnv(t)
 	cases := []struct {
@@ -82,6 +96,12 @@ func TestRunDispatch(t *testing.T) {
 		{"no args", nil, 2},
 		{"unknown command", []string{"frobnicate"}, 2},
 		{"help", []string{"help"}, 0},
+		{"help auth", []string{"help", "auth"}, 0},
+		{"help unknown", []string{"help", "nope"}, 2},
+		{"auth no args", []string{"auth"}, 2},
+		{"auth -h", []string{"auth", "-h"}, 0},
+		{"config -h", []string{"config", "-h"}, 0},
+		{"cookie -h", []string{"cookie", "-h"}, 0},
 		{"cookie set without manual", []string{"cookie", "set"}, 2},
 		{"cookie unknown subcommand", []string{"cookie", "bogus"}, 2},
 		{"config unknown subcommand", []string{"config", "bogus"}, 2},
@@ -93,6 +113,39 @@ func TestRunDispatch(t *testing.T) {
 		if got := Run(c.args); got != c.want {
 			t.Errorf("%s: Run(%v) = %d, want %d", c.name, c.args, got, c.want)
 		}
+	}
+}
+
+func TestAuthStatusListsCursorSessions(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", dir)
+	p, err := auth.CursorAuthFile("lymysql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(`{"accessToken":"tok"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	code := Run([]string{"auth", "status"})
+	w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	if code != 0 {
+		t.Fatalf("auth status = %d", code)
+	}
+	if !strings.Contains(string(out), "lymysql") {
+		t.Fatalf("status missing session account:\n%s", out)
 	}
 }
 
@@ -239,6 +292,50 @@ func TestRunConfigKeysMarksActive(t *testing.T) {
 	}
 	if !active["work"] || active["personal"] {
 		t.Fatalf("active map = %v, want work only", active)
+	}
+}
+
+func TestDoctorKimiAuthToken(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("KIMI_AUTH_TOKEN", "tok")
+	out, _ := captureStdout(t, func() int {
+		return Run([]string{"doctor", "--json"})
+	})
+	var checks []struct {
+		Provider string `json:"provider"`
+		Check    string `json:"check"`
+		OK       bool   `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	var tokenOK bool
+	for _, c := range checks {
+		if c.Provider != "Kimi Code" {
+			continue
+		}
+		if c.Check == "auth token" && c.OK {
+			tokenOK = true
+		}
+		if (c.Check == "api key" || c.Check == "cookies") && !c.OK {
+			t.Fatalf("Kimi %s should not be shown as failing when auth token is ok:\n%s", c.Check, out)
+		}
+	}
+	if !tokenOK {
+		t.Fatalf("Kimi auth token should be ok:\n%s", out)
+	}
+}
+
+func TestCookieImportRemovesCorruptCache(t *testing.T) {
+	isolateEnv(t)
+	cache := filepath.Join(os.Getenv("LEEWAY_CACHE"), "cookies.json")
+	if err := os.WriteFile(cache, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = Run([]string{"cookie", "import", "--provider", "grok"})
+	raw, err := os.ReadFile(cache)
+	if err == nil && string(raw) == "{not json" {
+		t.Fatal("corrupt cookies.json must be removed before import continues")
 	}
 }
 

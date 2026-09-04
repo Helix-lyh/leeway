@@ -8,6 +8,7 @@ import (
 	"os"
 
 	_ "leeway/internal/provider/codex"
+	_ "leeway/internal/provider/commandcode"
 	_ "leeway/internal/provider/cursor"
 	_ "leeway/internal/provider/deepseek"
 	_ "leeway/internal/provider/grok"

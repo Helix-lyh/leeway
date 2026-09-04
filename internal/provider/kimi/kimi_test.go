@@ -541,6 +541,31 @@ func TestFetchMissingCredentials(t *testing.T) {
 	}
 }
 
+func TestFetchUnreadableLocalSessionHint(t *testing.T) {
+	// A present-but-unreadable CLI session must keep its parse/token hint
+	// instead of falling through to the generic missing-token error.
+	dir := t.TempDir()
+	credDir := dir + "/credentials"
+	if err := os.MkdirAll(credDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(credDir+"/kimi-code.json", []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := newTestProviderHome(t, defaultHandler(t), dir)
+	_, err := p.Fetch(context.Background(), provider.FetchRequest{Creds: provider.Credentials{}})
+	if err == nil {
+		t.Fatal("expected an error from the unreadable local session")
+	}
+	if !strings.Contains(err.Error(), "parsing kimi-code.json") && !strings.Contains(err.Error(), "no access_token") {
+		t.Fatalf("err = %v, want parsing kimi-code.json or no access_token", err)
+	}
+	var kerr *Error
+	if errors.As(err, &kerr) && kerr.Kind == KindMissingToken {
+		t.Fatalf("err = %v, must not be KindMissingToken", err)
+	}
+}
+
 func TestFetchExpiredLocalSessionHint(t *testing.T) {
 	// A present-but-expired CLI session must surface its own hint instead of
 	// the generic missing-token error.

@@ -45,8 +45,8 @@ func TestLoadSaveRoundTrip(t *testing.T) {
 func TestAccountsFallback(t *testing.T) {
 	cfg := Default()
 	accs := cfg.Accounts("opencode-go")
-	if len(accs) != 1 || accs[0].Name != "default" {
-		t.Fatalf("expected implicit default account, got %+v", accs)
+	if len(accs) != 0 {
+		t.Fatalf("expected no implicit default account, got %+v", accs)
 	}
 	cfg.Providers["opencode-go"] = ProviderConfig{
 		Accounts: []AccountConfig{{Name: "work", WorkspaceID: "ws_1"}, {Name: "personal"}},
@@ -102,6 +102,54 @@ func TestSetAccountKeyCreatesAndUpdates(t *testing.T) {
 	}
 	if _, ok := cfg2.Account("opencode-go", "default"); ok {
 		t.Fatal("api-key-only first account must not invent a cookie default")
+	}
+}
+
+func TestAccountMatchesNameOrEmail(t *testing.T) {
+	a := AccountConfig{Name: "work", Email: "alice@example.com"}
+	if !a.Matches("work") || !a.Matches("WORK") || !a.Matches("alice@example.com") {
+		t.Fatalf("tag/email should match: %+v", a)
+	}
+	if a.Matches("") || a.Matches("other") {
+		t.Fatal("empty/other must not match")
+	}
+}
+
+func TestDropDefaultAccounts(t *testing.T) {
+	got := DropDefaultAccounts([]AccountConfig{{Name: "default"}, {Name: "work"}})
+	if len(got) != 1 || got[0].Name != "work" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+func TestMergeNamedAccounts(t *testing.T) {
+	base := []AccountConfig{{Name: "default"}}
+	got := MergeNamedAccounts(base, []string{"lymysql", "default", "codesmallstar"})
+	if len(got) != 3 || got[1].Name != "lymysql" || got[2].Name != "codesmallstar" {
+		t.Fatalf("got %+v", got)
+	}
+	tagged := []AccountConfig{{Name: "work", Email: "a@b.com"}}
+	got = MergeNamedAccounts(tagged, []string{"work", "a@b.com", "home"})
+	if len(got) != 2 || got[1].Name != "home" {
+		t.Fatalf("email/name dedupe: %+v", got)
+	}
+}
+
+func TestSetAccountEmailAndRemove(t *testing.T) {
+	t.Setenv("LEEWAY_CONFIG", filepath.Join(t.TempDir(), "config.json"))
+	cfg := Default()
+	if err := cfg.SetAccountEmail("cursor", "work", "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	acc, ok := cfg.Account("cursor", "alice@example.com")
+	if !ok || acc.Name != "work" || acc.Email != "alice@example.com" {
+		t.Fatalf("lookup by email: %+v ok=%v", acc, ok)
+	}
+	if err := cfg.RemoveAccount("cursor", "alice@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := cfg.Account("cursor", "work"); ok {
+		t.Fatal("account should be gone")
 	}
 }
 

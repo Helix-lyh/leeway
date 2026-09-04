@@ -93,7 +93,7 @@ func (p *opencodeGo) Fetch(ctx context.Context, req provider.FetchRequest) (*mod
 	// Resolve the workspace ID: configured value wins, otherwise the server
 	// tells us (mirrors fetchUsage's workspaceIDOverride ?? fetchWorkspaceID).
 	wsID := ""
-	if override := normalizeWorkspaceID(req.Extra["workspaceID"]); override != "" {
+	if override := normalizeWorkspaceID(req.WorkspaceID); override != "" {
 		wsID = override
 	} else {
 		wsID, err = p.fetchWorkspaceID(ctx, cookieHeader)
@@ -187,35 +187,35 @@ func (p *opencodeGo) buildSnapshot(sub *subscription, now time.Time, zen *float6
 		return snap
 	}
 
-	rollingReset := now.Add(time.Duration(sub.rollingResetSec) * time.Second)
+	rollingReset := now.Add(time.Duration(sub.rolling.resetInSec) * time.Second)
 	fiveHours := 5 * 60
 	snap.Windows = append(snap.Windows, model.RateWindow{
 		ID: "primary", Title: "5-hour",
-		UsedPercent:   &sub.rollingPercent,
+		UsedPercent:   &sub.rolling.percent,
 		ResetsAt:      &rollingReset,
 		WindowMinutes: &fiveHours,
-		RateLimited:   sub.rollingLimited,
+		RateLimited:   sub.rolling.rateLimited,
 	})
-	if sub.hasWeeklyUsage {
-		weeklyReset := now.Add(time.Duration(sub.weeklyResetSec) * time.Second)
+	if sub.weekly != nil {
+		weeklyReset := now.Add(time.Duration(sub.weekly.resetInSec) * time.Second)
 		week := 7 * 24 * 60
 		snap.Windows = append(snap.Windows, model.RateWindow{
 			ID: "secondary", Title: "Weekly",
-			UsedPercent:   &sub.weeklyPercent,
+			UsedPercent:   &sub.weekly.percent,
 			ResetsAt:      &weeklyReset,
 			WindowMinutes: &week,
-			RateLimited:   sub.weeklyLimited,
+			RateLimited:   sub.weekly.rateLimited,
 		})
 	}
-	if sub.hasMonthlyUsage {
-		monthlyReset := now.Add(time.Duration(sub.monthlyResetSec) * time.Second)
+	if sub.monthly != nil {
+		monthlyReset := now.Add(time.Duration(sub.monthly.resetInSec) * time.Second)
 		month := 30 * 24 * 60
 		snap.Windows = append(snap.Windows, model.RateWindow{
 			ID: "tertiary", Title: "Monthly",
-			UsedPercent:   &sub.monthlyPercent,
+			UsedPercent:   &sub.monthly.percent,
 			ResetsAt:      &monthlyReset,
 			WindowMinutes: &month,
-			RateLimited:   sub.monthlyLimited,
+			RateLimited:   sub.monthly.rateLimited,
 		})
 	}
 	if sub.renewsAt != nil {

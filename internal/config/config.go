@@ -10,16 +10,29 @@ import (
 )
 
 // ProviderIDs are the built-in providers (registry order-independent).
-var ProviderIDs = []string{"deepseek", "kimi", "grok", "codex", "opencode-go", "cursor"}
+var ProviderIDs = []string{"deepseek", "kimi", "grok", "codex", "opencode-go", "cursor", "commandcode"}
 
 type AccountConfig struct {
 	Name               string `json:"name"`
+	Email              string `json:"email,omitempty"` // real identity; --account matches this too
 	CookieSource       string `json:"cookieSource,omitempty"`
 	ManualCookieHeader string `json:"manualCookieHeader,omitempty"`
 	WorkspaceID        string `json:"workspaceID,omitempty"`
-	Profile            string `json:"profile,omitempty"`   // Chrome profile this account's session lives in
-	APIKey             string `json:"apiKey,omitempty"`    // API-key subscription (opencode-go); overrides provider-level key
-	AuthFile           string `json:"authFile,omitempty"`  // provider-owned session file override (grok); tilde-expanded
+	Profile            string `json:"profile,omitempty"`  // Chrome profile this account's session lives in
+	APIKey             string `json:"apiKey,omitempty"`   // API-key subscription (opencode-go); overrides provider-level key
+	AuthFile           string `json:"authFile,omitempty"` // provider-owned session file override (grok); tilde-expanded
+}
+
+// Matches reports whether q is this account's name (tag) or email.
+func (a AccountConfig) Matches(q string) bool {
+	q = strings.TrimSpace(q)
+	if q == "" {
+		return false
+	}
+	if strings.EqualFold(a.Name, q) {
+		return true
+	}
+	return a.Email != "" && strings.EqualFold(a.Email, q)
 }
 
 // KeyTarget is where `leeway use` writes the active subscription's API key:
@@ -135,13 +148,48 @@ func (c *Config) SetAPIKey(id, key string) error {
 	return c.Save()
 }
 
-// Accounts returns the configured accounts for a provider; falls back to the
-// implicit "default" account.
+// Accounts returns the configured accounts for a provider. Empty means none
+// were named — callers must not invent a "default" account unless the user
+// asked for it with --account default.
 func (c *Config) Accounts(id string) []AccountConfig {
 	if pc, ok := c.Providers[id]; ok && len(pc.Accounts) > 0 {
 		return pc.Accounts
 	}
-	return []AccountConfig{{Name: "default"}}
+	return nil
+}
+
+// DropDefaultAccounts removes the implicit "default" name. Named tags stay.
+func DropDefaultAccounts(accs []AccountConfig) []AccountConfig {
+	out := make([]AccountConfig, 0, len(accs))
+	for _, a := range accs {
+		if a.Name != "default" {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// MergeNamedAccounts appends extra names that are not already in base
+// (by Name or Email). Used to surface cursor session directories that
+// exist on disk but are not yet in config.json.
+func MergeNamedAccounts(base []AccountConfig, extra []string) []AccountConfig {
+	seen := map[string]bool{}
+	out := append([]AccountConfig(nil), base...)
+	for _, a := range out {
+		seen[a.Name] = true
+		if a.Email != "" {
+			seen[a.Email] = true
+		}
+	}
+	for _, name := range extra {
+		name = strings.TrimSpace(name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, AccountConfig{Name: name})
+	}
+	return out
 }
 
 // Provider returns the config entry for a provider.
@@ -158,7 +206,7 @@ func (c *Config) Provider(id string) ProviderConfig {
 func (c *Config) ManualHeader(id, account string) string {
 	if pc, ok := c.Providers[id]; ok {
 		for _, a := range pc.Accounts {
-			if a.Name == account && a.ManualCookieHeader != "" {
+			if a.Matches(account) && a.ManualCookieHeader != "" {
 				return a.ManualCookieHeader
 			}
 		}
@@ -170,13 +218,55 @@ func (c *Config) ManualHeader(id, account string) string {
 }
 
 // Account returns the named account config for a provider (ok false when absent).
+// name may be the account tag or the stored email.
 func (c *Config) Account(id, name string) (AccountConfig, bool) {
 	for _, a := range c.Providers[id].Accounts {
-		if a.Name == name {
+		if a.Matches(name) {
 			return a, true
 		}
 	}
 	return AccountConfig{}, false
+}
+
+// SetAccountEmail records the real identity on a named account, creating the
+// account if needed, and persists.
+func (c *Config) SetAccountEmail(id, name, email string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "default"
+	}
+	email = strings.TrimSpace(email)
+	pc := c.Provider(id)
+	for i := range pc.Accounts {
+		if pc.Accounts[i].Name == name {
+			pc.Accounts[i].Email = email
+			c.Providers[id] = pc
+			return c.Save()
+		}
+	}
+	pc.Accounts = append(pc.Accounts, AccountConfig{Name: name, Email: email})
+	c.Providers[id] = pc
+	return c.Save()
+}
+
+// RemoveAccount drops a named account (tag or email) from the provider.
+func (c *Config) RemoveAccount(id, name string) error {
+	pc := c.Provider(id)
+	kept := make([]AccountConfig, 0, len(pc.Accounts))
+	found := false
+	for _, a := range pc.Accounts {
+		if a.Matches(name) {
+			found = true
+			continue
+		}
+		kept = append(kept, a)
+	}
+	if !found {
+		return nil
+	}
+	pc.Accounts = kept
+	c.Providers[id] = pc
+	return c.Save()
 }
 
 // SetAccountKey stores an API key on a named account, creating the account
@@ -184,7 +274,7 @@ func (c *Config) Account(id, name string) (AccountConfig, bool) {
 func (c *Config) SetAccountKey(id, name, key string) error {
 	pc := c.Provider(id)
 	for i := range pc.Accounts {
-		if pc.Accounts[i].Name == name {
+		if pc.Accounts[i].Matches(name) {
 			pc.Accounts[i].APIKey = key
 			c.Providers[id] = pc
 			return c.Save()
@@ -200,7 +290,7 @@ func (c *Config) SetAccountKey(id, name, key string) error {
 func (c *Config) SetAccountAuthFile(id, name, authFile string) error {
 	pc := c.Provider(id)
 	for i := range pc.Accounts {
-		if pc.Accounts[i].Name == name {
+		if pc.Accounts[i].Matches(name) {
 			pc.Accounts[i].AuthFile = authFile
 			c.Providers[id] = pc
 			return c.Save()

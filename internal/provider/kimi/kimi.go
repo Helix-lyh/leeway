@@ -19,6 +19,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -126,6 +127,8 @@ func (p kimiProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*mo
 		case err == nil:
 			cliToken = tok
 		case isExpiredSession(err):
+			localErr = err
+		case err != nil && !errors.Is(err, errSessionMissing):
 			localErr = err
 		}
 	}

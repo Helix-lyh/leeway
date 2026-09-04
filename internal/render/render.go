@@ -22,6 +22,7 @@ const (
 	cGreen  = "\x1b[32m"
 	cYellow = "\x1b[33m"
 	cRed    = "\x1b[31m"
+	cCyan   = "\x1b[36m"
 	cGray   = "\x1b[90m"
 )
 
@@ -46,105 +47,86 @@ func RenderJSON(w io.Writer, out *model.Output) error {
 	return enc.Encode(out)
 }
 
-// Quota column slots, in display order. Every account line renders all three
-// quota columns, so bars align vertically across providers. A slot with no
-// matching window shows an unavailable marker, never a synthetic 0%.
-const (
-	slot5h = iota
-	slotWeekly
-	slotMonthly
-	numSlots
-)
-
-// tableLine is one provider account: head, then fixed quota columns and a
-// cash/credits column (balances and monetary cost footnotes). A note
-// (error/no data) replaces the columns entirely.
+// tableLine is one account: a name, then that account's own quota rows.
+// One window stays on the same line; two or more stack so the terminal
+// does not wrap a long " · " soup into an unreadable second line.
 type tableLine struct {
 	head string
-	note string
-	cols [numSlots]string
-	cash string
+	err  string
+	rows []string
 }
 
-// RenderTable writes one aligned line per provider account: a bold status-
-// colored name, then fixed columns — 5-hour, weekly, monthly quota (braille
-// bar + percent + reset) — then cash/credits. Column widths are computed on
-// visible text (ANSI escapes ignored); all-ok status noise is omitted.
+// RenderTable writes each account's native windows. No shared 5h/weekly/
+// monthly grid and no synthetic "—" for fields a provider does not have.
+// Several accounts under one provider become a group: provider once, then
+// each tag on its own line so the tag is what you scan.
 func RenderTable(w io.Writer, out *model.Output, color bool) {
 	if len(out.Providers) == 0 {
 		fmt.Fprintln(w, "(no providers)")
 		return
 	}
-	var lines []tableLine
+	n := 0
 	for _, pr := range out.Providers {
-		accs := pr.Accounts
-		if len(accs) == 0 {
-			accs = []model.AccountResult{{Name: "default", Status: pr.Status, Error: pr.Error}}
-		}
-		multi := len(accs) > 1
-		for _, ar := range accs {
-			lines = append(lines, accountLine(pr, ar, multi, color))
-		}
-	}
-	headW := visibleLen("PROVIDER")
-	var colW [numSlots]int
-	header := [numSlots]string{"5-HOUR", "WEEKLY", "MONTHLY"}
-	phW := visibleLen(placeholderCell(false))
-	for i := range colW {
-		colW[i] = max(phW, visibleLen(header[i]))
-	}
-	for _, l := range lines {
-		if n := visibleLen(l.head); n > headW {
-			headW = n
-		}
-		if l.note != "" {
+		if len(pr.Accounts) == 0 {
 			continue
 		}
-		for i, c := range l.cols {
-			if n := visibleLen(c); n > colW[i] {
-				colW[i] = n
-			}
+		if n > 0 {
+			fmt.Fprintln(w)
+		}
+		n++
+		grouped := len(pr.Accounts) > 1
+		if grouped {
+			fmt.Fprintln(w, colored(pr.DisplayName, cBold+statusColor(pr.Status, color), color))
+		}
+		for _, ar := range pr.Accounts {
+			printAccount(w, accountLine(pr, ar, grouped, color), grouped)
 		}
 	}
-	pad := func(s string, width int) string {
-		if n := width - visibleLen(s); n > 0 {
-			return s + strings.Repeat(" ", n)
-		}
-		return s
-	}
-	// Header row so humans and agents can name the fixed columns.
-	var hb strings.Builder
-	hb.WriteString(pad("PROVIDER", headW) + "  ")
-	for i, h := range header {
-		hb.WriteString(pad(h, colW[i]) + "  ")
-	}
-	hb.WriteString("CASH/CREDITS")
-	fmt.Fprintln(w, colored(hb.String(), cGray, color))
-	for _, l := range lines {
-		head := pad(l.head, headW) + "  "
-		if l.note != "" {
-			fmt.Fprintln(w, head+l.note)
-			continue
-		}
-		var sb strings.Builder
-		sb.WriteString(head)
-		for i, c := range l.cols {
-			if c == "" {
-				c = placeholderCell(color)
-			}
-			sb.WriteString(pad(c, colW[i]) + "  ")
-		}
-		sb.WriteString(l.cash)
-		fmt.Fprintln(w, strings.TrimRight(sb.String(), " "))
+	if n == 0 {
+		fmt.Fprintln(w, "(no providers)")
 	}
 }
 
-// accountHead is the provider name (bold, status-colored) plus an optional
-// dim account name and a status badge when anything is not ok.
-func accountHead(pr model.ProviderResult, ar model.AccountResult, multi bool, color bool) string {
-	head := colored(pr.DisplayName, cBold+statusColor(pr.Status, color), color)
-	if multi || ar.Name != "default" {
-		head += " " + colored(ar.Name, cGray, color)
+func printAccount(w io.Writer, l tableLine, grouped bool) {
+	headPad, rowPad := "", "  "
+	if grouped {
+		headPad, rowPad = "  ", "    "
+	}
+	if l.err != "" {
+		fmt.Fprintln(w, headPad+l.head+"  "+l.err)
+		return
+	}
+	if !grouped && len(l.rows) == 1 {
+		fmt.Fprintln(w, l.head+"  "+l.rows[0])
+		return
+	}
+	fmt.Fprintln(w, headPad+l.head)
+	for _, row := range l.rows {
+		fmt.Fprintln(w, rowPad+row)
+	}
+}
+
+// accountHead is the scan target: tag in bold cyan. A lone account still
+// prefixes the provider; a grouped account does not — the group header did.
+func accountHead(pr model.ProviderResult, ar model.AccountResult, grouped bool, color bool) string {
+	tag, extra := accountParts(ar)
+	painted := colored(tag, cBold+cCyan, color)
+	if extra != "" {
+		painted += "  " + colored(extra, cGray, color)
+	}
+	if plan := identityPlan(ar); plan != "" && !strings.EqualFold(plan, tag) {
+		painted += "  " + colored(plan, cGray, color)
+	}
+	var head string
+	if grouped {
+		head = painted
+	} else {
+		head = colored(pr.DisplayName, cBold+statusColor(pr.Status, color), color)
+		if tag != "default" {
+			head += " " + painted
+		} else if plan := identityPlan(ar); plan != "" {
+			head += " " + colored(plan, cGray, color)
+		}
 	}
 	if ar.Status != "ok" {
 		head += " " + colored(ar.Status, statusColor(ar.Status, color), color)
@@ -152,95 +134,108 @@ func accountHead(pr model.ProviderResult, ar model.AccountResult, multi bool, co
 	return head
 }
 
-// accountLine maps one account's snapshot into the fixed columns.
-func accountLine(pr model.ProviderResult, ar model.AccountResult, multi bool, color bool) tableLine {
+// accountParts splits the tag from a differing email. Identity.Account is
+// the email when the provider resolved it.
+func accountParts(ar model.AccountResult) (tag, extra string) {
+	real := ""
+	if ar.Snapshot != nil && ar.Snapshot.Identity != nil {
+		real = strings.TrimSpace(ar.Snapshot.Identity.Account)
+	}
+	name := ar.Name
+	if real == "" || strings.EqualFold(real, name) {
+		return name, ""
+	}
+	if name == "" || name == "default" {
+		return real, ""
+	}
+	if local, _, ok := strings.Cut(real, "@"); ok && strings.EqualFold(local, name) {
+		return name, ""
+	}
+	return name, real
+}
+
+func identityPlan(ar model.AccountResult) string {
+	if ar.Snapshot != nil && ar.Snapshot.Identity != nil {
+		return strings.TrimSpace(ar.Snapshot.Identity.Plan)
+	}
+	return ""
+}
+
+// accountLabel is the tag, the real email, or "tag  email" when both exist
+// and differ.
+func accountLabel(ar model.AccountResult) string {
+	tag, extra := accountParts(ar)
+	if extra == "" {
+		return tag
+	}
+	return tag + "  " + extra
+}
+
+func accountLine(pr model.ProviderResult, ar model.AccountResult, grouped bool, color bool) tableLine {
 	dim := func(s string) string { return colored(s, cGray, color) }
-	l := tableLine{head: accountHead(pr, ar, multi, color)}
+	l := tableLine{head: accountHead(pr, ar, grouped, color)}
 	if ar.Snapshot == nil {
 		if ar.Error != "" {
-			l.note = colored("✗ "+ar.Error, cRed, color)
+			l.err = colored("✗ "+ar.Error, cRed, color)
 		} else {
-			l.note = dim("no data")
+			l.err = dim("no data")
 		}
 		return l
 	}
-	wins := ar.Snapshot.Windows
-	var taken [numSlots]bool
-	var cash []string
-	for _, win := range wins {
-		switch {
-		case win.UsedPercent != nil:
-			slot := quotaSlot(win)
-			if slot < 0 || taken[slot] {
-				// The table is a compact projection with one canonical cell per
-				// period. Additional percent windows remain available in JSON.
-				continue
-			}
-			taken[slot] = true
-			l.cols[slot] = quotaCell(win, color)
-		case win.Used != nil:
-			cash = append(cash, cashSegment(win, color))
+	type item struct{ title, body string }
+	var items []item
+	for _, win := range ar.Snapshot.Windows {
+		body := windowBody(win, color)
+		if body == "" {
+			continue
+		}
+		items = append(items, item{win.Title, body})
+	}
+	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, ar.Snapshot.Windows) {
+		items = append(items, item{c.Period, dim(money(*c.Amount, c.Currency))})
+	}
+	titleW := 0
+	for _, it := range items {
+		if n := visibleLen(it.title); n > titleW {
+			titleW = n
 		}
 	}
-	// Zero-amount cost footnotes ("$0.00 credits") are noise; real balances stay.
-	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, wins) {
-		cash = append(cash, dim(money(*c.Amount, c.Currency)+" "+strings.ToLower(c.Period)))
+	for _, it := range items {
+		title := it.title
+		if n := titleW - visibleLen(it.title); n > 0 {
+			title += strings.Repeat(" ", n)
+		}
+		if title == "" {
+			l.rows = append(l.rows, it.body)
+			continue
+		}
+		l.rows = append(l.rows, title+"  "+it.body)
 	}
-	l.cash = strings.Join(cash, dim(" · "))
 	return l
 }
 
-// quotaSlot classifies only explicit canonical durations. Titles are display
-// text and reset countdowns are remaining time; neither is a period contract.
-func quotaSlot(win model.RateWindow) int {
-	if win.WindowMinutes == nil {
-		return -1
-	}
-	switch *win.WindowMinutes {
-	case 5 * 60:
-		return slot5h
-	case 7 * 24 * 60:
-		return slotWeekly
-	case 30 * 24 * 60:
-		return slotMonthly
+func windowBody(win model.RateWindow, color bool) string {
+	switch {
+	case win.UsedPercent != nil:
+		body := usageBar(*win.UsedPercent, color)
+		if r := resetText(win); r != "" {
+			body += " " + colored(r, cGray, color)
+		}
+		if win.RateLimited {
+			body += " " + colored("rate-limited", cRed, color)
+		}
+		return body
+	case win.Used != nil:
+		body := money(*win.Used, win.Currency)
+		if win.Limit != nil {
+			body += colored(" / "+money(*win.Limit, win.Currency), cGray, color)
+		}
+		return body
+	case win.ResetsAt != nil:
+		return colored(resetText(win), cGray, color)
 	default:
-		return -1
+		return ""
 	}
-}
-
-// quotaCell renders a percent window: "⣿⣿⣿⣿⡇⣀⣀⣀  55% 4d 01h". The fixed
-// columns imply the window kind, so no title is shown; a rate-limited lane
-// appends a red marker.
-func quotaCell(win model.RateWindow, color bool) string {
-	cell := usageBar(*win.UsedPercent, color)
-	if r := resetText(win); r != "" {
-		cell += " " + colored(r, cGray, color)
-	}
-	if win.RateLimited {
-		cell += " " + colored("rate-limited", cRed, color)
-	}
-	return cell
-}
-
-// placeholderCell marks a slot that the provider did not return. Zero is a
-// valid usage value, so absence must never be rendered as 0%.
-func placeholderCell(color bool) string {
-	return colored("—", cGray, color)
-}
-
-// cashSegment renders a balance window: "¥406.39", optionally " / limit".
-// Windows without a currency symbol carry a plain unit from their Title
-// (e.g. Cursor credits → "17649.00 / 40000.00 credits") so the column is
-// self-describing.
-func cashSegment(win model.RateWindow, color bool) string {
-	seg := money(*win.Used, win.Currency)
-	if win.Limit != nil {
-		seg += colored(" / "+money(*win.Limit, win.Currency), cGray, color)
-	}
-	if win.Currency == "" && win.Title != "" {
-		seg += colored(" "+strings.ToLower(win.Title), cGray, color)
-	}
-	return seg
 }
 
 // resetText renders the reset countdown ("1d 12h"), empty when unknown.

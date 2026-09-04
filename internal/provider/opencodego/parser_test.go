@@ -23,13 +23,13 @@ func TestParseSubscriptionJSONNested(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingPercent != 41 || sub.weeklyPercent != 60 || sub.monthlyPercent != 10 {
+	if sub.rolling.percent != 41 || sub.weekly.percent != 60 || sub.monthly.percent != 10 {
 		t.Fatalf("percents wrong: %+v", sub)
 	}
-	if sub.rollingResetSec != 3600 || sub.weeklyResetSec != 700000 || sub.monthlyResetSec != 2000000 {
+	if sub.rolling.resetInSec != 3600 || sub.weekly.resetInSec != 700000 || sub.monthly.resetInSec != 2000000 {
 		t.Fatalf("resets wrong: %+v", sub)
 	}
-	if !sub.hasWeeklyUsage || !sub.hasMonthlyUsage {
+	if sub.weekly == nil || sub.monthly == nil {
 		t.Fatalf("window flags wrong: %+v", sub)
 	}
 	if sub.renewsAt == nil || !sub.renewsAt.Equal(time.Date(2026, 8, 13, 12, 0, 0, 0, time.UTC)) {
@@ -44,11 +44,11 @@ func TestParseSubscriptionJSONDirectFraction(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingPercent != 41 {
-		t.Fatalf("direct fraction should scale to 41, got %v", sub.rollingPercent)
+	if sub.rolling.percent != 41 {
+		t.Fatalf("direct fraction should scale to 41, got %v", sub.rolling.percent)
 	}
-	if sub.rollingResetSec != 300 {
-		t.Fatalf("reset wrong: %v", sub.rollingResetSec)
+	if sub.rolling.resetInSec != 300 {
+		t.Fatalf("reset wrong: %v", sub.rolling.resetInSec)
 	}
 }
 
@@ -59,11 +59,11 @@ func TestParseSubscriptionJSONUsedLimit(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingPercent != 25 {
-		t.Fatalf("used/limit ratio should be 25, got %v", sub.rollingPercent)
+	if sub.rolling.percent != 25 {
+		t.Fatalf("used/limit ratio should be 25, got %v", sub.rolling.percent)
 	}
-	if sub.rollingResetSec != 0 {
-		t.Fatalf("reset should be 0 (explicit), got %v", sub.rollingResetSec)
+	if sub.rolling.resetInSec != 0 {
+		t.Fatalf("reset should be 0 (explicit), got %v", sub.rolling.resetInSec)
 	}
 }
 
@@ -75,8 +75,8 @@ func TestParseSubscriptionJSONResetAtEpochMillis(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingResetSec < 89 || sub.rollingResetSec > 90 {
-		t.Fatalf("epoch-ms resetAt wrong: %v", sub.rollingResetSec)
+	if sub.rolling.resetInSec < 89 || sub.rolling.resetInSec > 90 {
+		t.Fatalf("epoch-ms resetAt wrong: %v", sub.rolling.resetInSec)
 	}
 }
 
@@ -88,8 +88,8 @@ func TestParseSubscriptionJSONResetAtISOTime(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingResetSec < 119 || sub.rollingResetSec > 120 {
-		t.Fatalf("ISO resetAt wrong: %v", sub.rollingResetSec)
+	if sub.rolling.resetInSec < 119 || sub.rolling.resetInSec > 120 {
+		t.Fatalf("ISO resetAt wrong: %v", sub.rolling.resetInSec)
 	}
 }
 
@@ -101,8 +101,8 @@ func TestParseSubscriptionJSONPastResetIsZero(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingResetSec != 0 {
-		t.Fatalf("past reset should clamp to 0, got %v", sub.rollingResetSec)
+	if sub.rolling.resetInSec != 0 {
+		t.Fatalf("past reset should clamp to 0, got %v", sub.rolling.resetInSec)
 	}
 }
 
@@ -113,8 +113,8 @@ func TestParseSubscriptionJSONPercentClamped(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingPercent != 100 {
-		t.Fatalf("percent should clamp to 100, got %v", sub.rollingPercent)
+	if sub.rolling.percent != 100 {
+		t.Fatalf("percent should clamp to 100, got %v", sub.rolling.percent)
 	}
 }
 
@@ -125,7 +125,7 @@ func TestParseSubscriptionJSONWeeklyMissing(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.hasWeeklyUsage || sub.hasMonthlyUsage {
+	if sub.weekly != nil || sub.monthly != nil {
 		t.Fatalf("missing windows must not be flagged: %+v", sub)
 	}
 }
@@ -144,7 +144,7 @@ func TestParseSubscriptionJSONNestedKeyNames(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected parse success")
 	}
-	if sub.rollingPercent != 33 || sub.weeklyPercent != 55 || sub.monthlyPercent != 77 {
+	if sub.rolling.percent != 33 || sub.weekly.percent != 55 || sub.monthly.percent != 77 {
 		t.Fatalf("nested-key percents wrong: %+v", sub)
 	}
 }
@@ -182,13 +182,13 @@ func TestParseSubscriptionRegexFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if sub.rollingPercent != 41.5 || sub.rollingResetSec != 1234 {
+	if sub.rolling.percent != 41.5 || sub.rolling.resetInSec != 1234 {
 		t.Fatalf("rolling wrong: %+v", sub)
 	}
-	if !sub.hasWeeklyUsage || sub.weeklyPercent != 60 || sub.weeklyResetSec != 999999 {
+	if sub.weekly == nil || sub.weekly.percent != 60 || sub.weekly.resetInSec != 999999 {
 		t.Fatalf("weekly wrong: %+v", sub)
 	}
-	if sub.hasMonthlyUsage {
+	if sub.monthly != nil {
 		t.Fatalf("monthly must be absent: %+v", sub)
 	}
 }
@@ -211,7 +211,7 @@ func TestParseSubscriptionRegexRequiresCompleteMonthlyWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if sub.hasMonthlyUsage {
+	if sub.monthly != nil {
 		t.Fatalf("partial monthly window must not manufacture 0%%: %+v", sub)
 	}
 }
@@ -323,15 +323,10 @@ func TestSnapshotFromSubscription(t *testing.T) {
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	renew := now.Add(7 * 24 * time.Hour)
 	sub := &subscription{
-		hasWeeklyUsage:  true,
-		hasMonthlyUsage: true,
-		rollingPercent:  41,
-		weeklyPercent:   60,
-		monthlyPercent:  10,
-		rollingResetSec: 3600,
-		weeklyResetSec:  700000,
-		monthlyResetSec: 2000000,
-		renewsAt:        &renew,
+		rolling:  parsedWindow{percent: 41, resetInSec: 3600},
+		weekly:   &parsedWindow{percent: 60, resetInSec: 700000},
+		monthly:  &parsedWindow{percent: 10, resetInSec: 2000000},
+		renewsAt: &renew,
 	}
 	balance := 18.5
 	p := newProvider()

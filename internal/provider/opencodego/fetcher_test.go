@@ -150,9 +150,9 @@ func fixture(t *testing.T, name string) string {
 
 func defaultCookieReq() provider.FetchRequest {
 	return provider.FetchRequest{
-		Creds:   provider.Credentials{CookieHeader: "session=abc; auth=token123; other=x"},
-		Account: "default",
-		Extra:   map[string]string{"workspaceID": "wrk_test123"},
+		Creds:       provider.Credentials{CookieHeader: "session=abc; auth=token123; other=x"},
+		Account:     "default",
+		WorkspaceID: "wrk_test123",
 	}
 }
 
@@ -204,7 +204,7 @@ func TestFetchResolvesWorkspaceID(t *testing.T) {
 	f.billingResp = `{"customerID": "cus_1", "balance": 200000000}`
 
 	req := defaultCookieReq()
-	req.Extra = nil // no configured workspace ID -> resolve via RPC
+	req.WorkspaceID = "" // no configured workspace ID -> resolve via RPC
 	snap, err := f.provider().Fetch(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Fetch error: %v", err)
@@ -251,7 +251,7 @@ func TestFetchWorkspaceIDPostFallback(t *testing.T) {
 	})
 
 	req := defaultCookieReq()
-	req.Extra = nil
+	req.WorkspaceID = ""
 	_, err := f.provider().Fetch(context.Background(), req)
 	if err != nil {
 		t.Fatalf("Fetch error: %v", err)
@@ -488,7 +488,7 @@ func TestFetchNoWorkspaceIDError(t *testing.T) {
 		w.Write([]byte(`{"workspaces": []}`))
 	})
 	req := defaultCookieReq()
-	req.Extra = nil
+	req.WorkspaceID = ""
 	_, err := f.provider().Fetch(context.Background(), req)
 	if err == nil || !strings.Contains(err.Error(), "Missing workspace id") {
 		t.Fatalf("expected missing workspace id error, got %v", err)

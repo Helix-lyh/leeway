@@ -58,11 +58,28 @@ func grpcFrame(flag byte, payload []byte) []byte {
 // testNow and futureReset place the parse clock in 2026-08-06 and the reset
 // timestamps safely in the future (1_800_000_000 = 2027-01-15).
 var (
-	testNow       = time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	futureReset   = int64(1_800_000_000)
-	futureLater   = int64(1_820_000_000)
-	futureEarlier = int64(1_810_000_000)
+	testNow         = time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
+	futureReset     = int64(1_800_000_000)
+	futureLater     = int64(1_820_000_000)
+	futureEarlier   = int64(1_810_000_000)
+	restWeeklyReset = time.Date(2026, 8, 13, 12, 0, 0, 326992000, time.UTC)
 )
+
+// restWeekly14JSON matches the CLI chat-proxy billing envelope. 14.0 must
+// survive as a float (the grpc-web fixed32 heuristic used to emit 13).
+const restWeekly14JSON = `{
+  "config": {
+    "currentPeriod": {
+      "type": "weekly",
+      "start": "2026-08-06T12:00:00.000000+00:00",
+      "end": "2026-08-13T12:00:00.326992+00:00"
+    },
+    "creditUsagePercent": 14.0,
+    "productUsage": [{"product": "GrokBuild", "usagePercent": 14.0}],
+    "prepaidBalance": {"val": 0},
+    "billingPeriodEnd": "2026-08-13T12:00:00.326992+00:00"
+  }
+}`
 
 // happyPayload: field 1 submessage with fixed32 62.5 at path [1,1], reset
 // timestamp at [1,5,1], and a usage-period marker at [1,6].
@@ -356,9 +373,12 @@ type fakeRoundTripper struct {
 func (f *fakeRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	f.calls++
 	f.reqs = append(f.reqs, req)
-	body, _ := io.ReadAll(req.Body)
+	var body []byte
+	if req.Body != nil {
+		body, _ = io.ReadAll(req.Body)
+		req.Body = io.NopCloser(bytes.NewReader(body))
+	}
 	f.bodies = append(f.bodies, body)
-	req.Body = io.NopCloser(bytes.NewReader(body))
 	if len(f.transient) > 0 {
 		err := f.transient[0]
 		f.transient = f.transient[1:]
@@ -490,7 +510,7 @@ func TestProviderFetch_MissingCredentials(t *testing.T) {
 }
 
 func TestProviderFetch_SnapshotShape(t *testing.T) {
-	p := &grokProvider{client: newFakeClient(&fakeRoundTripper{status: 200, body: happyGRPCWebBody()}), now: func() time.Time { return testNow }}
+	p := &grokProvider{client: newFakeClient(&fakeRoundTripper{status: 200, body: []byte(restWeekly14JSON)}), now: func() time.Time { return testNow }}
 	snap, err := p.Fetch(context.Background(), provider.FetchRequest{
 		Creds:   provider.Credentials{CookieHeader: "sess=abc"},
 		Account: "default",
@@ -502,14 +522,14 @@ func TestProviderFetch_SnapshotShape(t *testing.T) {
 		t.Errorf("identity = %+v, want account default", snap.Identity)
 	}
 	if len(snap.Windows) != 1 {
-		t.Fatalf("windows = %d, want exactly 1 (Swift web path emits secondary=nil)", len(snap.Windows))
+		t.Fatalf("windows = %d, want exactly 1", len(snap.Windows))
 	}
 	w := snap.Windows[0]
 	if w.ID != "primary" || w.Title != "Weekly" {
 		t.Errorf("window id/title = %q/%q, want primary/Weekly", w.ID, w.Title)
 	}
-	if w.UsedPercent == nil || *w.UsedPercent != 62.5 {
-		t.Errorf("usedPercent = %v, want 62.5", w.UsedPercent)
+	if w.UsedPercent == nil || *w.UsedPercent != 14.0 {
+		t.Errorf("usedPercent = %v, want 14.0", w.UsedPercent)
 	}
 	if w.Used != nil || w.Limit != nil {
 		t.Errorf("raw window fields must stay nil, got %+v", w)
@@ -517,8 +537,8 @@ func TestProviderFetch_SnapshotShape(t *testing.T) {
 	if w.WindowMinutes == nil || *w.WindowMinutes != weeklyWindowMinutes {
 		t.Errorf("windowMinutes = %v, want %d", w.WindowMinutes, weeklyWindowMinutes)
 	}
-	if w.ResetsAt == nil || w.ResetsAt.Unix() != futureReset {
-		t.Errorf("resetsAt = %v, want unix %d", w.ResetsAt, futureReset)
+	if w.ResetsAt == nil || !w.ResetsAt.Equal(restWeeklyReset) {
+		t.Errorf("resetsAt = %v, want %v", w.ResetsAt, restWeeklyReset)
 	}
 }
 
@@ -541,7 +561,7 @@ func TestProviderFetch_BearerSession(t *testing.T) {
 	writeGrokAuth(t, dir, `{
 	  "https://auth.x.ai::scope1": {"key": "bearer-key", "refresh_token": "rt", "expires_at": "2099-01-01T00:00:00Z", "oidc_issuer": "https://auth.x.ai", "oidc_client_id": "cid"}
 	}`)
-	rt := &fakeRoundTripper{status: 200, body: happyGRPCWebBody()}
+	rt := &fakeRoundTripper{status: 200, body: []byte(restWeekly14JSON)}
 	p := &grokProvider{client: newFakeClient(rt), now: func() time.Time { return testNow }}
 	snap, err := p.Fetch(context.Background(), provider.FetchRequest{
 		Creds:   provider.Credentials{},
@@ -550,15 +570,21 @@ func TestProviderFetch_BearerSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
-	if snap == nil || snap.Windows[0].UsedPercent == nil || *snap.Windows[0].UsedPercent != 62.5 {
+	if snap == nil || snap.Windows[0].UsedPercent == nil || *snap.Windows[0].UsedPercent != 14.0 {
 		t.Fatalf("snapshot wrong: %+v", snap)
 	}
 	if len(rt.reqs) != 1 {
 		t.Fatalf("requests = %d, want 1", len(rt.reqs))
 	}
 	req := rt.reqs[0]
+	if req.Method != http.MethodGet || req.URL.String() != restBillingURL {
+		t.Errorf("method/URL = %s %s, want GET %s", req.Method, req.URL, restBillingURL)
+	}
 	if got := req.Header.Get("Authorization"); got != "Bearer bearer-key" {
 		t.Errorf("Authorization = %q, want Bearer bearer-key", got)
+	}
+	if got := req.Header.Get("x-xai-token-auth"); got != restTokenAuth {
+		t.Errorf("x-xai-token-auth = %q, want %s", got, restTokenAuth)
 	}
 	if got := req.Header.Get("Cookie"); got != "" {
 		t.Errorf("Cookie = %q, want empty on the bearer path", got)
@@ -595,7 +621,7 @@ func TestProviderFetch_ExpiredSessionRefreshFails(t *testing.T) {
 
 func TestToModel_IdentityAndWindow(t *testing.T) {
 	percent := 40.0
-	reset := time.Unix(futureReset, 0)
+	reset := testNow.Add(7 * 24 * time.Hour)
 	snap := billingSnapshot{usedPercent: &percent, resetsAt: &reset}.toModel("work", testNow)
 	if snap.Identity == nil || snap.Identity.Account != "work" {
 		t.Errorf("identity = %+v, want account work", snap.Identity)
@@ -615,4 +641,172 @@ func TestDeclaredWindows(t *testing.T) {
 		specs[0].WindowMinutes == nil || *specs[0].WindowMinutes != weeklyWindowMinutes {
 		t.Errorf("declared windows = %+v, want one 7-day Weekly window", specs)
 	}
+}
+
+func TestParseRESTBilling_Weekly14(t *testing.T) {
+	snap, err := parseRESTBilling([]byte(restWeekly14JSON))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if snap.usedPercent == nil || *snap.usedPercent != 14.0 {
+		t.Errorf("usedPercent = %v, want 14.0 (not a truncated 13)", snap.usedPercent)
+	}
+	if !snap.fromREST || snap.periodType != "weekly" {
+		t.Errorf("fromREST/periodType = %v/%q, want true/weekly", snap.fromREST, snap.periodType)
+	}
+	if snap.resetsAt == nil || !snap.resetsAt.Equal(restWeeklyReset) {
+		t.Errorf("resetsAt = %v, want %v", snap.resetsAt, restWeeklyReset)
+	}
+	m := snap.toModel("default", testNow)
+	if len(m.Windows) != 1 {
+		t.Fatalf("windows = %d, want 1", len(m.Windows))
+	}
+	w := m.Windows[0]
+	if w.Title != "Weekly" {
+		t.Errorf("title = %q, want Weekly", w.Title)
+	}
+	if w.UsedPercent == nil || *w.UsedPercent != 14.0 {
+		t.Errorf("usedPercent = %v, want 14.0", w.UsedPercent)
+	}
+	if w.WindowMinutes == nil || *w.WindowMinutes != weeklyWindowMinutes {
+		t.Errorf("windowMinutes = %v, want %d", w.WindowMinutes, weeklyWindowMinutes)
+	}
+}
+
+func TestParseRESTBilling_UsagePeriodTypeWeekly(t *testing.T) {
+	body := []byte(`{"config":{"creditUsagePercent":14.0,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-08-13T12:00:00Z"}}}`)
+	snap, err := parseRESTBilling(body)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	title, minutes := snap.primaryLabel(testNow)
+	if title != "Weekly" || minutes == nil || *minutes != weeklyWindowMinutes {
+		t.Errorf("label = %q %v, want Weekly %d", title, minutes, weeklyWindowMinutes)
+	}
+}
+
+func TestParseRESTBilling_MissingPercentIsZero(t *testing.T) {
+	body := []byte(`{"config":{"currentPeriod":{"type":"USAGE_PERIOD_TYPE_WEEKLY","end":"2026-08-13T12:00:00Z"},"onDemandCap":{"val":2500}}}`)
+	snap, err := parseRESTBilling(body)
+	if err != nil {
+		t.Fatalf("absent percent must parse as 0: %v", err)
+	}
+	if snap.usedPercent == nil || *snap.usedPercent != 0 {
+		t.Fatalf("usedPercent = %v, want 0", snap.usedPercent)
+	}
+	if snap.onDemandCap != 2500 {
+		t.Fatalf("onDemandCap = %v, want 2500", snap.onDemandCap)
+	}
+	m := snap.toModel("default", testNow)
+	if m.Windows[0].Title != "Weekly" {
+		t.Fatalf("title = %q, want Weekly", m.Windows[0].Title)
+	}
+	if len(m.Windows) != 2 || m.Windows[1].Title != "On-demand" || m.Windows[1].Used == nil || *m.Windows[1].Used != 2500 {
+		t.Fatalf("on-demand window = %+v", m.Windows)
+	}
+}
+
+func TestParseRESTBilling_MonthlyIsNotWeekly(t *testing.T) {
+	body := []byte(`{"config":{"creditUsagePercent":40.0,"currentPeriod":{"type":"USAGE_PERIOD_TYPE_MONTHLY","end":"2026-09-06T12:00:00Z"}}}`)
+	snap, err := parseRESTBilling(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := snap.toModel("default", testNow)
+	if m.Windows[0].Title == "Weekly" {
+		t.Fatalf("non-weekly period must not render as Weekly: %+v", m.Windows[0])
+	}
+	if m.Windows[0].Title != "Monthly" {
+		t.Fatalf("title = %q, want Monthly", m.Windows[0].Title)
+	}
+}
+
+func TestProviderFetch_UsesREST(t *testing.T) {
+	var restHits, grpcHits int
+	restSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		restHits++
+		if r.Method != http.MethodGet {
+			t.Errorf("REST method = %s, want GET", r.Method)
+		}
+		if r.URL.Path != "/v1/billing" || r.URL.Query().Get("format") != "credits" {
+			t.Errorf("REST URL = %s, want /v1/billing?format=credits", r.URL)
+		}
+		if got := r.Header.Get("x-xai-token-auth"); got != restTokenAuth {
+			t.Errorf("x-xai-token-auth = %q, want %s", got, restTokenAuth)
+		}
+		if got := r.Header.Get("Cookie"); got != "sess=abc" {
+			t.Errorf("Cookie = %q, want sess=abc", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(restWeekly14JSON))
+	}))
+	defer restSrv.Close()
+	grpcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grpcHits++
+		w.Write(happyGRPCWebBody())
+	}))
+	defer grpcSrv.Close()
+	withBillingURLs(t, restSrv.URL+"/v1/billing?format=credits", grpcSrv.URL)
+
+	p := &grokProvider{client: restSrv.Client(), now: func() time.Time { return testNow }}
+	snap, err := p.Fetch(context.Background(), provider.FetchRequest{
+		Creds:   provider.Credentials{CookieHeader: "sess=abc"},
+		Account: "default",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if restHits != 1 || grpcHits != 0 {
+		t.Errorf("hits rest=%d grpc=%d, want rest=1 grpc=0", restHits, grpcHits)
+	}
+	if snap.Windows[0].UsedPercent == nil || *snap.Windows[0].UsedPercent != 14.0 {
+		t.Errorf("usedPercent = %v, want 14.0", snap.Windows[0].UsedPercent)
+	}
+	if snap.Windows[0].Title != "Weekly" {
+		t.Errorf("title = %q, want Weekly", snap.Windows[0].Title)
+	}
+}
+
+func TestProviderFetch_RESTFallbackGRPCWeb(t *testing.T) {
+	var restHits, grpcHits int
+	restSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		restHits++
+		http.Error(w, "boom", http.StatusInternalServerError)
+	}))
+	defer restSrv.Close()
+	grpcSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grpcHits++
+		if r.Method != http.MethodPost {
+			t.Errorf("grpc method = %s, want POST", r.Method)
+		}
+		w.Write(happyGRPCWebBody())
+	}))
+	defer grpcSrv.Close()
+	withBillingURLs(t, restSrv.URL+"/v1/billing?format=credits", grpcSrv.URL)
+
+	p := &grokProvider{client: restSrv.Client(), now: func() time.Time { return testNow }}
+	snap, err := p.Fetch(context.Background(), provider.FetchRequest{
+		Creds:   provider.Credentials{CookieHeader: "sess=abc"},
+		Account: "default",
+	})
+	if err != nil {
+		t.Fatalf("fallback should have succeeded: %v", err)
+	}
+	if restHits != 1 || grpcHits != 1 {
+		t.Errorf("hits rest=%d grpc=%d, want rest=1 grpc=1", restHits, grpcHits)
+	}
+	if snap.Windows[0].UsedPercent == nil || *snap.Windows[0].UsedPercent != 62.5 {
+		t.Errorf("usedPercent = %v, want 62.5 from grpc-web", snap.Windows[0].UsedPercent)
+	}
+}
+
+func withBillingURLs(t *testing.T, restURL, grpcURL string) {
+	t.Helper()
+	origREST, origGRPC := restBillingURL, endpoint
+	restBillingURL = restURL
+	endpoint = grpcURL
+	t.Cleanup(func() {
+		restBillingURL = origREST
+		endpoint = origGRPC
+	})
 }

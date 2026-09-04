@@ -17,13 +17,13 @@ func TestParseAPIUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if sub.rollingPercent != 15 || sub.weeklyPercent != 90 || sub.monthlyPercent != 55 {
+	if sub.rolling.percent != 15 || sub.weekly.percent != 90 || sub.monthly.percent != 55 {
 		t.Fatalf("percents wrong: %+v", sub)
 	}
-	if !sub.hasWeeklyUsage || !sub.hasMonthlyUsage {
+	if sub.weekly == nil || sub.monthly == nil {
 		t.Fatalf("window flags wrong: %+v", sub)
 	}
-	if sub.rollingResetSec <= 0 || sub.weeklyResetSec <= 0 || sub.monthlyResetSec <= 0 {
+	if sub.rolling.resetInSec <= 0 || sub.weekly.resetInSec <= 0 || sub.monthly.resetInSec <= 0 {
 		t.Fatalf("resets must be positive intervals: %+v", sub)
 	}
 }
@@ -39,10 +39,10 @@ func TestParseAPIUsageToleratesMissingLane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if sub.rollingPercent != 7 {
+	if sub.rolling.percent != 7 {
 		t.Fatalf("rolling wrong: %+v", sub)
 	}
-	if sub.hasWeeklyUsage || sub.hasMonthlyUsage {
+	if sub.weekly != nil || sub.monthly != nil {
 		t.Fatalf("broken lanes must be dropped: %+v", sub)
 	}
 }
@@ -60,18 +60,18 @@ func TestParseAPIUsagePercentIsDirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse error: %v", err)
 	}
-	if sub.rollingPercent != 1 {
-		t.Fatalf("rolling percent = %v, want 1 (integer percent must not be scaled)", sub.rollingPercent)
+	if sub.rolling.percent != 1 {
+		t.Fatalf("rolling percent = %v, want 1 (integer percent must not be scaled)", sub.rolling.percent)
 	}
-	if sub.weeklyPercent != 100 {
-		t.Fatalf("weekly percent = %v, want 100", sub.weeklyPercent)
+	if sub.weekly.percent != 100 {
+		t.Fatalf("weekly percent = %v, want 100", sub.weekly.percent)
 	}
-	if sub.monthlyPercent != 0 {
-		t.Fatalf("monthly percent = %v, want 0", sub.monthlyPercent)
+	if sub.monthly.percent != 0 {
+		t.Fatalf("monthly percent = %v, want 0", sub.monthly.percent)
 	}
-	if sub.rollingLimited || !sub.weeklyLimited || sub.monthlyLimited {
+	if sub.rolling.rateLimited || !sub.weekly.rateLimited || sub.monthly.rateLimited {
 		t.Fatalf("rate-limited flags wrong: rolling=%v weekly=%v monthly=%v",
-			sub.rollingLimited, sub.weeklyLimited, sub.monthlyLimited)
+			sub.rolling.rateLimited, sub.weekly.rateLimited, sub.monthly.rateLimited)
 	}
 }
 

@@ -3,7 +3,7 @@
 AI 编程 provider 用量 / 额度 / 重置时间的纯 CLI 探测工具——[CodexBar](https://github.com/steipete/CodexBar) 核心的 CLI 复刻。
 JSON 优先、stdout 只输出数据，方便 agent（Hermes 等）直接调用。
 
-支持 provider：**deepseek / kimi / grok / codex / opencode-go**。
+支持 provider：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**。
 
 ## 安装
 
@@ -17,18 +17,47 @@ go build -o leeway ./cmd/leeway && ./leeway usage
 
 ## 命令
 
+日常看 `leeway` / `leeway help`；某一条看 `leeway help auth`（还有 usage / cookie / config / use / doctor）。
+
+**查额度**
+
+```sh
+leeway usage
+leeway usage --provider cursor --account work
+leeway usage --json
+```
+
+**管订阅**
+
+```sh
+leeway auth status
+leeway auth login --provider cursor                 # 账号名 = 邮箱
+leeway auth login --provider cursor --account work  # 给这个号打 tag
+leeway auth login --provider grok --account home
+leeway auth login --provider opencode-go --account work
+leeway auth login --provider commandcode --account goat
+leeway auth login --provider deepseek
+leeway auth logout --provider cursor --account work
+```
+
+`--account`：cursor 是 tag（或邮箱）；opencode-go / commandcode 是订阅名。
+
+```sh
+leeway usage --provider opencode-go --account work   # leeway 看哪号
+leeway config keys --provider opencode-go            # 已存的 key（脱敏）
+leeway use --provider opencode-go --account work     # 把 key 写给 DSH，不是切 leeway
+```
+
+Codex / Kimi 用它们自己的登录：`codex login` / `kimi login`。
+
+**其他**
+
 | 命令 | 说明 |
 |---|---|
-| `leeway usage [--provider ID] [--account NAME] [--json] [--watch SECS] [--no-cache]` | 主命令：探测全部（或指定）provider 的用量 |
-| `leeway providers [--json]` | 列出 provider 及其认证方式 |
-| `leeway cookie set --provider ID --manual "a=b; c=d"` | L0：手动粘贴 Cookie header |
-| `leeway cookie import --provider ID [--browser chrome\|edge\|kimi-desktop] [--profile NAME] [--account NAME] [--force]` | L2/L1：从浏览器或桌面端自动导入 cookie；`--profile` 指定 Chrome profile，`--account` 同时把会话绑定为多账户配置中的一个账户 |
-| `leeway cookie list` / `leeway cookie clear --provider ID` | 查看 / 清除导入的 cookie 缓存 |
-| `leeway config path` | 显示配置文件路径 |
-| `leeway config set-api-key --provider ID [--account NAME] [--key VALUE]` | 写入 API key（不传 `--key` 时交互式无回显输入）；带 `--account` 时写入该 provider 的一个命名订阅 key |
-| `leeway config keys --provider ID [--json]` | 列出命名订阅（值脱敏；对照目标凭据文件标出当前激活） |
-| `leeway use --provider ID --account NAME` | 快速切换：把该订阅的 API key 写入目标文件（默认 DSH 凭据文件，见下） |
-| `leeway doctor [--json]` | 诊断各 provider 缺什么凭据 |
+| `leeway doctor` | 缺什么凭据、补哪条命令 |
+| `leeway providers` | 各家怎么登录 |
+| `leeway cookie import\|set\|list\|clear` | grok / kimi 的 cookie 备选 |
+| `leeway config path` | 配置文件路径 |
 
 ## 配置
 
@@ -57,6 +86,12 @@ go build -o leeway ./cmd/leeway && ./leeway usage
 `GET https://opencode.ai/zen/go/v1/usage` 按订阅直接查 5-hour / Weekly / Monthly 用量，不需要 cookie。
 `keyTarget` 是 `leeway use` 切换时写入的目标文件与凭据引用；`file` / `key` 可单独覆盖，`~/` 会展开到家目录。省略时默认 DSH 的
 `~/.dsh/.credentials.yaml` + `<PROVIDER>_API_KEY`（如 `OPENCODE_GO_API_KEY`）。
+
+## 登录与多账号
+
+日常命令见上面「管订阅」。浏览器授权委托官方 CLI，leeway 只读落盘文件。切号只换 `--account`（tag 或邮箱），不用 logout 再 login。不写 `--account` 时不读官方 keychain / 共享 `~/.grok`；要看隐式 default 请加 `--account default`。
+
+`leeway auth status` 是台账：凭据来源和到期时间。cursor 显示 tag + 邮箱。
 
 ## Cookie 导入指南
 
@@ -91,7 +126,9 @@ DSH 对凭据文件热重载，切换后下一次请求即用新 key。
 |---|---|---|---|
 | **deepseek** | `DEEPSEEK_API_KEY`（或 `DEEPSEEK_KEY`、`config set-api-key`）；可选 `DEEPSEEK_PLATFORM_TOKEN`/`DEEPSEEK_USER_TOKEN` 补充当日用量 | `platform.deepseek.com/api/v0` | 余额（¥）+ 当日用量 |
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页会话 JWT（`kimi-auth` cookie 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期时提示 `kimi login`） | `www.kimi.com/apiv2` gRPC-style JSON | Weekly 7d + 5-hour 限速 |
-| **grok** | 三选一：**`grok login` 会话**（`~/.grok/auth.json`，过期自动 OIDC 刷新）/ cookie（L0 手动或 L2 Chrome 导入） | `grok.com` GetGrokCreditsConfig（grpc-web） | Credits 窗口（按重置距离标 Weekly/Monthly） |
+| **grok** | 三选一：**`leeway auth login --provider grok`**（私有 `GROK_HOME`）/ 官方 `~/.grok/auth.json`（共享，过期自动 OIDC 刷新）/ cookie（L0 手动或 L2 Chrome 导入） | 优先 `cli-chat-proxy.grok.com/v1/billing?format=credits`；4xx/5xx 回退 grok.com grpc-web | Credits（REST 用 `currentPeriod.type` 标 Weekly/Monthly） |
+| **commandcode** | `COMMAND_CODE_API_KEY` / `config set-api-key --account`（`user_...`，多订阅） | `api.commandcode.ai/alpha/billing/credits`（主）+ `/alpha/usage/summary`（辅） | 5-hour + Weekly + Monthly credits |
+| **cursor** | 委托官方 `cursor-agent login`（`leeway auth login --provider cursor [--account NAME]`，每账号私有 HOME 下 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；无私有文件时兜底 macOS keychain | `api2.cursor.sh` GetCurrentPeriodUsage（Connect RPC，Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（limit − includedSpend） |
 | **codex** | 复用 Codex CLI 会话 `~/.codex/auth.json`（无需自实现 OAuth；过期提示重跑 `codex login`） | `chatgpt.com/backend-api`（可用 `chatgpt_base_url` 覆盖，见 `$CODEX_HOME/config.toml`） | Session 5h + Weekly 7d + 额外窗口 + Credits 余额 |
 | **opencode-go** | 双认证：① **订阅 API key**（`OPENCODE_GO_API_KEY` / `config set-api-key --account NAME`，多订阅，经网关 `/usage` 直接查）；② 多账户 cookie（`auth`/`__Host-auth`）+ 可选 `workspaceID` | ① 网关 `opencode.ai/zen/go/v1/usage`（每订阅）；② 服务器 `opencode.ai` 用量页 + Zen 余额 | 每订阅 / 每账户 5-hour / Weekly / Monthly；cookie 账户另有 Zen 余额 |
 
@@ -151,3 +188,4 @@ DSH 对凭据文件热重载，切换后下一次请求即用新 key。
 
 - 架构、数据模型、探测方案与里程碑见 [DESIGN.md](DESIGN.md)
 - 各 provider 额度获取与凭据（API key / Cookie / CLI 会话）的**实现级**梳理见 [PROVIDER-FETCH.md](PROVIDER-FETCH.md)
+- 同类用量工具对照（登录 / 刷新 / 官方余量 vs 本地估算）见 [COMPETITORS.md](COMPETITORS.md)

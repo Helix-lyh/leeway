@@ -9,13 +9,15 @@ import (
 )
 
 const (
-	// endpoint mirrors GrokWebBillingFetcher.defaultEndpoint.
-	endpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig"
 	// requestTimeout mirrors GrokWebBillingFetcher.requestTimeoutSeconds.
 	requestTimeout = 15 * time.Second
 	// userAgent identifies leeway (CodexBar sends "CodexBar").
 	userAgent = "leeway"
 )
+
+// endpoint is the grpc-web billing URL. It is a var so tests can point at an
+// httptest server when exercising the REST→grpc-web fallback.
+var endpoint = "https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig"
 
 // defaultClient is the production HTTP client.
 var defaultClient = &http.Client{Timeout: requestTimeout}

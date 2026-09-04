@@ -13,15 +13,18 @@ import (
 	"strings"
 	"time"
 
+	"leeway/internal/auth"
 	"leeway/internal/model"
 	"leeway/internal/netutil"
 	"leeway/internal/provider"
 )
 
-// usageURL is the internal Connect RPC endpoint the web dashboard calls with
-// the OAuth bearer token; the response carries the current billing cycle's
-// plan usage. It is a var so tests can point at an httptest server.
-var usageURL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
+// Connect RPC URLs; vars so tests can point at an httptest server.
+var (
+	usageURL  = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
+	planURL   = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo"
+	grantsURL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCreditGrantsBalance"
+)
 
 // keychainTokenService/Account identify the token the cursor IDE/CLI keeps in
 // the macOS keychain (same service names the official client uses).
@@ -35,29 +38,54 @@ var defaultClient = &http.Client{Timeout: 15 * time.Second}
 // --- token resolution -----------------------------------------------------
 
 // resolveToken resolves a per-account token: env override wins, then the
-// account's apiKey (config), then the macOS keychain interactive session.
-func resolveToken(req provider.FetchRequest) (string, error) {
+// account's apiKey (config), then the official auth.json the cursor-agent
+// CLI wrote into this account's private HOME (when `leeway auth login
+// --provider cursor` was used), then the macOS keychain the official Cursor
+// client maintains. An account that holds a private auth.json never falls
+// back to the keychain: the keychain tracks the official CLI's own (possibly
+// different) account, so falling through would silently mix accounts.
+func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error) {
 	if v := strings.TrimSpace(os.Getenv("CURSOR_ACCESS_TOKEN")); v != "" {
 		return v, nil
 	}
 	if v := strings.TrimSpace(req.Creds.APIKey); v != "" {
 		return v, nil
 	}
-	if v, err := keychainToken(); err == nil && v != "" {
+	if ca, ok, err := auth.LoadCursorAuth(req.Account); err != nil {
+		return "", err
+	} else if ok {
+		if ca.AccessToken == "" {
+			return "", errors.New("Cursor auth file is empty — re-run: leeway auth login --provider cursor" + accountSuffix(req.Account))
+		}
+		if exp, ok := auth.JWTExpiry(ca.AccessToken); ok && !exp.After(time.Now()) {
+			return "", fmt.Errorf("Cursor session for account %q expired at %s — re-run: leeway auth login --provider cursor --account %s",
+				req.Account, exp.Local().Format("2006-01-02 15:04"), req.Account)
+		}
+		return ca.AccessToken, nil
+	}
+	if v, err := keychainToken(ctx); err == nil && v != "" {
 		return v, nil
 	}
-	return "", errors.New("no Cursor token — set CURSOR_ACCESS_TOKEN, configure account apiKey (leeway config set-api-key --provider cursor --account NAME), or sign in with the Cursor CLI")
+	return "", errors.New("no Cursor token — set CURSOR_ACCESS_TOKEN, run `leeway auth login --provider cursor`, or sign in with the Cursor CLI")
+}
+
+// accountSuffix renders the --account flag for an account in hints.
+func accountSuffix(account string) string {
+	if account != "" && account != "default" {
+		return " --account " + account
+	}
+	return ""
 }
 
 // keychainToken reads the macOS keychain entry the Cursor client maintains.
 // It shells out to `security` (the only stable public API for keychain
 // generic-password reads on macOS); a missing entry is reported as a plain
 // "not found" so callers fall through to the error message above.
-func keychainToken() (string, error) {
+func keychainToken(ctx context.Context) (string, error) {
 	if _, err := exec.LookPath("security"); err != nil {
 		return "", fmt.Errorf("security CLI unavailable: %w", err)
 	}
-	cmd := exec.Command("security", "find-generic-password",
+	cmd := exec.CommandContext(ctx, "security", "find-generic-password",
 		"-a", keychainAccount, "-s", keychainService, "-w")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -76,7 +104,6 @@ type usageData struct {
 	PlanUsage         struct {
 		TotalSpend      float64 `json:"totalSpend"`
 		IncludedSpend   float64 `json:"includedSpend"`
-		Remaining       float64 `json:"remaining"`
 		Limit           float64 `json:"limit"`
 		AutoPercentUsed float64 `json:"autoPercentUsed"`
 		APIPercentUsed  float64 `json:"apiPercentUsed"`
@@ -85,23 +112,26 @@ type usageData struct {
 	Enabled bool `json:"enabled"`
 }
 
-func (p *cursorProvider) fetchUsage(ctx context.Context, token string) (*usageData, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, usageURL, bytes.NewReader([]byte("{}")))
+func (p *cursorProvider) connectPost(ctx context.Context, url, token string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "cursor-agent/2026.08.11")
+	return netutil.DoRequest(ctx, p.client, req, netutil.MaxBodyBytes)
+}
 
-	body, status, err := netutil.DoRequest(ctx, p.client, req, netutil.MaxBodyBytes)
+func (p *cursorProvider) fetchUsage(ctx context.Context, token string) (*usageData, error) {
+	body, status, err := p.connectPost(ctx, usageURL, token)
 	if err != nil {
 		return nil, err
 	}
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return nil, fmt.Errorf("Cursor token rejected (HTTP %d) — re-run the Cursor CLI login or set CURSOR_ACCESS_TOKEN", status)
+		return nil, fmt.Errorf("Cursor token rejected (HTTP %d) — re-run: leeway auth login --provider cursor", status)
 	case status < 200 || status >= 300:
 		return nil, fmt.Errorf("Cursor usage request failed (HTTP %d): %.120s", status, strings.TrimSpace(string(body)))
 	}
@@ -112,25 +142,69 @@ func (p *cursorProvider) fetchUsage(ctx context.Context, token string) (*usageDa
 	return &data, nil
 }
 
+func (p *cursorProvider) fetchPlanName(ctx context.Context, token string) string {
+	body, status, err := p.connectPost(ctx, planURL, token)
+	if err != nil || status < 200 || status >= 300 {
+		return ""
+	}
+	var resp struct {
+		PlanInfo struct {
+			PlanName string `json:"planName"`
+		} `json:"planInfo"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(resp.PlanInfo.PlanName)
+}
+
+type creditGrants struct {
+	used, total float64
+	ok          bool
+}
+
+func (p *cursorProvider) fetchGrants(ctx context.Context, token string) creditGrants {
+	body, status, err := p.connectPost(ctx, grantsURL, token)
+	if err != nil || status < 200 || status >= 300 {
+		return creditGrants{}
+	}
+	var resp struct {
+		HasCreditGrants bool    `json:"hasCreditGrants"`
+		TotalCents      float64 `json:"totalCents"`
+		UsedCents       float64 `json:"usedCents"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || !resp.HasCreditGrants || resp.TotalCents <= 0 {
+		return creditGrants{}
+	}
+	used := resp.UsedCents / 100
+	if used < 0 {
+		used = 0
+	}
+	return creditGrants{used: used, total: resp.TotalCents / 100, ok: true}
+}
+
+func (p *cursorProvider) fetchEmail(ctx context.Context, token string) (string, error) {
+	return auth.LookupCursorEmail(ctx, token)
+}
+
 // toModel projects the usage payload onto the leeway snapshot. The billing
-// cycle end is the reset time. Cursor splits usage into two buckets — the
-// Auto bucket (composer/default models) and the API bucket (explicitly
-// selected / API models). leeway surfaces the bucket the user actually pays
-// through: the primary Monthly window carries the API-bucket percent (named
-// model usage), since Cursor's own dashboard labels that lane
-// "You've used X% of your included API usage". The total and auto buckets
-// stay as extra windows (JSON only — the table projects one canonical
-// window per period). The remaining/limit balance renders as the cash lane.
-func (d *usageData) toModel(account string, now time.Time) *model.Snapshot {
+// cycle end is the reset time. Cursor splits usage into Auto (composer)
+// and API (named models). The table shows those percents plus included
+// spend in dollars (RPC amounts are cents). Total is omitted — it is just
+// the two buckets mixed together.
+func (d *usageData) toModel(account, email string, now time.Time) *model.Snapshot {
+	ident := account
+	if email != "" {
+		ident = email
+	}
 	monthly := monthlyWindowMinutes
 	snap := &model.Snapshot{
 		UpdatedAt: now,
-		Identity:  &model.Identity{Account: account},
+		Identity:  &model.Identity{Account: ident},
 		Windows:   []model.RateWindow{},
 	}
 
-	// Primary lane: the API bucket, i.e. named-model / self-selected model
-	// usage — the consumption that actually depletes a named-model plan.
+	// Dashboard's paid lane is named-model / API usage.
 	api := d.PlanUsage.APIPercentUsed
 	snap.Windows = append(snap.Windows, model.RateWindow{
 		ID:            "primary",
@@ -139,22 +213,20 @@ func (d *usageData) toModel(account string, now time.Time) *model.Snapshot {
 		ResetsAt:      millisToTime(d.BillingCycleEnd),
 		WindowMinutes: &monthly,
 	})
-
-	total := d.PlanUsage.TotalPercent
-	auto := d.PlanUsage.AutoPercentUsed
-	snap.Windows = append(snap.Windows, model.RateWindow{
-		ID: "total", Title: "Total", UsedPercent: &total,
-	})
-	snap.Windows = append(snap.Windows, model.RateWindow{
-		ID: "auto", Title: "Auto", UsedPercent: &auto,
-	})
-
-	if d.PlanUsage.Limit > 0 {
-		remaining := d.PlanUsage.Remaining
-		limit := d.PlanUsage.Limit
+	if d.PlanUsage.AutoPercentUsed != 0 {
+		auto := d.PlanUsage.AutoPercentUsed
 		snap.Windows = append(snap.Windows, model.RateWindow{
-			ID: "credits", Title: "Credits",
-			Used: &remaining, Limit: &limit,
+			ID: "auto", Title: "Auto", UsedPercent: &auto,
+		})
+	}
+	// Amounts are cents. Show spend / included limit in dollars, not a
+	// fake remaining field the RPC does not return.
+	if d.PlanUsage.Limit > 0 {
+		spend := d.PlanUsage.IncludedSpend / 100
+		limit := d.PlanUsage.Limit / 100
+		snap.Windows = append(snap.Windows, model.RateWindow{
+			ID: "included", Title: "Included",
+			Used: &spend, Limit: &limit, Currency: "USD",
 		})
 	}
 	return snap

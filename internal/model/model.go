@@ -36,6 +36,7 @@ type Cost struct {
 // Identity identifies the account a snapshot belongs to.
 type Identity struct {
 	Account string `json:"account,omitempty"`
+	Plan    string `json:"plan,omitempty"` // subscription tier when the provider names it
 }
 
 // Snapshot is one provider's usage state at a point in time.

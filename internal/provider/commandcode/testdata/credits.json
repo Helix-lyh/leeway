@@ -1,0 +1,24 @@
+{
+  "credits": {
+    "monthlyCredits": 48.5,
+    "purchasedCredits": 0,
+    "freeCredits": 0
+  },
+  "windowLimits": {
+    "fiveHour": {
+      "used": 4.48,
+      "cap": 14,
+      "resetAt": "2026-09-02T18:00:00Z"
+    },
+    "weekly": {
+      "used": 14.35,
+      "cap": 35,
+      "resetAt": "2026-09-07T09:00:00Z"
+    },
+    "monthly": {
+      "used": 21.5,
+      "cap": 70,
+      "resetAt": "2026-10-01T00:00:00Z"
+    }
+  }
+}

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // flagSet is a thin wrapper over flag.FlagSet that knows whether --json was
@@ -20,10 +21,20 @@ func newFlagSet(name string, jsonOut *bool) *flagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	if jsonOut != nil {
-		fs.BoolVar(jsonOut, "json", false, "machine-readable JSON output")
+		fs.BoolVar(jsonOut, "json", false, "JSON 输出")
 	}
 	return &flagSet{fs: fs}
 }
+
+// Help replaces -h output with a short how-to, then the flags.
+func (f *flagSet) Help(text string) {
+	f.fs.Usage = func() {
+		fmt.Fprint(os.Stderr, strings.TrimRight(text, "\n")+"\n\n")
+		f.fs.PrintDefaults()
+	}
+}
+
+func (f *flagSet) Usage() { f.fs.Usage() }
 
 // Parse parses the arguments; returns false on -h/parse error.
 func (f *flagSet) Parse(args []string) bool {

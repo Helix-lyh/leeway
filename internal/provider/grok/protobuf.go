@@ -42,10 +42,13 @@ func (s *protobufScan) merge(other protobufScan) {
 	s.varintFields = append(s.varintFields, other.varintFields...)
 }
 
-// billingSnapshot mirrors GrokWebBillingSnapshot.
+// billingSnapshot mirrors GrokWebBillingSnapshot, plus REST period metadata.
 type billingSnapshot struct {
 	usedPercent *float64
 	resetsAt    *time.Time
+	periodType  string // currentPeriod.type from REST; empty on grpc-web
+	fromREST    bool
+	onDemandCap float64 // REST pay-as-you-go cap; 0 when disabled/absent
 }
 
 // parseGRPCWebResponse mirrors GrokWebBillingFetcher.parseGRPCWebResponse.

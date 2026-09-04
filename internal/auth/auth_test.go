@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,8 +90,8 @@ func TestLoadCookieCacheUnreadable(t *testing.T) {
 	// ResolveCookieHeader must distinguish "unreadable cache" from "nothing
 	// imported" instead of telling the user to re-import.
 	_, err := ResolveCookieHeader("grok", config.ProviderConfig{}, "default")
-	if err == nil || !strings.Contains(err.Error(), "cookie cache unreadable") {
-		t.Fatalf("err = %v, want cookie cache unreadable", err)
+	if !errors.Is(err, ErrCookieCacheUnreadable) {
+		t.Fatalf("err = %v, want ErrCookieCacheUnreadable", err)
 	}
 }
 

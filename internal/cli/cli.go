@@ -22,31 +22,7 @@ import (
 	"leeway/internal/render"
 )
 
-const usageText = `leeway — 余量·裕度：AI 编程额度仪表盘
-
-你的 AI 编程额度还剩多少、什么时候重置？一条命令搞定：
-
-  leeway usage               查看所有 provider 的余量、已用百分比和重置倒计时
-  leeway usage --json        机器可读输出（给 agent / 脚本用）
-  leeway usage --watch 30    每 30 秒自动刷新
-  leeway doctor              体检：告诉你每个 provider 缺什么、怎么补齐
-
-支持的 provider：Codex / DeepSeek / Grok / Kimi Code / OpenCode Go
-
-其他命令：
-  leeway providers                             查看 provider 列表与认证方式
-  leeway cookie import --provider X            从 Chrome 导入登录会话（grok / kimi / opencode-go 需要）
-  leeway cookie import --provider X --profile P --account A   按浏览器 profile 导入并绑定多账户
-  leeway cookie set --provider X --manual "..." 手动粘贴 cookie header
-  leeway cookie list / clear                   查看 / 清除已导入的 cookie
-  leeway config set-api-key --provider X       配置 API key（deepseek 等）
-  leeway config set-api-key --provider X --account NAME   配置 opencode-go 某个订阅的命名 key
-  leeway config keys --provider X              列出命名订阅（值脱敏，标出当前激活）
-  leeway use --provider X --account NAME       切换激活订阅：把该订阅的 API key 写入目标（默认 DSH 凭据文件）
-  leeway config path                           查看配置文件位置
-
-退出码：0 = 全部正常；1 = 有 provider 异常或未配置；2 = 命令用法错误
-`
+const usageText = rootHelp
 
 // Run dispatches subcommands and returns the process exit code.
 func Run(args []string) int {
@@ -65,9 +41,14 @@ func Run(args []string) int {
 		return runCookie(args[1:])
 	case "config":
 		return runConfig(args[1:])
+	case "auth":
+		return runAuth(args[1:])
 	case "doctor":
 		return runDoctor(args[1:])
 	case "help", "-h", "--help":
+		if args[0] == "help" && len(args) > 1 {
+			return runHelpTopic(args[1])
+		}
 		fmt.Print(usageText)
 		return 0
 	default:
@@ -99,10 +80,11 @@ func runUsage(args []string) int {
 		noCache        bool
 	)
 	fs := newFlagSet("usage", &jsonOut)
-	fs.StringVar(&providerFilter, "provider", "", "only probe this provider")
-	fs.StringVar(&accountFilter, "account", "", "only probe this account (multi-account providers)")
-	fs.IntVar(&watchSecs, "watch", 0, "re-fetch every N seconds")
-	fs.BoolVar(&noCache, "no-cache", false, "bypass the TTL cache")
+	fs.Help(usageHelp)
+	fs.StringVar(&providerFilter, "provider", "", "只查这一家（cursor / grok / opencode-go / commandcode / …）")
+	fs.StringVar(&accountFilter, "account", "", "只查这个账号（tag、邮箱或订阅名）")
+	fs.IntVar(&watchSecs, "watch", 0, "每 N 秒刷新")
+	fs.BoolVar(&noCache, "no-cache", false, "不走 60s 缓存")
 	if !fs.Parse(args) {
 		return 2
 	}
@@ -165,10 +147,14 @@ func runUse(args []string) int {
 		account    string
 	)
 	fs := newFlagSet("use", nil)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	fs.StringVar(&account, "account", "", "named subscription/account to make active")
-	if !fs.Parse(args) || providerID == "" || account == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway use --provider ID --account NAME")
+	fs.Help(useHelp)
+	fs.StringVar(&providerID, "provider", "", "provider（opencode-go / commandcode / …）")
+	fs.StringVar(&account, "account", "", "要写给 DSH 的那个订阅名")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" || account == "" {
+		fs.Usage()
 		return 2
 	}
 	cfg, err := config.Load()
@@ -204,6 +190,7 @@ func runUse(args []string) int {
 func runProviders(args []string) int {
 	var jsonOut bool
 	fs := newFlagSet("providers", &jsonOut)
+	fs.Help(providersHelp)
 	if !fs.Parse(args) {
 		return 2
 	}
@@ -235,32 +222,41 @@ func runProviders(args []string) int {
 		enc := newJSONEncoder()
 		return enc.Encode(views)
 	}
-	fmt.Printf("%-12s %-8s %s\n", "PROVIDER", "ENABLED", "AUTH")
+	fmt.Printf("%-14s %-8s %s\n", "PROVIDER", "ENABLED", "HOW")
 	for _, p := range provs {
-		spec := p.AuthSpec()
-		authParts := []string{}
-		if len(spec.EnvAPIKey) > 0 {
-			authParts = append(authParts, strings.Join(spec.EnvAPIKey, "/"))
-		}
-		if len(spec.EnvAuthToken) > 0 {
-			authParts = append(authParts, strings.Join(spec.EnvAuthToken, "/"))
-		}
-		if spec.UsesCookies {
-			authParts = append(authParts, "cookies")
-		}
-		if spec.UsesCodexCLI {
-			authParts = append(authParts, "codex CLI session")
-		}
-		fmt.Printf("%-12s %-8t %s\n", p.DisplayName(), cfg.IsEnabled(p.ID()), strings.Join(authParts, ", "))
+		fmt.Printf("%-14s %-8t %s\n", p.DisplayName(), cfg.IsEnabled(p.ID()), loginHow(p))
 	}
 	return 0
+}
+
+func loginHow(p provider.Provider) string {
+	switch p.ID() {
+	case "cursor":
+		return "leeway auth login --provider cursor"
+	case "grok":
+		return "leeway auth login --provider grok"
+	case "opencode-go", "commandcode", "deepseek":
+		return "leeway auth login --provider " + p.ID()
+	case "codex":
+		return "codex login"
+	case "kimi":
+		return "kimi login 或 leeway cookie import --provider kimi"
+	default:
+		if h := p.AuthSpec().LoginHint; h != "" {
+			return h
+		}
+		return "leeway doctor"
+	}
 }
 
 // --- cookie --------------------------------------------------------------
 
 func runCookie(args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "cookie: subcommand required (set|import|list|clear)")
+	if len(args) < 1 || isHelpArg(args[0]) {
+		printHelp(os.Stderr, cookieHelp)
+		if len(args) > 0 && isHelpArg(args[0]) {
+			return 0
+		}
 		return 2
 	}
 	switch args[0] {
@@ -273,7 +269,8 @@ func runCookie(args []string) int {
 	case "clear":
 		return cookieClear(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "cookie: unknown subcommand %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "cookie: unknown subcommand %q\n\n", args[0])
+		printHelp(os.Stderr, cookieHelp)
 		return 2
 	}
 }
@@ -284,10 +281,14 @@ func cookieSet(args []string) int {
 		manual     string
 	)
 	fs := newFlagSet("cookie set", nil)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	fs.StringVar(&manual, "manual", "", "cookie header, e.g. \"a=b; c=d\"")
-	if !fs.Parse(args) || providerID == "" || manual == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway cookie set --provider ID --manual \"a=b; c=d\"")
+	fs.Help("leeway cookie set — 手动粘贴 Cookie header\n\n  leeway cookie set --provider grok --manual \"a=b; c=d\"\n")
+	fs.StringVar(&providerID, "provider", "", "provider（grok / kimi / opencode-go）")
+	fs.StringVar(&manual, "manual", "", "Cookie header，例如 a=b; c=d")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" || manual == "" {
+		fs.Usage()
 		return 2
 	}
 	cfg, err := config.Load()
@@ -316,21 +317,27 @@ func cookieImport(args []string) int {
 		force      bool
 	)
 	fs := newFlagSet("cookie import", nil)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	fs.StringVar(&browser, "browser", "", "chrome|edge|kimi-desktop (default: chrome)")
-	fs.StringVar(&profile, "profile", "", "Chrome profile to import from (Default, Profile 1, …; default: auto-pick the profile with most cookies)")
-	fs.StringVar(&account, "account", "", "account name to bind this session to (writes a config account entry for multi-account providers)")
-	fs.BoolVar(&force, "force", false, "re-import even if a fresh cache exists")
-	if !fs.Parse(args) || providerID == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway cookie import --provider ID [--browser chrome|edge|kimi-desktop] [--profile NAME] [--account NAME] [--force]")
+	fs.Help("leeway cookie import — 从浏览器导入 cookie\n\n  leeway cookie import --provider grok\n  leeway cookie import --provider kimi --browser kimi-desktop\n")
+	fs.StringVar(&providerID, "provider", "", "provider（grok / kimi / opencode-go）")
+	fs.StringVar(&browser, "browser", "", "chrome | edge | kimi-desktop（默认 chrome）")
+	fs.StringVar(&profile, "profile", "", "Chrome profile（Default / Profile 1；默认选 cookie 最多的）")
+	fs.StringVar(&account, "account", "", "绑成这个账号（需同时给 --profile）")
+	fs.BoolVar(&force, "force", false, "忽略缓存，强制重导")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" {
+		fs.Usage()
 		return 2
 	}
 	if browser == "" {
 		browser = "chrome"
 	}
 	if cc, ok, err := auth.LoadCookieCache(providerID, profile); err != nil {
-		fmt.Fprintln(os.Stderr, "cache:", err)
-		return 1
+		if rerr := auth.RemoveCookieCacheFile(); rerr != nil {
+			fmt.Fprintln(os.Stderr, "cache:", rerr)
+			return 1
+		}
 	} else if ok && !force && time.Since(cc.ImportedAt) < auth.ImportTTL {
 		fmt.Printf("cookie cache for %q%s is fresh (imported %s by %s); use --force to re-import\n",
 			providerID, cacheSuffix(profile), cc.ImportedAt.Format(time.RFC3339), cc.Browser)
@@ -399,6 +406,7 @@ func accountSuffix(account string) string {
 func cookieList(args []string) int {
 	var jsonOut bool
 	fs := newFlagSet("cookie list", &jsonOut)
+	fs.Help("leeway cookie list — 已导入 / 手动保存的 cookie\n")
 	if !fs.Parse(args) {
 		return 2
 	}
@@ -477,10 +485,14 @@ func cookieClear(args []string) int {
 		profile    string
 	)
 	fs := newFlagSet("cookie clear", nil)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	fs.StringVar(&profile, "profile", "", "only clear this profile's entry")
-	if !fs.Parse(args) || providerID == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway cookie clear --provider ID [--profile NAME]")
+	fs.Help("leeway cookie clear — 清除导入的 cookie 缓存\n\n  leeway cookie clear --provider grok\n")
+	fs.StringVar(&providerID, "provider", "", "provider")
+	fs.StringVar(&profile, "profile", "", "只清这个 Chrome profile")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" {
+		fs.Usage()
 		return 2
 	}
 	if err := auth.ClearCookieCache(providerID, profile); err != nil {
@@ -494,8 +506,11 @@ func cookieClear(args []string) int {
 // --- config --------------------------------------------------------------
 
 func runConfig(args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "config: subcommand required (path|set-api-key|set-auth-file|keys)")
+	if len(args) < 1 || isHelpArg(args[0]) {
+		printHelp(os.Stderr, configHelp)
+		if len(args) > 0 && isHelpArg(args[0]) {
+			return 0
+		}
 		return 2
 	}
 	switch args[0] {
@@ -509,7 +524,8 @@ func runConfig(args []string) int {
 	case "keys":
 		return configKeys(args[1:])
 	default:
-		fmt.Fprintf(os.Stderr, "config: unknown subcommand %q\n", args[0])
+		fmt.Fprintf(os.Stderr, "config: unknown subcommand %q\n\n", args[0])
+		printHelp(os.Stderr, configHelp)
 		return 2
 	}
 }
@@ -524,11 +540,15 @@ func configSetAuthFile(args []string) int {
 		authFile   string
 	)
 	fs := newFlagSet("config set-auth-file", nil)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	fs.StringVar(&account, "account", "", "named account to bind the session file to")
-	fs.StringVar(&authFile, "auth-file", "", "session file path (tilde-expanded), e.g. ~/.grok-acc2/auth.json")
-	if !fs.Parse(args) || providerID == "" || account == "" || authFile == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway config set-auth-file --provider ID --account NAME --auth-file PATH")
+	fs.Help("leeway config set-auth-file — 给 grok 账号指定 auth.json\n\n  leeway config set-auth-file --provider grok --account home --auth-file ~/.grok/auth.json\n")
+	fs.StringVar(&providerID, "provider", "", "provider（一般是 grok）")
+	fs.StringVar(&account, "account", "", "账号名")
+	fs.StringVar(&authFile, "auth-file", "", "会话文件路径，例如 ~/.grok/auth.json")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" || account == "" || authFile == "" {
+		fs.Usage()
 		return 2
 	}
 	cfg, err := config.Load()
@@ -551,11 +571,15 @@ func configSetAPIKey(args []string) int {
 		key        string
 	)
 	fs := newFlagSet("config set-api-key", nil)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	fs.StringVar(&account, "account", "", "named subscription to store the key on (multi-key providers)")
-	fs.StringVar(&key, "key", "", "API key (omit for interactive input)")
-	if !fs.Parse(args) || providerID == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway config set-api-key --provider ID [--account NAME] [--key VALUE]")
+	fs.Help(configSetKeyHelp)
+	fs.StringVar(&providerID, "provider", "", "provider（deepseek / opencode-go / commandcode）")
+	fs.StringVar(&account, "account", "", "订阅名（多 key 时必填）")
+	fs.StringVar(&key, "key", "", "API key（省略则交互输入，不回显）")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" {
+		fs.Usage()
 		return 2
 	}
 	if key == "" {
@@ -603,9 +627,13 @@ func configKeys(args []string) int {
 		jsonOut    bool
 	)
 	fs := newFlagSet("config keys", &jsonOut)
-	fs.StringVar(&providerID, "provider", "", "provider ID")
-	if !fs.Parse(args) || providerID == "" {
-		fmt.Fprintln(os.Stderr, "usage: leeway config keys --provider ID")
+	fs.Help(configKeysHelp)
+	fs.StringVar(&providerID, "provider", "", "provider（opencode-go / commandcode）")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if providerID == "" {
+		fs.Usage()
 		return 2
 	}
 	cfg, err := config.Load()
@@ -659,6 +687,7 @@ func maskKey(key string) string {
 func runDoctor(args []string) int {
 	var jsonOut bool
 	fs := newFlagSet("doctor", &jsonOut)
+	fs.Help(doctorHelp)
 	if !fs.Parse(args) {
 		return 2
 	}
@@ -676,8 +705,8 @@ func runDoctor(args []string) int {
 	checks := []check{}
 	for _, p := range provider.All() {
 		spec := p.AuthSpec()
-		var apiOK, cookieOK bool
-		var apiHint, cookieHint string
+		var apiOK, tokenOK, cookieOK bool
+		var apiHint, tokenHint, cookieHint string
 		if len(spec.EnvAPIKey) > 0 {
 			for _, k := range spec.EnvAPIKey {
 				if os.Getenv(k) != "" {
@@ -695,11 +724,26 @@ func runDoctor(args []string) int {
 					}
 				}
 			}
-			hint := "set " + strings.Join(spec.EnvAPIKey, " or ") + ", or: leeway config set-api-key --provider " + p.ID()
+			hint := "leeway auth login --provider " + p.ID()
 			if spec.SupportsAccounts {
 				hint += " --account NAME"
 			}
 			apiHint = hintIf(!apiOK, hint)
+		}
+		if len(spec.EnvAuthToken) > 0 {
+			for _, k := range spec.EnvAuthToken {
+				if os.Getenv(k) != "" {
+					tokenOK = true
+				}
+			}
+			if !tokenOK && cfg.APIKey(p.ID()) != "" {
+				tokenOK = true
+			}
+			hint := "leeway auth login --provider " + p.ID()
+			if spec.SupportsAccounts {
+				hint += " --account NAME"
+			}
+			tokenHint = hintIf(!tokenOK, hint)
 		}
 		if spec.UsesCookies {
 			pc := cfg.Provider(p.ID())
@@ -725,18 +769,40 @@ func runDoctor(args []string) int {
 				}
 			}
 		}
-		// Dual-path (api key + cookies) is configured if either method works;
-		// do not AND-require the unused one.
-		dual := len(spec.EnvAPIKey) > 0 && spec.UsesCookies
-		if len(spec.EnvAPIKey) > 0 && (!dual || apiOK || !cookieOK) {
+		// Dual-path (api key / token + cookies) is configured if either
+		// method works; do not AND-require the unused one.
+		dual := (len(spec.EnvAPIKey) > 0 || len(spec.EnvAuthToken) > 0) && spec.UsesCookies
+		anyAuth := apiOK || tokenOK || cookieOK
+		if len(spec.EnvAPIKey) > 0 && (!dual || apiOK || !anyAuth) {
 			checks = append(checks, check{p.DisplayName(), "api key", apiOK, apiHint})
 		}
-		if spec.UsesCookies && (!dual || cookieOK || !apiOK) {
+		if len(spec.EnvAuthToken) > 0 && (!dual || tokenOK || !anyAuth) {
+			checks = append(checks, check{p.DisplayName(), "auth token", tokenOK, tokenHint})
+		}
+		if spec.UsesCookies && (!dual || cookieOK || !anyAuth) {
 			checks = append(checks, check{p.DisplayName(), "cookies", cookieOK, cookieHint})
+		}
+		if spec.UsesKeychain {
+			ok := false
+			for _, k := range spec.EnvAuthToken {
+				if os.Getenv(k) != "" {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				for _, a := range cursorAccounts(cfg) {
+					if _, has, err := auth.LoadCursorAuth(a.Name); err == nil && has {
+						ok = true
+						break
+					}
+				}
+			}
+			checks = append(checks, check{p.DisplayName(), "login", ok, hintIf(!ok, "leeway auth login --provider "+p.ID())})
 		}
 		if spec.UsesCodexCLI {
 			ok := fetch.HasCodexAuth()
-			checks = append(checks, check{p.DisplayName(), "codex session", ok, hintIf(!ok, "run: codex login")})
+			checks = append(checks, check{p.DisplayName(), "codex session", ok, hintIf(!ok, "codex login")})
 		}
 		for _, f := range spec.LocalAuthFiles {
 			path, err := provider.HomePath(f)
@@ -783,6 +849,15 @@ func fileExists(path string) bool {
 }
 
 // --- helpers -------------------------------------------------------------
+
+func cursorAccounts(cfg *config.Config) []config.AccountConfig {
+	accs := cfg.Accounts("cursor")
+	extra, err := auth.ListCursorSessionAccounts()
+	if err != nil {
+		return config.DropDefaultAccounts(accs)
+	}
+	return config.DropDefaultAccounts(config.MergeNamedAccounts(accs, extra))
+}
 
 func configPath() string {
 	p, err := config.Path()

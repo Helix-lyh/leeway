@@ -43,25 +43,22 @@ func TestRenderTablePercentWindow(t *testing.T) {
 	if !strings.Contains(s, "Kimi Code") {
 		t.Fatalf("provider head missing:\n%s", s)
 	}
-	for _, col := range []string{"PROVIDER", "5-HOUR", "WEEKLY", "MONTHLY", "CASH/CREDITS"} {
-		if !strings.Contains(s, col) {
-			t.Fatalf("header column %q missing:\n%s", col, s)
-		}
+	if strings.Contains(s, "5-HOUR") || strings.Contains(s, "CASH/CREDITS") {
+		t.Fatalf("shared column header must not appear:\n%s", s)
 	}
-	if !strings.Contains(s, "62%") {
-		t.Fatalf("window segment missing:\n%s", s)
+	if !strings.Contains(s, "Weekly") || !strings.Contains(s, "62%") {
+		t.Fatalf("native weekly window missing:\n%s", s)
 	}
 	if strings.Contains(s, "0%") {
 		t.Fatalf("missing quota slots must not be rendered as synthetic 0%%:\n%s", s)
 	}
-	if strings.Count(s, "—") != 2 {
-		t.Fatalf("missing 5-hour/monthly slots must be unavailable markers:\n%s", s)
+	if strings.Contains(s, "—") {
+		t.Fatalf("absent windows must be omitted, not placeholder:\n%s", s)
 	}
 	want := model.DurationShort(time.Until(now))
 	if !strings.Contains(s, want) {
 		t.Fatalf("reset countdown %q missing:\n%s", want, s)
 	}
-	// An all-ok, default-account provider omits status/account noise.
 	if strings.Contains(s, "ok") || strings.Contains(s, "default") {
 		t.Fatalf("status/account noise should be omitted:\n%s", s)
 	}
@@ -100,7 +97,7 @@ func TestRenderTableCostRows(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "¥12.34 balance") {
+	if !strings.Contains(s, "¥12.34") {
 		t.Fatalf("snapshot cost footnote missing:\n%s", s)
 	}
 }
@@ -173,8 +170,8 @@ func TestRenderTableUsedWithLimit(t *testing.T) {
 	if !strings.Contains(s, "$8.50 / $10.00") {
 		t.Fatalf("used/limit value missing:\n%s", s)
 	}
-	if strings.Contains(s, "bal") { // single money window: no title
-		t.Fatalf("single balance window should render bare:\n%s", s)
+	if !strings.Contains(s, "Balance") {
+		t.Fatalf("native balance title missing:\n%s", s)
 	}
 }
 
@@ -186,18 +183,144 @@ func TestRenderTableMultiAccountHeads(t *testing.T) {
 			ID: "primary", Title: "Weekly", UsedPercent: &pct, WindowMinutes: &weekly,
 		}}}
 	}
-	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
-		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
-		Accounts: []model.AccountResult{
-			{Name: "github", Status: "ok", Snapshot: snap()},
-			{Name: "work", Status: "ok", Snapshot: snap()},
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{
+		{
+			ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok",
+			Accounts: []model.AccountResult{
+				{Name: "github", Status: "ok", Snapshot: snap()},
+				{Name: "work", Status: "ok", Snapshot: snap()},
+			},
 		},
+		{
+			ID: "deepseek", DisplayName: "DeepSeek", Status: "ok",
+			Accounts: []model.AccountResult{{
+				Name: "default", Status: "ok",
+				Snapshot: &model.Snapshot{UpdatedAt: time.Now(), Windows: []model.RateWindow{{
+					ID: "primary", Title: "Balance", Used: ptr(12.34), Currency: "CNY",
+				}}},
+			}},
+		},
+	}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if strings.Count(s, "OpenCode Go") != 1 {
+		t.Fatalf("provider should appear once as a group header:\n%s", s)
+	}
+	if !strings.Contains(s, "\n  github\n") || !strings.Contains(s, "\n  work\n") {
+		t.Fatalf("tags should sit on their own indented lines:\n%s", s)
+	}
+	if strings.Contains(s, "OpenCode Go github") || strings.Contains(s, "OpenCode Go work") {
+		t.Fatalf("grouped tags must not trail the provider on the same line:\n%s", s)
+	}
+	if !strings.Contains(s, "OpenCode Go\n") || !strings.Contains(s, "\nDeepSeek") {
+		t.Fatalf("provider groups should be separated:\n%s", s)
+	}
+}
+
+func TestRenderTableTagColor(t *testing.T) {
+	pct := 10.0
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "cursor", DisplayName: "Cursor", Status: "ok",
+		Accounts: []model.AccountResult{
+			{Name: "codesmallstar", Status: "ok", Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows:   []model.RateWindow{{ID: "primary", Title: "Monthly", UsedPercent: &pct}},
+			}},
+			{Name: "lymysql", Status: "ok", Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Windows:   []model.RateWindow{{ID: "primary", Title: "Monthly", UsedPercent: &pct}},
+			}},
+		},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, true)
+	s := buf.String()
+	if !strings.Contains(s, cCyan+"codesmallstar"+cReset) || !strings.Contains(s, cCyan+"lymysql"+cReset) {
+		t.Fatalf("multi-account tags should be cyan:\n%s", s)
+	}
+	if !strings.Contains(s, cBold+cGreen+"Cursor"+cReset) {
+		t.Fatalf("provider group header should stay status-colored:\n%s", s)
+	}
+}
+
+func ptr(v float64) *float64 { return &v }
+
+func TestRenderTableShowsPlan(t *testing.T) {
+	pct := 10.0
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "cursor", DisplayName: "Cursor", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "lymysql", Status: "ok",
+			Snapshot: &model.Snapshot{
+				Identity: &model.Identity{Account: "lymysql@gmail.com", Plan: "Ultra"},
+				Windows:  []model.RateWindow{{ID: "primary", Title: "Monthly", UsedPercent: &pct}},
+			},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	if !strings.Contains(buf.String(), "Ultra") {
+		t.Fatalf("plan name missing:\n%s", buf.String())
+	}
+
+	out.Providers[0].Accounts[0].Name = "default"
+	buf.Reset()
+	RenderTable(&buf, out, false)
+	if !strings.Contains(buf.String(), "Ultra") {
+		t.Fatalf("plan name missing on default account:\n%s", buf.String())
+	}
+}
+
+func TestAccountLabelTagAndEmail(t *testing.T) {
+	ar := model.AccountResult{
+		Name:     "work",
+		Snapshot: &model.Snapshot{Identity: &model.Identity{Account: "alice@example.com"}},
+	}
+	if got := accountLabel(ar); got != "work  alice@example.com" {
+		t.Fatalf("label = %q", got)
+	}
+	ar.Name = "alice"
+	if got := accountLabel(ar); got != "alice" {
+		t.Fatalf("local-part tag should not repeat the email: %q", got)
+	}
+	ar.Name = "default"
+	if got := accountLabel(ar); got != "alice@example.com" {
+		t.Fatalf("default+email label = %q", got)
+	}
+	ar.Name = "alice@example.com"
+	if got := accountLabel(ar); got != "alice@example.com" {
+		t.Fatalf("name=email label = %q", got)
+	}
+}
+
+func TestRenderTableStacksMultipleWindows(t *testing.T) {
+	a, b := 73.0, 20.0
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
+		ID: "cursor", DisplayName: "Cursor", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "lymysql", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: time.Now(),
+				Identity:  &model.Identity{Account: "lymysql@gmail.com"},
+				Windows: []model.RateWindow{
+					{ID: "primary", Title: "Monthly", UsedPercent: &a},
+					{ID: "auto", Title: "Auto", UsedPercent: &b},
+				},
+			},
+		}},
 	}}}
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "github") || !strings.Contains(s, "work") {
-		t.Fatalf("account names should be shown for multi-account providers:\n%s", s)
+	if strings.Contains(s, "lymysql@gmail.com") {
+		t.Fatalf("tag matching email local-part should not repeat the address:\n%s", s)
+	}
+	if strings.Count(s, "\n") < 3 {
+		t.Fatalf("multiple windows should stack, not wrap one long line:\n%s", s)
+	}
+	if !strings.Contains(s, "Monthly") || !strings.Contains(s, "Auto") {
+		t.Fatalf("native windows missing:\n%s", s)
 	}
 }
 
@@ -223,11 +346,8 @@ func TestRenderTableOverflowWindowOmittedFromCash(t *testing.T) {
 	if !strings.Contains(s, "79%") {
 		t.Fatalf("primary window missing:\n%s", s)
 	}
-	if strings.Contains(s, "Codex Spark Weekly") {
-		t.Fatalf("overflow quota must not appear in cash/credits:\n%s", s)
-	}
-	if strings.Count(s, "0%") != 0 {
-		t.Fatalf("the duplicate Spark zero must not leak into the table:\n%s", s)
+	if !strings.Contains(s, "Codex Spark Weekly") {
+		t.Fatalf("native extra window missing:\n%s", s)
 	}
 }
 
@@ -249,20 +369,8 @@ func TestRenderTableUnclassifiedPercentOmittedFromCash(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	// The unclassified percent window must not leak into the data area as
-	// cash/credits. The header row legitimately contains "Credits" now
-	// (CASH/Credits), so scan the provider data line instead of the whole
-	// table. The Custom row is the last line; take everything after it.
-	if i := strings.LastIndex(s, "Custom"); i >= 0 {
-		row := s[i:]
-		if strings.Contains(row, "Credits") || strings.Contains(row, "100%") {
-			t.Fatalf("unclassified quota must not appear in cash/credits:\n%s", s)
-		}
-	} else if strings.Contains(s, "Credits") || strings.Contains(s, "100%") {
-		t.Fatalf("unclassified quota must not appear in cash/credits:\n%s", s)
-	}
-	if strings.Count(s, "—") != 3 {
-		t.Fatalf("unclassified window must not occupy a fixed-period slot:\n%s", s)
+	if !strings.Contains(s, "Credits") || !strings.Contains(s, "100%") {
+		t.Fatalf("native credits percent window missing:\n%s", s)
 	}
 }
 
@@ -287,28 +395,8 @@ func TestRenderTableExplicitZeroRemainsZero(t *testing.T) {
 	if strings.Count(s, "0%") != 1 {
 		t.Fatalf("an explicit provider zero must render exactly once:\n%s", s)
 	}
-	if strings.Count(s, "—") != 2 {
-		t.Fatalf("only absent weekly/monthly slots should be unavailable:\n%s", s)
-	}
-}
-
-func TestQuotaSlotUsesExplicitDurationNotTitle(t *testing.T) {
-	fiveHours, weekly, monthly, unknown := 300, 10080, 43200, 1234
-	cases := []struct {
-		name string
-		win  model.RateWindow
-		want int
-	}{
-		{"five-hour", model.RateWindow{Title: "Monthly", WindowMinutes: &fiveHours}, slot5h},
-		{"weekly", model.RateWindow{Title: "Credits", WindowMinutes: &weekly}, slotWeekly},
-		{"monthly", model.RateWindow{Title: "Weekly", WindowMinutes: &monthly}, slotMonthly},
-		{"title without duration", model.RateWindow{Title: "Weekly"}, -1},
-		{"unknown duration", model.RateWindow{Title: "5-hour", WindowMinutes: &unknown}, -1},
-	}
-	for _, tc := range cases {
-		if got := quotaSlot(tc.win); got != tc.want {
-			t.Errorf("%s: quotaSlot = %d, want %d", tc.name, got, tc.want)
-		}
+	if strings.Contains(s, "—") {
+		t.Fatalf("absent windows must be omitted:\n%s", s)
 	}
 }
 
@@ -329,8 +417,8 @@ func TestRenderTableTimeOnlyMarkerOmittedFromCash(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if strings.Contains(s, "Renews") {
-		t.Fatalf("time-only marker must not appear in cash/credits:\n%s", s)
+	if !strings.Contains(s, "Renews") {
+		t.Fatalf("native reset-only window missing:\n%s", s)
 	}
 	if strings.Contains(s, "0%") {
 		t.Fatalf("time-only marker must not manufacture zero usage:\n%s", s)

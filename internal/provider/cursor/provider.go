@@ -3,21 +3,24 @@
 // Cursor exposes no public usage API; the web dashboard itself calls the
 // internal Connect RPC endpoint aiserver.v1.DashboardService/
 // GetCurrentPeriodUsage on api2.cursor.sh, which returns the current billing
-// cycle's plan usage (included spend, remaining, limit) and the server-
-// computed percent used for the auto and API buckets. leeway reuses that
-// endpoint with the same token the cursor CLI/IDE keeps in the macOS
-// keychain (service "cursor-access-token", account "cursor-user"), so no
-// extra login is required on machines where cursor is already signed in.
+// cycle's plan usage (included spend, limit, auto/API/total percent) and
+// billing-cycle bounds. leeway reuses that endpoint.
+//
+// Sign-in is delegated to the official cursor-agent CLI
+// (`leeway auth login --provider cursor`): leeway runs it with
+// AGENT_CLI_CREDENTIAL_STORE=file and a private HOME, then reads the
+// auth.json the CLI wrote. The browser PKCE/poll protocol is not
+// reimplemented. Each account has its own HOME, isolated from the official
+// CLI/keychain and from every other leeway account.
 //
 // Token resolution order (per account):
 //
 //  1. CURSOR_ACCESS_TOKEN env var (explicit override / CI)
 //  2. account.apiKey in ~/.config/leeway/config.json (named accounts)
-//  3. macOS keychain "cursor-access-token" (the interactive sign-in)
-//
-// The provider is multi-account: each account is one token, defaulting to
-// the keychain session. Configure extra accounts with
-// `leeway config set-api-key --provider cursor --account NAME`.
+//  3. official auth.json in this account's private HOME
+//  4. macOS keychain "cursor-access-token" (fallback only when no private
+//     auth.json exists, so a logged-in leeway account never mixes with
+//     the official CLI's session)
 package cursor
 
 import (
@@ -58,15 +61,15 @@ type cursorProvider struct {
 func (*cursorProvider) ID() string          { return "cursor" }
 func (*cursorProvider) DisplayName() string { return "Cursor" }
 
-// AuthSpec declares the token sources: an env var is checked first, then the
-// account-level APIKey (config), then the macOS keychain. The provider itself
-// performs keychain resolution inside Fetch because it depends on the account
-// name (keychain only backs the default interactive session).
+// AuthSpec declares the token sources: env, account apiKey, then a private
+// auth.json / keychain resolved inside Fetch. UsesKeychain lets the
+// orchestrator attempt Fetch even before a private login exists, so a
+// missing token surfaces as the login hint rather than not_configured.
 func (*cursorProvider) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
 		EnvAuthToken:     []string{"CURSOR_ACCESS_TOKEN"},
-		UsesKeychain:     true,  // interactive sign-in token lives in the macOS keychain
-		SupportsAccounts: true,  // per-account token via account.apiKey
+		UsesKeychain:     true, // interactive sign-in token lives in the macOS keychain
+		SupportsAccounts: true, // per-account token via account.apiKey
 	}
 }
 
@@ -83,11 +86,11 @@ func (*cursorProvider) DeclaredWindows() []provider.WindowSpec {
 }
 
 // Fetch queries the current-period usage endpoint for one account. The
-// snapshot carries the Monthly percent window (server-computed total usage)
-// with the billing-cycle reset time, the Auto/API bucket percentages, and a
-// raw remaining/limit lane rendered as cash.
+// snapshot carries the Monthly percent window (API-bucket usage) with the
+// billing-cycle reset time, the Auto/Total bucket percentages, and a cash
+// lane of remaining included quota (limit − includedSpend).
 func (p *cursorProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*model.Snapshot, error) {
-	token, err := resolveToken(req)
+	token, err := resolveToken(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -95,5 +98,25 @@ func (p *cursorProvider) Fetch(ctx context.Context, req provider.FetchRequest) (
 	if err != nil {
 		return nil, err
 	}
-	return data.toModel(req.Account, p.now()), nil
+	email := req.Email
+	if email == "" {
+		if got, err := p.fetchEmail(ctx, token); err == nil {
+			email = got
+		}
+	}
+	snap := data.toModel(req.Account, email, p.now())
+	if plan := p.fetchPlanName(ctx, token); plan != "" {
+		if snap.Identity == nil {
+			snap.Identity = &model.Identity{}
+		}
+		snap.Identity.Plan = plan
+	}
+	if g := p.fetchGrants(ctx, token); g.ok {
+		used, total := g.used, g.total
+		snap.Windows = append(snap.Windows, model.RateWindow{
+			ID: "credits", Title: "Credits",
+			Used: &used, Limit: &total, Currency: "USD",
+		})
+	}
+	return snap, nil
 }

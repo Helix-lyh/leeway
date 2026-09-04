@@ -4,6 +4,8 @@ package fetch
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -54,8 +56,10 @@ func timeout() time.Duration {
 
 // ResolveCredentials resolves secrets for a provider: env vars first, then
 // config file values, then cookie cache. Missing secrets are not an error —
-// the provider (via HasCredentials) decides how to report "not_configured".
-func ResolveCredentials(p provider.Provider, cfg *config.Config, account string) provider.Credentials {
+// the orchestrator uses canAttemptFetch to decide whether to mark
+// not_configured. An unreadable cookie cache or Codex auth.json is returned
+// as an error.
+func ResolveCredentials(p provider.Provider, cfg *config.Config, account string) (provider.Credentials, error) {
 	spec := p.AuthSpec()
 	creds := provider.Credentials{}
 
@@ -74,16 +78,23 @@ func ResolveCredentials(p provider.Provider, cfg *config.Config, account string)
 		}
 	}
 	if spec.UsesCookies {
-		if h, err := auth.ResolveCookieHeader(p.ID(), cfg.Provider(p.ID()), account); err == nil {
+		h, err := auth.ResolveCookieHeader(p.ID(), cfg.Provider(p.ID()), account)
+		if errors.Is(err, auth.ErrCookieCacheUnreadable) {
+			return creds, err
+		}
+		if err == nil {
 			creds.CookieHeader = h
 		}
 	}
 	if spec.UsesCodexCLI {
-		if cx, err := loadCodexAuth(); err == nil {
+		cx, err := loadCodexAuth()
+		if err == nil {
 			creds.CodexAuth = cx
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return creds, fmt.Errorf("Codex auth.json unreadable: %w — run: codex login", err)
 		}
 	}
-	return creds
+	return creds, nil
 }
 
 func lookupEnv(keys []string) string {
@@ -95,8 +106,9 @@ func lookupEnv(keys []string) string {
 	return ""
 }
 
-// HasCredentials reports whether enough secrets exist to attempt a fetch.
-func HasCredentials(p provider.Provider, creds provider.Credentials) bool {
+// canAttemptFetch reports whether the orchestrator should attempt Fetch
+// (enough secrets, or UsesKeychain so Fetch can emit the login hint).
+func canAttemptFetch(p provider.Provider, creds provider.Credentials) bool {
 	spec := p.AuthSpec()
 	if len(spec.EnvAPIKey) > 0 && creds.APIKey != "" {
 		return true
@@ -142,8 +154,10 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 	// Cache path: return fresh cached data when allowed. The cache is only
 	// used for unfiltered runs — a provider/account-filtered run must never
 	// serve (or poison) a cache entry whose coverage differs from the request.
+	fp := ""
 	if opts.UseCache && opts.ProviderFilter == "" && opts.AccountFilter == "" {
-		if cached, err := loadSnapshotCache(); err == nil && cached != nil &&
+		fp = cacheFingerprint(cfg)
+		if cached, err := loadSnapshotCache(fp); err == nil && cached != nil &&
 			time.Since(cached.GeneratedAt) < CacheTTL {
 			return cached, nil
 		}
@@ -164,6 +178,9 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 		go func(p provider.Provider) {
 			defer wg.Done()
 			res := fetchProvider(ctx, p, cfg, opts)
+			if len(res.Accounts) == 0 && res.Status != "error" {
+				return
+			}
 			mu.Lock()
 			out.Providers = append(out.Providers, res)
 			mu.Unlock()
@@ -173,7 +190,10 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 
 	sortProviders(out)
 	if opts.UseCache && opts.ProviderFilter == "" && opts.AccountFilter == "" {
-		if err := saveSnapshotCache(out); err != nil {
+		if fp == "" {
+			fp = cacheFingerprint(cfg)
+		}
+		if err := saveSnapshotCache(fp, out); err != nil {
 			// Data is still valid; a cache write failure is non-fatal. Log it
 			// so the failure is visible without failing the whole run.
 			log.Printf("cache: snapshot cache write failed (data is still valid): %v", err)
@@ -184,24 +204,18 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 
 func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config, opts Options) model.ProviderResult {
 	res := model.ProviderResult{ID: p.ID(), DisplayName: p.DisplayName(), Status: "not_configured", UpdatedAt: time.Now()}
-	accounts := cfg.Accounts(p.ID())
-	if opts.AccountFilter != "" {
-		filtered := accounts[:0]
-		for _, a := range accounts {
-			if a.Name == opts.AccountFilter {
-				filtered = append(filtered, a)
-			}
-		}
-		if len(filtered) == 0 {
-			res.Status = "error"
-			res.Error = fmt.Sprintf("account %q not configured", opts.AccountFilter)
-			return res
-		}
-		accounts = filtered
+	accounts := accountsFor(p, cfg, opts.AccountFilter)
+	if opts.AccountFilter != "" && len(accounts) == 0 {
+		res.Status = "error"
+		res.Error = fmt.Sprintf("account %q not configured", opts.AccountFilter)
+		return res
+	}
+	if len(accounts) == 0 {
+		return res
 	}
 
-	creds := ResolveCredentials(p, cfg, "")
-	hasCreds := HasCredentials(p, creds)
+	creds, credsErr := ResolveCredentials(p, cfg, "")
+	canAttempt := canAttemptFetch(p, creds)
 
 	type accResult struct {
 		acc config.AccountConfig
@@ -219,24 +233,37 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 			defer func() { <-sem }()
 
 			ar := model.AccountResult{Name: acc.Name, Status: "not_configured"}
-			if !hasCreds {
-				if acc.ManualCookieHeader == "" && acc.APIKey == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil && !p.AuthSpec().UsesKeychain {
+			header, cookieErr := auth.ResolveCookieHeader(p.ID(), cfg.Provider(p.ID()), acc.Name)
+			if errors.Is(cookieErr, auth.ErrCookieCacheUnreadable) {
+				ar.Status = "error"
+				ar.Error = cookieErr.Error()
+				results[i] = accResult{acc, ar}
+				return
+			}
+			if cookieErr != nil {
+				header = ""
+			}
+			if !canAttempt {
+				if acc.ManualCookieHeader == "" && acc.APIKey == "" && acc.AuthFile == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil && !p.AuthSpec().UsesKeychain {
+					if credsErr != nil && !errors.Is(credsErr, auth.ErrCookieCacheUnreadable) {
+						ar.Status = "error"
+						ar.Error = credsErr.Error()
+						results[i] = accResult{acc, ar}
+						return
+					}
 					ar.Error = missingCredentialHint(p.ID(), p.AuthSpec())
 					results[i] = accResult{acc, ar}
 					return
 				}
 			}
-			req := provider.FetchRequest{Creds: creds, Account: acc.Name}
-			if acc.WorkspaceID != "" {
-				req.Extra = map[string]string{"workspaceID": acc.WorkspaceID}
+			req := provider.FetchRequest{
+				Creds:       creds,
+				Account:     acc.Name,
+				WorkspaceID: acc.WorkspaceID,
+				AuthFile:    acc.AuthFile,
+				Email:       acc.Email,
 			}
-			if acc.AuthFile != "" {
-				if req.Extra == nil {
-					req.Extra = map[string]string{}
-				}
-				req.Extra["authFile"] = acc.AuthFile
-			}
-			req.Creds = overlayAccountCreds(creds, acc, resolveAccountCookie(p.ID(), cfg, acc, creds.CookieHeader))
+			req.Creds = overlayAccountCreds(creds, acc, header)
 
 			actx, cancel := context.WithTimeout(ctx, timeout())
 			defer cancel()
@@ -272,6 +299,37 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 	return res
 }
 
+// accountsFor lists accounts to probe. Named config/session accounts only;
+// the implicit "default" (keychain, ~/.grok shared) is skipped unless the
+// user passed --account default. Providers that are not multi-account
+// (kimi, codex, deepseek) still get one unnamed session so a single CLI
+// login keeps working.
+func accountsFor(p provider.Provider, cfg *config.Config, filter string) []config.AccountConfig {
+	accs := cfg.Accounts(p.ID())
+	if p.ID() == "cursor" {
+		if extra, err := auth.ListCursorSessionAccounts(); err == nil {
+			accs = config.MergeNamedAccounts(accs, extra)
+		}
+	}
+	if filter != "" {
+		var hit []config.AccountConfig
+		for _, a := range accs {
+			if a.Matches(filter) {
+				hit = append(hit, a)
+			}
+		}
+		if len(hit) == 0 && filter == "default" {
+			return []config.AccountConfig{{Name: "default"}}
+		}
+		return hit
+	}
+	accs = config.DropDefaultAccounts(accs)
+	if len(accs) == 0 && !p.AuthSpec().SupportsAccounts {
+		return []config.AccountConfig{{Name: "default"}}
+	}
+	return accs
+}
+
 // overlayAccountCreds applies per-account secrets. Named apiKey wins;
 // cookie/workspace accounts drop the inherited provider/env key so they
 // stay on the cookie path.
@@ -286,29 +344,19 @@ func overlayAccountCreds(base provider.Credentials, acc config.AccountConfig, co
 	return creds
 }
 
-// resolveAccountCookie resolves the cookie header for one account: the
-// account's manual header wins, then the account-bound profile's imported
-// session ("opencode-go@Profile 1"), then the provider-level header.
-func resolveAccountCookie(providerID string, cfg *config.Config, acc config.AccountConfig, providerLevel string) string {
-	if acc.ManualCookieHeader != "" {
-		return acc.ManualCookieHeader
-	}
-	if acc.Profile != "" {
-		if cc, ok, err := auth.LoadCookieCache(providerID, acc.Profile); err == nil && ok && cc.Header != "" {
-			return cc.Header
-		}
-	}
-	return providerLevel
-}
-
 func missingCredentialHint(id string, spec provider.AuthSpec) string {
 	switch {
 	case spec.UsesKeychain:
-		return "missing Cursor token — set CURSOR_ACCESS_TOKEN, or: leeway config set-api-key --provider cursor --account NAME (or sign in with the Cursor CLI)"
+		return "missing Cursor token — run: leeway auth login --provider cursor (or set CURSOR_ACCESS_TOKEN / config set-api-key)"
 	case len(spec.EnvAPIKey) > 0 && spec.UsesCookies:
+		if len(spec.EnvAuthToken) > 0 {
+			return fmt.Sprintf("missing credentials — set %s or %s or: leeway config set-api-key --provider %s --account NAME (or: leeway cookie import --provider %s)", spec.EnvAPIKey[0], spec.EnvAuthToken[0], id, id)
+		}
 		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key --provider %s --account NAME (or: leeway cookie import --provider %s)", spec.EnvAPIKey[0], id, id)
 	case len(spec.EnvAPIKey) > 0:
 		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key", spec.EnvAPIKey[0])
+	case len(spec.EnvAuthToken) > 0:
+		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key", spec.EnvAuthToken[0])
 	case spec.UsesCookies:
 		return "missing cookies — run: leeway cookie import (or: leeway cookie set --manual ...)"
 	case spec.UsesCodexCLI:
@@ -334,7 +382,60 @@ func snapshotCachePath() (string, error) {
 	return filepath.Join(dir, "snapshots.json"), nil
 }
 
-func loadSnapshotCache() (*model.Output, error) {
+type snapshotCacheFile struct {
+	FP     string        `json:"fp"`
+	Output *model.Output `json:"output"`
+}
+
+func cacheFingerprint(cfg *config.Config) string {
+	h := sha256.New()
+	write := func(s string) { fmt.Fprintf(h, "%d:%s\n", len(s), s) }
+	ids := append([]string{}, config.ProviderIDs...)
+	sort.Strings(ids)
+	for _, id := range ids {
+		if !cfg.IsEnabled(id) {
+			continue
+		}
+		p, ok := provider.Get(id)
+		if !ok {
+			continue
+		}
+		write(id)
+		spec := p.AuthSpec()
+		write(lookupEnv(spec.EnvAPIKey))
+		write(lookupEnv(spec.EnvAuthToken))
+		write(cfg.APIKey(id))
+		for _, acc := range accountsFor(p, cfg, "") {
+			base, _ := ResolveCredentials(p, cfg, acc.Name)
+			header, herr := auth.ResolveCookieHeader(p.ID(), cfg.Provider(p.ID()), acc.Name)
+			if errors.Is(herr, auth.ErrCookieCacheUnreadable) {
+				write(herr.Error())
+				header = ""
+			} else if herr != nil {
+				header = ""
+			}
+			creds := overlayAccountCreds(base, acc, header)
+			write(acc.Name)
+			write(creds.APIKey)
+			write(creds.AuthToken)
+			write(creds.CookieHeader)
+			if creds.CodexAuth != nil {
+				write(creds.CodexAuth.AccessToken)
+			}
+			if id == "cursor" {
+				if ca, ok, err := auth.LoadCursorAuth(acc.Name); err == nil && ok {
+					write(ca.AccessToken)
+				}
+			}
+			if acc.AuthFile != "" {
+				write(acc.AuthFile)
+			}
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+func loadSnapshotCache(fp string) (*model.Output, error) {
 	p, err := snapshotCachePath()
 	if err != nil {
 		return nil, err
@@ -346,14 +447,17 @@ func loadSnapshotCache() (*model.Output, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &model.Output{}
-	if err := json.Unmarshal(raw, out); err != nil {
-		return nil, err
+	var file snapshotCacheFile
+	if err := json.Unmarshal(raw, &file); err != nil || file.FP == "" || file.Output == nil {
+		return nil, nil
 	}
-	return out, nil
+	if file.FP != fp {
+		return nil, nil
+	}
+	return file.Output, nil
 }
 
-func saveSnapshotCache(out *model.Output) error {
+func saveSnapshotCache(fp string, out *model.Output) error {
 	p, err := snapshotCachePath()
 	if err != nil {
 		return err
@@ -363,7 +467,7 @@ func saveSnapshotCache(out *model.Output) error {
 			return err
 		}
 	}
-	raw, err := json.MarshalIndent(out, "", "  ")
+	raw, err := json.MarshalIndent(snapshotCacheFile{FP: fp, Output: out}, "", "  ")
 	if err != nil {
 		return err
 	}

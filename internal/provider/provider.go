@@ -74,9 +74,11 @@ type Credentials struct {
 
 // FetchRequest is one account's fetch invocation.
 type FetchRequest struct {
-	Creds   Credentials
-	Account string            // account name; "default" for single-account providers
-	Extra   map[string]string // e.g. "workspaceID" for opencode-go
+	Creds       Credentials
+	Account     string
+	WorkspaceID string
+	AuthFile    string
+	Email       string
 }
 
 // Provider is the unit of extension.

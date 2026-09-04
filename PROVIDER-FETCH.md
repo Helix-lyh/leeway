@@ -10,7 +10,7 @@ cmd/leeway/main.go
   └─ internal/cli       解析 flags、子命令
       └─ internal/fetch.FetchAll     编排层(唯一入口)
           ├─ 1. 按 AuthSpec 解析凭据  →  ResolveCredentials (env → config → cookie cache)
-          ├─ 2. 判断是否够资格探测      →  HasCredentials(不够 = "not_configured")
+          ├─ 2. 判断是否够资格探测      →  canAttemptFetch(不够 = "not_configured")
           ├─ 3. 并行调每个 provider    →  p.Fetch(ctx, FetchRequest{Creds, Account, Extra})
           │    每个 provider 内部:发 HTTP → 解析 → 投影成 model.Snapshot
           └─ 4. 汇总 → model.Output → JSON / 表格
@@ -35,6 +35,7 @@ type AuthSpec struct {
     CookieDomains    []string // 例如 ["grok.com"]
     CookieFallbacks  []string // 额外回退源,doctor 会提示
     UsesCodexCLI     bool     // 复用 ~/.codex/auth.json
+    UsesKeychain     bool     // cursor:编排层先放行,provider 自己解析私有 auth.json / keychain
     LocalAuthFiles   []string // 本地 CLI 会话文件(provider 自己解析)
     LoginHint        string   // 会话失效时的修复命令
     SupportsAccounts bool     // 是否多账户
@@ -49,19 +50,20 @@ type AuthSpec struct {
 |---|---|
 | `APIKey` | `EnvAPIKey[0]` env → `config.apiKeys[id]` |
 | `AuthToken` | `EnvAuthToken[0]` env → `config.apiKeys[id]` |
-| `CookieHeader` | `auth.ResolveCookieHeader`(见 §3.6,不含 config 的 manual header 兜底逻辑在 config 里) |
+| `CookieHeader` | `auth.ResolveCookieHeader`(见 §2.5,不含 config 的 manual header 兜底逻辑在 config 里) |
 | `CodexAuth` | 读 `~/.codex/auth.json`(`fetch/codex_auth.go`) |
 
-### 1.2 资格判定(`fetch.go:105 HasCredentials`)
+### 1.2 资格判定(`canAttemptFetch`)
 
-够资格的条件(任一满足即真):有 API key / 有 AuthToken / 有 CookieHeader / 有 Codex CLI token / 存在任一 `LocalAuthFiles` 声明的文件。
+够资格的条件(任一满足即真):有 API key / 有 AuthToken / 有 CookieHeader / 有 Codex CLI token / `UsesKeychain`（cursor 先放行，由 Fetch 给出登录提示）/ 存在任一 `LocalAuthFiles` 声明的文件。
 
-**`not_configured` vs `error` 的区分**:编排层在调 `Fetch` 前先看 `HasCredentials`,不够就整包标 `not_configured`,并给出 `missingCredentialHint`(`fetch.go:298`,含"缺啥 → 跑哪条命令");进了 `Fetch` 之后失败才是 `error`。
+**`not_configured` vs `error` 的区分**:编排层在调 `Fetch` 前先看 `canAttemptFetch`,不够就整包标 `not_configured`,并给出 `missingCredentialHint`(含"缺啥 → 跑哪条命令");进了 `Fetch` 之后失败才是 `error`。
 
 ### 1.3 兜底约定
 
 - 部分探测是 best-effort:主数据失败即整体失败,但附加数据(如 deepseek 当日用量、kimi 订阅统计)失败只降级不失败。
 - 反爬与隐私:所有 cookie/token 文件 0600;HTTP 客户端带**同源重定向守卫**(codex / opencode-go),Authorization/Cookie 不会泄漏到外域。
+- 浏览器授权(cursor / grok)委托官方 CLI,leeway 只读落盘文件,不自实现 OAuth / PKCE。
 
 ---
 
@@ -157,13 +159,13 @@ iv  = 16 × 0x20(空格)
 | 主端点 | `GET https://api.deepseek.com/user/balance`(`Authorization: Bearer <apiKey>`) |
 | 增强端点 | `GET platform.deepseek.com/api/v0/usage/amount` + `/usage/cost`,`?month=&year=`(UTC),两者**并发且都必需** |
 | 窗口 | primary `Balance`(原始金额 + 币种)+ 有 token 时每个 `day-YYYY-MM-DD` 窗口(当日 token 数) |
-| 实现 | `provider/deepseek/{stub,fetcher,parser}.go` |
+| 实现 | `provider/deepseek/{provider,fetcher,parser}.go` |
 
 要点:
 - **余额必须走公开 API 域** `api.deepseek.com`;`platform.deepseek.com` 有 WAF,会拦 API-key 请求(`fetcher.go` 注释)。
 - `parseBalance`(`parser.go:102`)兼容两种响应形状:① `{is_available, balance_infos}`;② 平台 envelope `{code, data:{biz_code, biz_data:{normal_wallets, bonus_wallets}}}`。金额字段可能是**数字或字符串**,有 flex 解析。
 - 币种选择规则:优先"有资金的 USD",其次任意有资金币种,再兜底 USD 行(`parser.go:150`)。
-- 平台 token 增强失败**只降级为余额快照**,不整体失败(`stub.go:120`)。
+- 平台 token 增强失败**只降级为余额快照**,不整体失败(`provider.go:120`)。
 - 错误分类:余额 401 → `InvalidAPIKey`;平台 401/403 → `InvalidPlatformToken`;平台业务码 `40002/40003` 也视为认证失败(`parser.go:14`)。
 
 ### 3.2 kimi —— 四路认证 + Web/Code API
@@ -183,25 +185,22 @@ iv  = 16 × 0x20(空格)
 - 字段全部走 string 强转(`stringValue`),因为 Kimi API 数字有时发字符串。
 - 错误:Web 401/403 → `InvalidToken`;Code API 401 → `InvalidAPIKey`。
 
-### 3.3 grok —— grpc-web + 启发式 protobuf 扫描(最"黑盒"的一家)
+### 3.3 grok —— CLI-proxy REST,grpc-web 回退
 
 | 项 | 值 |
 |---|---|
 | 认证 | ① Cookie header(L0/L2);② 本地 `grok login` 会话 `~/.grok/auth.json`(OIDC bearer,过期自动刷新) |
-| 端点 | `POST https://grok.com/grok_api_v2.GrokBuildBilling/GetGrokCreditsConfig` |
-| 请求 | body 是 **5 个零字节**;grpc-web 头:`x-grpc-web: 1`、`Content-Type: application/grpc-web+proto`、`x-user-agent: connect-es/2.1.1`;瞬时失败重试 1 次 |
-| 窗口 | 单个 primary `Credits`(标题按重置距离标 `Weekly`/`Monthly`) |
-| 实现 | `provider/grok/{stub,fetch,grpcweb,protobuf,localsession}.go` |
+| 主端点 | `GET https://cli-chat-proxy.grok.com/v1/billing?format=credits`,`Authorization: Bearer` + `x-xai-token-auth: xai-grok-cli` |
+| 回退 | REST 4xx/5xx 或传输失败 → 原 `POST grok.com/.../GetGrokCreditsConfig` grpc-web(5 零字节 body,启发式 protobuf) |
+| 窗口 | primary:`config.creditUsagePercent`;标题/`windowMinutes` 来自 `config.currentPeriod.type`(`weekly` / `USAGE_PERIOD_TYPE_WEEKLY` → Weekly) |
+| 实现 | `provider/grok/{provider,rest,fetch,grpcweb,protobuf,localsession}.go` |
 
-要点(都在 `protobuf.go`):
-- grok 的 billing 响应**没有公开 schema**,靠启发式扫描 wire format:
-  - **usedPercent**:遍历 fixed32 字段,取"字段路径以 1 结尾 + 值 ∈ [0,100] + 非 NaN/Inf";路径深度最浅者胜,深度相同取最早出现(`protobuf.go:69`)。
-  - **resetsAt**:varint 值落在 `[1.7e9, 2.1e9]`(unix 秒窗口)且在现在之后;优先路径 `[1,5,1]`,否则取最早(`protobuf.go:86`)。
-  - **noUsageYet**:完全没有 fixed32,但存在 reset 且带 usage-period 标记(路径 `[1,6,...]` 或 `[1,8,1]` 值为 1/2)→ 判定为 0% 已用。
-- 深度上限 4;畸形字段跳 1 字节重同步。
-- grpc 层:`grpc-status` 头/trailer 非零 → RPC 错误(`grpcweb.go:60`);值做 percent-decode(`+` 不当空格)。
-- 会话刷新(`localsession.go`):OIDC `refresh_token` grant 打到 `{issuer}/oauth2/token`,成功后**格式保真地原子写回** `~/.grok/auth.json`(0600,temp+rename),grok CLI 和 leeway 共用一份会话。
-- 标题映射(`stub.go primaryLabel`):重置距离 4–12 天 → `Weekly`,20–45 天 → `Monthly`,其余 → `Credits`。
+要点:
+- 实测 envelope 是 `{config:{creditUsagePercent,currentPeriod,billingPeriodEnd,...}}`,周期类型枚举带 `USAGE_PERIOD_TYPE_` 前缀。
+- `resetsAt`:`config.billingPeriodEnd`,否则 `currentPeriod.end`(RFC3339Nano)。
+- REST 解析失败**不**回退 grpc-web(避免把坏 JSON 当成传输故障)。
+- grpc-web 回退仍用重置距离猜 Weekly/Monthly(4–12d / 20–45d)。
+- 会话刷新(`localsession.go`):OIDC `refresh_token` grant 打到 `{issuer}/oauth2/token`,成功后格式保真原子写回。
 
 ### 3.4 codex —— 复用 Codex CLI 会话,零自研 OAuth
 
@@ -212,16 +211,34 @@ iv  = 16 × 0x20(空格)
 | 用量端点 | `GET https://chatgpt.com/backend-api/wham/usage`(30s 超时);base 里不含 `/backend-api` 则走 `/api/codex/usage` |
 | base 覆盖 | `chatgpt_base_url` in `~/.codex/config.toml`(简单 `key = value` 解析) |
 | 窗口 | primary `Session`(5h)+ secondary `Weekly`(7d)+ 附加 `additional_rate_limits` + `Credits` 余额 |
-| 实现 | `provider/codex/{stub,fetcher,parser}.go` |
+| 实现 | `provider/codex/{provider,fetcher,parser}.go` |
 
 要点:
 - 请求带 `Authorization: Bearer` + `ChatGPT-Account-Id`;`newHTTPClient` 的 **redirect guard 只放行同源 HTTPS 跳转**,防 Authorization 泄漏(`fetcher.go:48`)。
 - `parseUsageResponse`(**lossy**,`parser.go:63`):顶层严格,嵌套值坏掉只丢自己、不连累兄弟。`used_percent/reset_at/limit_window_seconds` 三者必须都有才认一个窗口。
 - `flexFloat`/`flexInt`(`parser.go:199`)容忍 API 把数字发成 Int/String。
-- 兜底:没有 primary/secondary 窗口时,只有 credits 存在快照才存活(`stub.go:75`)。
+- 兜底:没有 primary/secondary 窗口时,只有 credits 存在快照才存活(`provider.go:75`)。
 - 401/403 → `kindUnauthorized`,提示重跑 `codex login`。
 
-### 3.5 opencode-go —— 订阅 API key + 多账户 cookie
+### 3.5 cursor —— 委托官方 CLI 登录 + dashboard 内部 RPC
+
+| 项 | 值 |
+|---|---|
+| 认证 | ① env `CURSOR_ACCESS_TOKEN`;② `accounts[].apiKey`;③ 私有 HOME 下官方 `cursor-agent` 写出的 `.cursor/auth.json`(0600);④ **仅当无私有 auth.json** 才兜底 macOS keychain(`service=cursor-access-token`,`account=cursor-user`) |
+| 登录 | `leeway auth login --provider cursor [--account NAME]`:设 `HOME=<sessions>/cursor[-acct]` + `AGENT_CLI_CREDENTIAL_STORE=file`,exec 官方 `cursor-agent login`,读回 auth.json 校验 JWT 到期。不自实现浏览器 PKCE / poll |
+| 端点 | `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`(`Authorization: Bearer`,body `{}`) |
+| 窗口 | primary `Monthly`(API bucket `apiPercentUsed`,billing cycle end 作 `resetsAt`)+ JSON 附加 `Total` / `Auto` + 现金条 `Credits` |
+| 实现 | `provider/cursor/{provider,fetcher}.go`;私有 HOME:`auth/cursorfile.go` |
+
+要点:
+- 无公开 usage API;dashboard 自己打的 Connect RPC,leeway 复用同一端点。cookie 的 `usage-summary` 路线对 bearer 返回 401,不用。
+- 响应**没有 `remaining` 字段**。现金条 `Used` = `limit − includedSpend`(本周期还可花的 included 额度),`Limit` = `planUsage.limit`。
+- 私有 auth.json 存在时**绝不回退 keychain**:keychain 跟踪的是官方 CLI 自己的账号,回退会静默混号。
+- token 是 60 天 session JWT,无 refresh 端点;过期报错提示重跑 `leeway auth login`。`auth logout --provider cursor` 只删私有 HOME,不碰 keychain。
+- 401/403 → token rejected,提示重登或设 `CURSOR_ACCESS_TOKEN`。
+- 登录后 `POST .../GetMe` 取邮箱(session JWT 无 email claim)。`--account` 是 tag;省略则用邮箱当账号名。`--account` 匹配 name 或 email。
+
+### 3.6 opencode-go —— 订阅 API key + 多账户 cookie
 
 | 项 | 值 |
 |---|---|
@@ -245,16 +262,31 @@ iv  = 16 × 0x20(空格)
   3. 可选加入余额:最多等 `optionalZenBalanceTimeout`(5s)。
 - 反爬:多账户并发 ≤3 + 快照 TTL;`looksSignedOut` 检测登录失效 → `invalidCredentials`。
 
+### 3.7 commandcode —— 订阅 API key(GOAT 等档)
+
+| 项 | 值 |
+|---|---|
+| 认证 | `COMMAND_CODE_API_KEY` / `COMMANDCODE_API_KEY` / `accounts[].apiKey`(`user_...`,studio 签发,CLI 与 API 共用) |
+| 主端点 | `GET https://api.commandcode.ai/alpha/billing/credits`(`Authorization: Bearer`) |
+| 辅端点 | `GET /alpha/usage/summary`(period totals;有窗口字段则合并) |
+| 窗口 | `windowLimits.fiveHour` / `weekly`(used+cap → %)+ `credits.monthlyCredits` 作 Monthly/Credits |
+| 实现 | `provider/commandcode/{provider,fetcher,parser}.go` |
+
+要点:
+- 形状跟 CodexBar / pi-commandcode-provider,无官方 schema。401/403 = key 无效。
+- 多账号完全同 opencode-go 订阅 key:`config set-api-key --account` / `auth login --provider commandcode`。
+
 ---
 
 ## 4. 本地 CLI 会话复用(非 cookie 的第三种凭据)
 
-三家复用各自的 CLI 登录态,且**都会自动刷新并写回**,与 CLI 共享一份会话:
+kimi / grok / codex 复用各自 CLI 登录态。grok 与 kimi **会自动刷新并写回**;cursor 委托官方 CLI 写入私有 HOME,leeway 只读。
 
 | provider | 文件 | 刷新机制 | 写回 |
 |---|---|---|---|
-| grok | `~/.grok/auth.json`(`GROK_HOME` 覆盖) | OIDC `refresh_token` → `{issuer}/oauth2/token` | 原子 temp+rename,0600(`grok/localsession.go`) |
+| grok | 私有 `GROK_HOME/auth.json`(leeway 登录)或 `~/.grok/auth.json`(`GROK_HOME` 覆盖) | OIDC `refresh_token` → `{issuer}/oauth2/token` | 原子 temp+rename,0600(`grok/localsession.go`) |
 | kimi | `~/.kimi-code/credentials/kimi-code.json`(`KIMI_CODE_HOME` 覆盖) | OAuth refresh → `auth.kimi.com/api/oauth/token`;`client_id` 从 refresh_token JWT 里解 | 原子写回,保留未知字段(`kimi/localsession.go`) |
+| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(`LEEWAY_SESSIONS` 覆盖) | **不刷新**,60d JWT 过期提示 `leeway auth login --provider cursor` | 官方 `cursor-agent login` 写入,leeway 只读 |
 | codex | `~/.codex/auth.json`(`CODEX_HOME` 覆盖) | **不刷新**,过期提示重跑 `codex login` | — |
 
 两个注意点:
@@ -263,7 +295,7 @@ iv  = 16 × 0x20(空格)
 
 ---
 
-## 5. 多账户 / 多订阅机制(opencode-go 专有)
+## 5. 多账户 / 多订阅机制
 
 - **账户 = 一次浏览器登录会话(一组 cookie)+ 可选 workspaceID**(`config.go AccountConfig`:name / manualCookieHeader / workspaceID / profile)。
 - **订阅 = 一个命名 API key**(`accounts[].apiKey`),走网关 `/usage` 端点;与 cookie 账户共存于同一 `accounts[]`。
@@ -274,6 +306,13 @@ iv  = 16 × 0x20(空格)
 - **快速切换**:`leeway use --provider opencode-go --account <订阅名>` 把该订阅 key 写入 `keyTarget`
   (默认 DSH `~/.dsh/.credentials.yaml` 的 `OPENCODE_GO_API_KEY`);`leeway config keys` 列出命名订阅(脱敏,对照目标文件标 active)。
 - 订阅走纯 API-key 查询:注册命名 key 不会保留 cookie `default` 账户;要查 cookie 会话,显式配一个 cookie 账户。
+
+cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官方 CLI / keychain 解耦,切号只换 `--account`。
+
+| provider | 每账号凭据 | 登录 | 切号 |
+|---|---|---|---|
+| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway auth login --provider cursor [--account A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME) | 换 `--account` |
+| grok | 私有 `GROK_HOME` 的 `auth.json`,绑 `accounts[].authFile` | `leeway auth login --provider grok [--account A]` 跑官方 `grok login --device-auth` | 换 `--account` |
 
 ---
 
@@ -290,19 +329,25 @@ iv  = 16 × 0x20(空格)
 | "kimi CLI session expired — run: kimi login" | kimi-code.json 存在但刷新失败 | `kimi/localsession.go:160` |
 | `kindUnauthorized`(codex) | wham/usage 返回 401/403 | `codex/fetcher.go:82` |
 | "Missing workspace id."(opencode-go) | cookie 有效但服务器拿不到 workspace | `opencodego/fetcher.go:97` |
+| "Cursor session … expired — re-run: leeway auth login" | 私有 auth.json 的 JWT 过期 | `cursor/fetcher.go` |
+| "Cursor token rejected (HTTP 401)" | bearer 被 dashboard RPC 拒绝 | `cursor/fetcher.go` |
+| "invalid Command Code API key (HTTP 401)" | Bearer `user_...` 被拒 | `commandcode/fetcher.go` |
 
 ---
 
 ## 附:目录速查
 
 ```
-internal/auth/             cookie 缓存 + L0/L1/L2 导入器(chrome / kimi_desktop)
+internal/auth/             cookie 缓存 + L0/L1/L2 导入器(chrome / kimi_desktop);cursor 私有 HOME
+internal/cli/auth.go       `auth login/logout/status`:cursor/grok 委托官方 CLI
 internal/fetch/            编排:凭据解析、并行探测、快照缓存;codex_auth 读 auth.json
 internal/config/           0600 config.json(manual header、accounts、apiKeys)
 internal/provider/         AuthSpec + 注册表
   deepseek/                balance(必)+ 当日用量(选)
   kimi/                    Web/Code API + JWT session 头 + CLI 会话刷新
-  grok/                    grpc-web + protobuf 启发式扫描 + OIDC 刷新
+  grok/                    CLI-proxy REST + grpc-web 回退 + OIDC 刷新
+  cursor/                  dashboard RPC + GetMe 邮箱 + 私有 auth.json / keychain
+  commandcode/             /alpha/billing/credits + 订阅 API key
   codex/                   wham/usage + accounts(复用 CLI 会话)
   opencodego/              _server RPC + 用量页 + 本地 SQLite + 多账户
 ```

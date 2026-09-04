@@ -2,6 +2,7 @@ package fetch
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,6 +15,7 @@ import (
 
 	// Provider registration side effects (each stub registers itself in init).
 	_ "leeway/internal/provider/codex"
+	_ "leeway/internal/provider/commandcode"
 	_ "leeway/internal/provider/deepseek"
 	_ "leeway/internal/provider/grok"
 	_ "leeway/internal/provider/kimi"
@@ -28,7 +30,7 @@ func isolateEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("LEEWAY_CACHE", t.TempDir())
 	t.Setenv("LEEWAY_CONFIG", filepath.Join(t.TempDir(), "config.json"))
-	// HOME must be redirected too: HasCredentials resolves provider-owned
+	// HOME must be redirected too: canAttemptFetch resolves provider-owned
 	// session files ("~/.grok/auth.json") via the tilde, not GROK_HOME.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("KIMI_CODE_HOME", t.TempDir())
@@ -40,6 +42,7 @@ func isolateEnv(t *testing.T) {
 		"KIMI_CODE_API_KEY", "KIMI_AUTH_TOKEN", "kimi_auth_token",
 		"DEEPSEEK_PLATFORM_TOKEN", "DEEPSEEK_USER_TOKEN",
 		"OPENCODE_GO_API_KEY",
+		"COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY",
 	} {
 		t.Setenv(k, "")
 	}
@@ -80,7 +83,7 @@ func TestFetchCacheKeying(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"codex", "deepseek", "grok", "kimi", "opencode-go"}
+	want := []string{"codex", "deepseek", "kimi"}
 	got := providerIDs(out2)
 	if len(got) != len(want) {
 		t.Fatalf("unfiltered run providers = %v, want %v (filtered cache must not be served)", got, want)
@@ -101,9 +104,10 @@ func TestCacheTTLBoundary(t *testing.T) {
 	ctx := context.Background()
 
 	// Fresh cache: served without probing.
+	fp := cacheFingerprint(cfg)
 	fresh := &model.Output{Version: 1, GeneratedAt: time.Now(),
 		Providers: []model.ProviderResult{{ID: "fake", DisplayName: "Fake", Status: "ok", UpdatedAt: time.Now()}}}
-	if err := saveSnapshotCache(fresh); err != nil {
+	if err := saveSnapshotCache(fp, fresh); err != nil {
 		t.Fatal(err)
 	}
 	out, err := FetchAll(ctx, cfg, Options{UseCache: true})
@@ -117,7 +121,7 @@ func TestCacheTTLBoundary(t *testing.T) {
 	// Stale cache: refetched (no credentials anywhere -> all not_configured).
 	stale := &model.Output{Version: 1, GeneratedAt: time.Now().Add(-CacheTTL - time.Second),
 		Providers: []model.ProviderResult{{ID: "fake", DisplayName: "Fake", Status: "ok", UpdatedAt: time.Now()}}}
-	if err := saveSnapshotCache(stale); err != nil {
+	if err := saveSnapshotCache(fp, stale); err != nil {
 		t.Fatal(err)
 	}
 	out2, err := FetchAll(ctx, cfg, Options{UseCache: true})
@@ -125,8 +129,48 @@ func TestCacheTTLBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := providerIDs(out2)
-	if len(got) != 5 {
+	if len(got) != 3 {
 		t.Fatalf("stale cache must be refetched, got %v", got)
+	}
+}
+
+func TestCacheFingerprintRejectsKeySwap(t *testing.T) {
+	isolateEnv(t)
+	fake := &model.Output{Version: 1, GeneratedAt: time.Now(),
+		Providers: []model.ProviderResult{{ID: "fake", DisplayName: "Fake", Status: "ok", UpdatedAt: time.Now()}}}
+	if err := saveSnapshotCache("fp-a", fake); err != nil {
+		t.Fatal(err)
+	}
+	got, err := loadSnapshotCache("fp-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Fatalf("mismatched fingerprint must miss, got %v", providerIDs(got))
+	}
+	hit, err := loadSnapshotCache("fp-a")
+	if err != nil || hit == nil || len(hit.Providers) != 1 || hit.Providers[0].ID != "fake" {
+		t.Fatalf("matching fingerprint must hit, got %+v err=%v", hit, err)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COMMAND_CODE_API_KEY", "key-a")
+	fpA := cacheFingerprint(cfg)
+	t.Setenv("COMMAND_CODE_API_KEY", "key-b")
+	fpB := cacheFingerprint(cfg)
+	if fpA == fpB {
+		t.Fatal("swapping a provider key must change the cache fingerprint")
+	}
+	t.Setenv("COMMAND_CODE_API_KEY", "ab cd")
+	fpC := cacheFingerprint(cfg)
+	t.Setenv("COMMAND_CODE_API_KEY", "ab")
+	t.Setenv("OPENCODE_GO_API_KEY", "cd")
+	fpD := cacheFingerprint(cfg)
+	if fpC == fpD {
+		t.Fatal("adjacent secret fields must not collide")
 	}
 }
 
@@ -141,13 +185,21 @@ func TestResolveCredentialsPrecedence(t *testing.T) {
 	// Env beats config.
 	t.Setenv("DEEPSEEK_API_KEY", "env-key")
 	cfg.APIKeys["deepseek"] = "cfg-key"
-	if creds := ResolveCredentials(dp, cfg, ""); creds.APIKey != "env-key" {
+	creds, err := ResolveCredentials(dp, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.APIKey != "env-key" {
 		t.Fatalf("APIKey = %q, want env-key to win over config", creds.APIKey)
 	}
 
 	// Config fallback when env is absent.
 	t.Setenv("DEEPSEEK_API_KEY", "")
-	if creds := ResolveCredentials(dp, cfg, ""); creds.APIKey != "cfg-key" {
+	creds, err = ResolveCredentials(dp, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.APIKey != "cfg-key" {
 		t.Fatalf("APIKey = %q, want config fallback", creds.APIKey)
 	}
 
@@ -156,14 +208,69 @@ func TestResolveCredentialsPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	gp, _ := provider.Get("grok")
-	if creds := ResolveCredentials(gp, cfg, ""); creds.CookieHeader != "sess=abc; x=1" {
+	creds, err = ResolveCredentials(gp, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.CookieHeader != "sess=abc; x=1" {
 		t.Fatalf("CookieHeader = %q, want imported cache", creds.CookieHeader)
 	}
 
 	// Missing everywhere: no error, empty credentials (provider reports it).
 	t.Setenv("LEEWAY_CACHE", t.TempDir()) // fresh, empty cache
-	if creds := ResolveCredentials(gp, cfg, ""); creds.CookieHeader != "" {
+	creds, err = ResolveCredentials(gp, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.CookieHeader != "" {
 		t.Fatalf("CookieHeader = %q, want empty when nothing is stored", creds.CookieHeader)
+	}
+}
+
+func TestResolveCredentialsCorruptCookieCache(t *testing.T) {
+	isolateEnv(t)
+	if err := os.WriteFile(filepath.Join(os.Getenv("LEEWAY_CACHE"), "cookies.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gp, _ := provider.Get("grok")
+	_, err = ResolveCredentials(gp, cfg, "")
+	if !errors.Is(err, auth.ErrCookieCacheUnreadable) {
+		t.Fatalf("err = %v, want ErrCookieCacheUnreadable", err)
+	}
+}
+
+func TestResolveCredentialsSanitizesCookie(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := auth.SaveCookieCache("grok", "", "sess=abc; bad\x01x=zzz; y=1", "chrome"); err != nil {
+		t.Fatal(err)
+	}
+	gp, _ := provider.Get("grok")
+	creds, err := ResolveCredentials(gp, cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if creds.CookieHeader != "sess=abc; y=1" {
+		t.Fatalf("CookieHeader = %q, want control characters sanitized", creds.CookieHeader)
+	}
+
+	// Account-scoped cookies also go through ResolveCookieHeader.
+	pc := cfg.Provider("grok")
+	pc.Accounts = []config.AccountConfig{{Name: "work", ManualCookieHeader: "ok=1; bad\x01x=zzz; z=9"}}
+	cfg.Providers["grok"] = pc
+	h, err := auth.ResolveCookieHeader("grok", cfg.Provider("grok"), "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h != "ok=1; z=9" {
+		t.Fatalf("account cookie = %q, want sanitized via ResolveCookieHeader", h)
 	}
 }
 
@@ -189,21 +296,21 @@ func TestOverlayAccountCreds(t *testing.T) {
 	}
 }
 
-func TestHasCredentials(t *testing.T) {
+func TestCanAttemptFetch(t *testing.T) {
 	isolateEnv(t)
 	gp, _ := provider.Get("grok")
-	if HasCredentials(gp, provider.Credentials{}) {
-		t.Fatal("no creds must report false")
+	if canAttemptFetch(gp, provider.Credentials{}) {
+		t.Fatal("empty credentials: should not probe")
 	}
-	if !HasCredentials(gp, provider.Credentials{CookieHeader: "sess=x"}) {
-		t.Fatal("cookie header must count as configured")
+	if !canAttemptFetch(gp, provider.Credentials{CookieHeader: "sess=x"}) {
+		t.Fatal("cookie header: should probe")
 	}
 	cp, _ := provider.Get("codex")
-	if HasCredentials(cp, provider.Credentials{}) {
-		t.Fatal("codex without session must report false")
+	if canAttemptFetch(cp, provider.Credentials{}) {
+		t.Fatal("codex without session: should not probe")
 	}
-	if !HasCredentials(cp, provider.Credentials{CodexAuth: &provider.CodexAuth{AccessToken: "tok"}}) {
-		t.Fatal("codex with access token must report true")
+	if !canAttemptFetch(cp, provider.Credentials{CodexAuth: &provider.CodexAuth{AccessToken: "tok"}}) {
+		t.Fatal("codex with access token: should probe")
 	}
 }
 
@@ -226,7 +333,7 @@ func TestSaveCacheErrorContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cache-write failure must not fail the run: %v", err)
 	}
-	if out == nil || len(out.Providers) != 5 {
+	if out == nil || len(out.Providers) != 3 {
 		t.Fatalf("valid probe results must be returned, got %d providers", len(out.Providers))
 	}
 }
@@ -267,4 +374,44 @@ func TestSortProviders(t *testing.T) {
 			t.Fatalf("sortProviders = %v, want %v", got, want)
 		}
 	}
+}
+
+// A grok account whose only credential is an account-bound authFile must be
+// let through to the provider (which then reports the file state), not
+// short-circuited into not_configured. Regression: the not_configured gate
+// used to ignore acc.AuthFile, so multi-account grok setups never fetched.
+func TestGrokAccountAuthFileNotBlocked(t *testing.T) {
+	isolateEnv(t)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Point the account at a nonexistent private authFile: the provider
+	// should attempt the fetch and fail with a missing-file error rather
+	// than the gate reporting not_configured.
+	gone := filepath.Join(t.TempDir(), "auth.json")
+	if err := cfg.SetAccountAuthFile("grok", "second", gone); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := FetchAll(context.Background(), cfg, Options{ProviderFilter: "grok"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Providers) != 1 {
+		t.Fatalf("providers = %v, want 1", providerIDs(out))
+	}
+	grok := out.Providers[0]
+	for _, acc := range grok.Accounts {
+		if acc.Name == "second" {
+			if acc.Status == "not_configured" {
+				t.Fatalf("account %q was blocked as not_configured despite authFile=%s", acc.Name, gone)
+			}
+			if acc.Status != "error" {
+				t.Fatalf("account %q status = %q, want error (missing auth file)", acc.Name, acc.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("grok account \"second\" missing from results")
 }

@@ -23,6 +23,10 @@ import (
 // refreshes regardless.
 const ImportTTL = 12 * time.Hour
 
+// ErrCookieCacheUnreadable is returned when cookies.json exists but cannot
+// be parsed or read. Missing cookies are a different error.
+var ErrCookieCacheUnreadable = errors.New("cookie cache unreadable")
+
 // CookieCache is one imported cookie header stored on disk.
 type CookieCache struct {
 	ProviderID string    `json:"providerID"`
@@ -200,7 +204,19 @@ func cacheUnreadableError(err error) error {
 	if perr != nil {
 		p = "(unresolvable)"
 	}
-	return fmt.Errorf("cookie cache unreadable: %v — delete %s and re-run leeway cookie import", err, p)
+	return fmt.Errorf("%w: %v — delete %s and re-run leeway cookie import", ErrCookieCacheUnreadable, err, p)
+}
+
+// RemoveCookieCacheFile deletes cookies.json. A missing file is success.
+func RemoveCookieCacheFile() error {
+	p, err := cacheFile()
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(p); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 // sanitizeHeader drops individual cookies whose name or value contains
