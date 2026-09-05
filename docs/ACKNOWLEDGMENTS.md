@@ -13,7 +13,7 @@ leeway 能做成，是因为先有人把「各家额度怎么查」走通了。�
 | [OpenUsage.ai](https://github.com/robinebers/openusage) | Robin Ebers | Cursor Connect RPC 主路、Grok REST 订阅池。我们不学它写回官方 sqlite / keychain。 |
 | [ccusage](https://github.com/ryoppippi/ccusage) | ryoppippi | 把「还剩多少」和「已经花了多少」分开：它做本地账单，我们做官方窗口。 |
 
-法律文本见 [NOTICE](NOTICE) 和 [LICENSE](LICENSE)。
+法律文本见 [NOTICE](../NOTICE) 和 [LICENSE](../LICENSE)。
 
 ## 引用与参考
 

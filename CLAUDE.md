@@ -24,7 +24,7 @@ leeway（余量·裕度，模块名 `leeway`）是 AI 编程 provider 用量 / �
 
 支持 provider：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**。名单以 README 当前列表为准，不要臆造未实现的家。
 
-入口：`cmd/leeway/main.go`。探测在 `internal/provider/`，CLI 在 `internal/cli/`，JSON 契约在 `internal/model/`。架构见 `DESIGN.md`，各家探测见 `PROVIDER-FETCH.md`。Go 版本以 `go.mod` 为准。
+入口：`cmd/leeway/main.go`。探测在 `internal/provider/`，CLI 在 `internal/cli/`，JSON 契约在 `internal/model/`。架构见 `docs/DESIGN.md`，各家探测见 `docs/PROVIDER-FETCH.md`。Go 版本以 `go.mod` 为准。
 
 ## 命令
 

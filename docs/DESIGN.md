@@ -4,7 +4,7 @@
 > 砍掉 macOS 菜单栏 UI 与周边，做成纯 CLI：简单输出必要信息、JSON 优先，方便集成到 Hermes 等 agent。
 > 支持 provider：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**（预留扩展位）。
 > 认证全做：API key、本地文件、CLI 会话复用、委托官方 CLI 登录（cursor / grok）、浏览器 cookie 导入（L0/L1/L2）。
-> 许可证 MIT，上游版权见 [NOTICE](NOTICE)，感谢与参考见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。
+> 许可证 MIT，上游版权见 [NOTICE](../NOTICE)，感谢与参考见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。
 
 ## 1. 从 CodexBar 的取舍
 
@@ -29,16 +29,18 @@
 
 ```
 leeway/
-  cmd/leeway/main.go          # 入口，装配 registry
-  internal/model/               # RateWindow / Snapshot / ProviderState / JSON 契约
-  internal/provider/            # Provider 接口 + Registry
+  README.md LICENSE NOTICE AGENTS.md CLAUDE.md
+  docs/                     # 设计、探测实现、调研、感谢
+  cmd/leeway/main.go        # 入口，装配 registry
+  internal/model/           # RateWindow / Snapshot / JSON 契约
+  internal/provider/        # Provider 接口 + Registry
     deepseek/  kimi/  grok/  codex/  cursor/  opencodego/  commandcode/
-  internal/auth/                # env 解析、cookie importer（L0/L1/L2）、cursor/grok 私有会话目录
-  internal/config/              # ~/.config/leeway/config.json（0600）
-  internal/credwrite/           # `leeway use`：原子打补丁 YAML 凭据文件（0600）
-  internal/fetch/               # 并行探测编排：超时、TTL 缓存、watch 循环、多账户循环
-  internal/cli/                 # 子命令与 flag
-  internal/render/              # json / human 表格渲染
+  internal/auth/            # cookie importer、cursor/grok 私有会话目录
+  internal/config/          # ~/.config/leeway/config.json（0600）
+  internal/credwrite/       # `leeway use` 打补丁 YAML 凭据
+  internal/fetch/           # 并行探测编排
+  internal/cli/             # 子命令与 flag
+  internal/render/          # json / 表格
 ```
 
 ## 4. 数据模型
