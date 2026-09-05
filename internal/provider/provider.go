@@ -1,15 +1,18 @@
 // Package provider defines the extension-point contracts of leeway.
 //
 // A new provider is added by implementing Provider, registering it in init()
-// (see the stub packages in internal/provider/<name>), and declaring its
-// auth requirements in AuthSpec — the orchestrator, doctor and cookie
-// commands derive everything else from AuthSpec.
+// (see the packages in internal/provider/<name>), and declaring its auth
+// requirements in AuthSpec. Doctor and the fetch orchestrator use AuthSpec
+// for the shared credential checks; some providers still resolve extra
+// sources (private auth.json, GROK_HOME / KIMI_CODE_HOME, keychain) inside
+// Fetch.
 package provider
 
 import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"leeway/internal/model"
 )
@@ -55,6 +58,46 @@ func HomePath(p string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, p[1:]), nil
+}
+
+// LocalSessionPath resolves a LocalAuthFiles declaration. GROK_HOME and
+// KIMI_CODE_HOME override the default homes the same way the grok and kimi
+// Fetch paths do.
+func LocalSessionPath(declared string) (string, error) {
+	switch declared {
+	case "~/.grok/auth.json":
+		dir, err := envHomeDir("GROK_HOME", ".grok")
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(dir, "auth.json"), nil
+	case "~/.kimi-code/credentials/kimi-code.json":
+		dir, err := envHomeDir("KIMI_CODE_HOME", ".kimi-code")
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(dir, "credentials", "kimi-code.json"), nil
+	default:
+		return HomePath(declared)
+	}
+}
+
+func envHomeDir(envKey, defaultRel string) (string, error) {
+	if custom := os.Getenv(envKey); custom != "" {
+		if strings.HasPrefix(custom, "~/") {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return "", err
+			}
+			return filepath.Join(home, custom[2:]), nil
+		}
+		return custom, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, defaultRel), nil
 }
 
 // CodexAuth is the parsed ~/.codex/auth.json session.

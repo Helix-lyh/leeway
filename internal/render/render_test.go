@@ -223,11 +223,11 @@ func TestRenderTableTagColor(t *testing.T) {
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "cursor", DisplayName: "Cursor", Status: "ok",
 		Accounts: []model.AccountResult{
-			{Name: "codesmallstar", Status: "ok", Snapshot: &model.Snapshot{
+			{Name: "personal", Status: "ok", Snapshot: &model.Snapshot{
 				UpdatedAt: time.Now(),
 				Windows:   []model.RateWindow{{ID: "primary", Title: "Monthly", UsedPercent: &pct}},
 			}},
-			{Name: "lymysql", Status: "ok", Snapshot: &model.Snapshot{
+			{Name: "work", Status: "ok", Snapshot: &model.Snapshot{
 				UpdatedAt: time.Now(),
 				Windows:   []model.RateWindow{{ID: "primary", Title: "Monthly", UsedPercent: &pct}},
 			}},
@@ -236,7 +236,7 @@ func TestRenderTableTagColor(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, true)
 	s := buf.String()
-	if !strings.Contains(s, cCyan+"codesmallstar"+cReset) || !strings.Contains(s, cCyan+"lymysql"+cReset) {
+	if !strings.Contains(s, cCyan+"personal"+cReset) || !strings.Contains(s, cCyan+"work"+cReset) {
 		t.Fatalf("multi-account tags should be cyan:\n%s", s)
 	}
 	if !strings.Contains(s, cBold+cGreen+"Cursor"+cReset) {
@@ -251,9 +251,9 @@ func TestRenderTableShowsPlan(t *testing.T) {
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "cursor", DisplayName: "Cursor", Status: "ok",
 		Accounts: []model.AccountResult{{
-			Name: "lymysql", Status: "ok",
+			Name: "work", Status: "ok",
 			Snapshot: &model.Snapshot{
-				Identity: &model.Identity{Account: "lymysql@gmail.com", Plan: "Ultra"},
+				Identity: &model.Identity{Account: "alice@example.com", Plan: "Ultra"},
 				Windows:  []model.RateWindow{{ID: "primary", Title: "Monthly", UsedPercent: &pct}},
 			},
 		}},
@@ -299,10 +299,10 @@ func TestRenderTableStacksMultipleWindows(t *testing.T) {
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
 		ID: "cursor", DisplayName: "Cursor", Status: "ok",
 		Accounts: []model.AccountResult{{
-			Name: "lymysql", Status: "ok",
+			Name: "alice", Status: "ok",
 			Snapshot: &model.Snapshot{
 				UpdatedAt: time.Now(),
-				Identity:  &model.Identity{Account: "lymysql@gmail.com"},
+				Identity:  &model.Identity{Account: "alice@example.com"},
 				Windows: []model.RateWindow{
 					{ID: "primary", Title: "Monthly", UsedPercent: &a},
 					{ID: "auto", Title: "Auto", UsedPercent: &b},
@@ -313,7 +313,7 @@ func TestRenderTableStacksMultipleWindows(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if strings.Contains(s, "lymysql@gmail.com") {
+	if strings.Contains(s, "alice@example.com") {
 		t.Fatalf("tag matching email local-part should not repeat the address:\n%s", s)
 	}
 	if strings.Count(s, "\n") < 3 {

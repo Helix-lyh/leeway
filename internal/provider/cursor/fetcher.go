@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -24,13 +23,6 @@ var (
 	usageURL  = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
 	planURL   = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo"
 	grantsURL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCreditGrantsBalance"
-)
-
-// keychainTokenService/Account identify the token the cursor IDE/CLI keeps in
-// the macOS keychain (same service names the official client uses).
-const (
-	keychainService = "cursor-access-token"
-	keychainAccount = "cursor-user"
 )
 
 var defaultClient = &http.Client{Timeout: 15 * time.Second}
@@ -51,6 +43,9 @@ func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error
 	if v := strings.TrimSpace(req.Creds.APIKey); v != "" {
 		return v, nil
 	}
+	if v := strings.TrimSpace(req.Creds.AuthToken); v != "" {
+		return v, nil
+	}
 	if ca, ok, err := auth.LoadCursorAuth(req.Account); err != nil {
 		return "", err
 	} else if ok {
@@ -65,6 +60,8 @@ func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error
 	}
 	if v, err := keychainToken(ctx); err == nil && v != "" {
 		return v, nil
+	} else if err != nil && !auth.IsKeychainItemMissing(err) {
+		return "", err
 	}
 	return "", errors.New("no Cursor token — set CURSOR_ACCESS_TOKEN, run `leeway auth login --provider cursor`, or sign in with the Cursor CLI")
 }
@@ -82,17 +79,14 @@ func accountSuffix(account string) string {
 // generic-password reads on macOS); a missing entry is reported as a plain
 // "not found" so callers fall through to the error message above.
 func keychainToken(ctx context.Context) (string, error) {
-	if _, err := exec.LookPath("security"); err != nil {
-		return "", fmt.Errorf("security CLI unavailable: %w", err)
-	}
-	cmd := exec.CommandContext(ctx, "security", "find-generic-password",
-		"-a", keychainAccount, "-s", keychainService, "-w")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	tok, err := auth.CursorKeychainToken(ctx)
+	if err != nil {
+		if auth.IsKeychainItemMissing(err) {
+			return "", err
+		}
 		return "", fmt.Errorf("keychain lookup failed: %w", err)
 	}
-	return strings.TrimSpace(out.String()), nil
+	return tok, nil
 }
 
 // --- usage fetch ----------------------------------------------------------
@@ -120,7 +114,7 @@ func (p *cursorProvider) connectPost(ctx context.Context, url, token string) ([]
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "cursor-agent/2026.08.11")
+	req.Header.Set("User-Agent", "leeway")
 	return netutil.DoRequest(ctx, p.client, req, netutil.MaxBodyBytes)
 }
 

@@ -392,8 +392,8 @@ func TestFetchUsageSendsHeaders(t *testing.T) {
 	if gotAuth != "Bearer secret-token" {
 		t.Errorf("Authorization = %q", gotAuth)
 	}
-	if gotUA != "CodexBar" {
-		t.Errorf("User-Agent = %q, want CodexBar", gotUA)
+	if gotUA != "leeway" {
+		t.Errorf("User-Agent = %q, want leeway", gotUA)
 	}
 	if gotAccount != "acct-work" {
 		t.Errorf("ChatGPT-Account-Id = %q", gotAccount)
@@ -489,7 +489,7 @@ func TestFetchEndToEnd(t *testing.T) {
 	if usageAuth != "Bearer tok123" || accountsAuth != "Bearer tok123" {
 		t.Errorf("auth headers: usage=%q accounts=%q", usageAuth, accountsAuth)
 	}
-	if usageUA != "CodexBar" || accountsUA != "codex-cli" {
+	if usageUA != "leeway" || accountsUA != "codex-cli" {
 		t.Errorf("user agents: usage=%q accounts=%q", usageUA, accountsUA)
 	}
 	if usageAccount != "ACCT-Personal" {

@@ -30,8 +30,8 @@ func isolateEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("LEEWAY_CACHE", t.TempDir())
 	t.Setenv("LEEWAY_CONFIG", filepath.Join(t.TempDir(), "config.json"))
-	// HOME must be redirected too: canAttemptFetch resolves provider-owned
-	// session files ("~/.grok/auth.json") via the tilde, not GROK_HOME.
+	// HOME plus GROK_HOME / KIMI_CODE_HOME: LocalSessionPath honors those
+	// env overrides, so empty temp homes keep canAttemptFetch off.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("KIMI_CODE_HOME", t.TempDir())
 	t.Setenv("GROK_HOME", t.TempDir())
@@ -275,16 +275,22 @@ func TestResolveCredentialsSanitizesCookie(t *testing.T) {
 }
 
 func TestOverlayAccountCreds(t *testing.T) {
-	base := provider.Credentials{APIKey: "env-key", CookieHeader: "prov=cookie"}
+	base := provider.Credentials{APIKey: "env-key", AuthToken: "env-token", CookieHeader: "prov=cookie"}
 
 	got := overlayAccountCreds(base, config.AccountConfig{Name: "work", APIKey: "sk-work"}, "prov=cookie")
 	if got.APIKey != "sk-work" {
 		t.Fatalf("named key = %q, want sk-work", got.APIKey)
 	}
+	if got.AuthToken != "sk-work" {
+		t.Fatalf("named AuthToken = %q, want sk-work", got.AuthToken)
+	}
 
 	got = overlayAccountCreds(base, config.AccountConfig{Name: "personal", WorkspaceID: "ws_1"}, "sess=x")
 	if got.APIKey != "" {
 		t.Fatalf("cookie account inherited env key %q", got.APIKey)
+	}
+	if got.AuthToken != "" {
+		t.Fatalf("cookie account inherited AuthToken %q", got.AuthToken)
 	}
 	if got.CookieHeader != "sess=x" {
 		t.Fatalf("CookieHeader = %q, want sess=x", got.CookieHeader)
@@ -414,4 +420,72 @@ func TestGrokAccountAuthFileNotBlocked(t *testing.T) {
 		}
 	}
 	t.Fatal("grok account \"second\" missing from results")
+}
+
+// Profile-bound cookies used to be invisible to the not_configured gate:
+// canAttemptFetch ran on provider-level creds before overlay, so a named
+// account whose only secret was cookie import --account X --profile P
+// never reached Fetch.
+func TestProfileBoundCookieCanAttempt(t *testing.T) {
+	isolateEnv(t)
+	if err := auth.SaveCookieCache("grok", "Profile 1", "sess=account-profile", "chrome"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	acc := config.AccountConfig{Name: "work", Profile: "Profile 1"}
+	pc := cfg.Provider("grok")
+	pc.Accounts = []config.AccountConfig{acc}
+	cfg.Providers["grok"] = pc
+
+	header, err := auth.ResolveCookieHeader("grok", cfg.Provider("grok"), "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if header != "sess=account-profile" {
+		t.Fatalf("header = %q", header)
+	}
+	gp, _ := provider.Get("grok")
+	creds := overlayAccountCreds(provider.Credentials{}, acc, header)
+	if !canAttemptFetch(gp, creds) {
+		t.Fatal("profile-bound cookie must be enough to probe")
+	}
+}
+
+func TestCanAttemptFetchHonorsGrokHome(t *testing.T) {
+	isolateEnv(t)
+	gp, _ := provider.Get("grok")
+	if canAttemptFetch(gp, provider.Credentials{}) {
+		t.Fatal("empty GROK_HOME must not probe")
+	}
+	home := t.TempDir()
+	t.Setenv("GROK_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !canAttemptFetch(gp, provider.Credentials{}) {
+		t.Fatal("GROK_HOME/auth.json must allow probe")
+	}
+}
+
+func TestCanAttemptFetchHonorsKimiCodeHome(t *testing.T) {
+	isolateEnv(t)
+	kp, _ := provider.Get("kimi")
+	if canAttemptFetch(kp, provider.Credentials{}) {
+		t.Fatal("empty KIMI_CODE_HOME must not probe")
+	}
+	home := t.TempDir()
+	t.Setenv("KIMI_CODE_HOME", home)
+	cred := filepath.Join(home, "credentials", "kimi-code.json")
+	if err := os.MkdirAll(filepath.Dir(cred), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cred, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !canAttemptFetch(kp, provider.Credentials{}) {
+		t.Fatal("KIMI_CODE_HOME credentials must allow probe")
+	}
 }

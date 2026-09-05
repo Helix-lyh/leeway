@@ -88,14 +88,14 @@ func TestLoadCursorAuth(t *testing.T) {
 func TestListCursorSessionAccounts(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LEEWAY_SESSIONS", dir)
-	writeCursorAuth(t, "lymysql", "tok-a")
-	writeCursorAuth(t, "codesmallstar", "tok-b")
+	writeCursorAuth(t, "work", "tok-a")
+	writeCursorAuth(t, "personal", "tok-b")
 
 	got, err := ListCursorSessionAccounts()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0] != "codesmallstar" || got[1] != "lymysql" {
+	if len(got) != 2 || got[0] != "personal" || got[1] != "work" {
 		t.Fatalf("got %v", got)
 	}
 }

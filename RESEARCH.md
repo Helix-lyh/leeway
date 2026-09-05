@@ -1,7 +1,7 @@
 # leeway 调研报告（2026-09-02）
 
-> 面向**真实订阅使用**的完整调研汇总：各家 AI 编程 provider 的额度查询方案、登录/多账号机制、
-> 现状与缺口、待处理点与预期方案。证据分级：`实测`=本机跑过；`逆向`=从官方 CLI bundle 确认；
+> 各家 AI 编程 provider 的额度查询方案、登录/多账号机制、现状与缺口。
+> 证据分级：`实测`=本机跑过；`对照 CLI`=对照官方 CLI 已公开的实现；
 > `社区`=同类工具/issue 佐证；`推断`=未直接验证。
 > 同类用量工具怎么拿登录态、怎么刷新、哪些余量是官方数：见 [COMPETITORS.md](COMPETITORS.md)（2026-09-03）。
 > 下列「待处理」里 B1/B2/C1/C2 已在后续实现落地（Credits = limit−includedSpend；Grok REST；commandcode provider；文档已补），本文保留当时记录。
@@ -23,20 +23,20 @@
 
 ---
 
-## 1. 用户真实订阅 vs leeway 现状
+## 1. 覆盖范围（写调研时的状态）
 
-| 订阅 | 账号数 | leeway 认证现状 | 额度查询现状 | 缺口 |
-|---|---|---|---|---|
-| DeepSeek | 1 | 未配 key（not_configured） | 官方 API，最优 | 配一把 key |
-| OpenCode Go | 3（bxs/github/gmail） | 3 个订阅 key 全部 ok | 官方网关，最优 | 无 |
-| Cursor | 2 | **只跑通 1 个**（default=keychain 兜底） | api2 RPC，正确但有显示 bug | 多账号登录迁移 + remaining bug |
-| Grok | 2 | default 仍在 `~/.grok (shared)` | grpc-web 启发式，有精度误差 | 私有化登录 + REST 升级 |
-| Command Code GOAT | 计划多号 | 已接入（API key） | — | 新 provider |
-| （顺带支持）Codex / Kimi | — | CLI 会话复用 | — | 用户未订阅，仅工具覆盖 |
+| 订阅 | leeway 认证 | 额度查询 | 当时缺口 |
+|---|---|---|---|
+| DeepSeek | API key | 官方 API | 配 key 即可 |
+| OpenCode Go | 命名订阅 key | 官方网关 | 无 |
+| Cursor | 私有 auth.json / keychain 兜底 | api2 RPC | 多账号登录隔离 |
+| Grok | 私有 HOME 或共享 `~/.grok` | REST + grpc-web 回退 | 默认账号不要隐式读共享目录 |
+| Command Code | API key | credits + summary | 无 |
+| Codex / Kimi | 复用各自官方 CLI 会话 | 已接 | 无 |
 
 ---
 
-## 2. 各家额度端点调研（实测/逆向证据）
+## 2. 各家额度端点调研（实测/对照证据）
 
 ### 2.1 DeepSeek —— 已最优（官方公开 API）`实测`
 
@@ -85,9 +85,9 @@
 
 ---
 
-## 3. Cursor 登录机制逆向结论（谁发起 / 谁写入 / 谁回调）
+## 3. Cursor 登录机制（谁发起 / 谁写入 / 谁回调）
 
-来源：`cursor-agent` 官方 bundle（2026.08.31-4057e58）`index.js` + cli-credentials/dist。`逆向`
+来源：对照 `cursor-agent` 官方 CLI（2026.08.31-4057e58）已公开的登录流程。`对照 CLI`
 
 ### 3.1 流程（无本地回调）
 
@@ -174,18 +174,18 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
    grok 删私有 GROK_HOME、api-key provider 指向 config）。
 4. `cursor/fetcher.go`：resolveToken 私有 auth.json 优先 + **不回退 keychain 防混用**。
 5. 测试：14 包全绿（含 TestCursorHomeIsolation、TestResolveTokenFromCursorAuth、
-   TestCursorAuthBlocksKeychainFallback 等）；已部署 `~/go/bin/leeway`。
+   TestCursorAuthBlocksKeychainFallback 等）。
 
 ---
 
 ## 7. 需要处理的点 + 预期方案（按优先级）
 
-### A. 用户操作（非代码，各 ~2 分钟）
+### A. 操作步骤（非代码）
 
 | # | 事项 | 现状 | 预期方案 | 验收 |
 |---|---|---|---|---|
-| A1 | **Cursor 两账号真实登录迁移** | default=keychain 兜底、无私有 auth.json；第二个号未配 | `leeway auth login --provider cursor`（主号，弹浏览器授权）→ `leeway auth login --provider cursor --account <二>`（如 work） | `leeway auth status` 两行 cursor 私有 auth.json + 各自到期；`usage --provider cursor --account work` 出数据 |
-| A2 | **Grok default 私有化**（可选） | default=`~/.grok (shared)`（与官方共享） | 需要独立账号台账时跑 `leeway auth login --provider grok` 重新登录到私有目录；若只求"能查"，shared 也 OK（OIDC 自动续） | `auth status` grok default 显示私有 authFile |
+| A1 | **Cursor 多账号登录** | 无私有 auth.json 时会兜底 keychain | `leeway auth login --provider cursor`；第二号加 `--account work` | `leeway auth status` 各号一行私有 auth.json；`usage --provider cursor --account work` 出数据 |
+| A2 | **Grok 默认账号私有化**（可选） | 不写 `--account` 时不读共享 `~/.grok` | 需要独立台账时跑 `leeway auth login --provider grok` | `auth status` 显示私有 authFile |
 
 > 前提：`cursor-agent` 与 `grok` CLI 在 PATH（leeway 找不到会明确提示安装命令）。
 
@@ -214,9 +214,9 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 ## 8. 建议执行顺序
 
 1. **B1+B2**（小改，我先做，30–60 分钟可交付）→ 顺带把 README 的 Cursor 支持补齐。
-2. **A1+A2**（你操作，各 2 分钟；B 完成后跑，auth status 台账即全绿）。
+2. **A1+A2**（各约 2 分钟；B 完成后跑，auth status 台账即全绿）。
 3. **C1**（Grok REST，收益明确：精度 + 周期类型，半天内）。
-4. **C2**（Command Code GOAT，等你提供一把 key 后做端到端验收）。
+4. **C2**（Command Code，有 API key 后做端到端验收）。
 
 > 原则再次强调：凡涉及"浏览器授权拿 token"一律委托官方 CLI，leeway 只读落盘文件，
 > 不再出现自实现 OAuth/PKCE 类代码（AGENTS.md 反过度设计 + 安全双重要求）。

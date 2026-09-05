@@ -30,7 +30,7 @@ func LookupCursorEmail(ctx context.Context, token string) (string, error) {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Connect-Protocol-Version", "1")
-	req.Header.Set("User-Agent", "cursor-agent/2026.08.11")
+	req.Header.Set("User-Agent", "leeway")
 
 	body, status, err := netutil.DoRequest(ctx, cursorMeClient, req, netutil.MaxBodyBytes)
 	if err != nil {

@@ -48,7 +48,7 @@ Codex / Kimi 用它们自己的登录：codex login / kimi login
   leeway providers
   leeway cookie import|set|list|clear --provider ID
   leeway config path | set-api-key | keys
-  leeway help COMMAND                          usage / auth / cookie / config / use / doctor
+  leeway help COMMAND                          usage / auth / cookie / config / use / doctor / providers
 
 --account 可以是 tag、邮箱（cursor）或订阅名（opencode-go / commandcode）。
 不写时不读 default（官方 keychain / 共享 ~/.grok）；要看它请加 --account default。
@@ -110,6 +110,10 @@ const cookieHelp = `leeway cookie — 从浏览器导入登录 cookie（grok / k
   leeway cookie set --provider grok --manual "a=b; c=d"
   leeway cookie list
   leeway cookie clear --provider grok
+
+默认 import 会读 Chrome / Edge 的 Cookie SQLite；macOS 上还要解密钥匙串
+（首次会弹授权），并把对应站点的登录 cookie 写入 ~/.cache/leeway/cookies.json。
+usage 不会自己刮浏览器。Linux 上这一档未实现，用 --manual 或 kimi-desktop。
 
 grok 更推荐：leeway auth login --provider grok
 `

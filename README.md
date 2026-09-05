@@ -1,9 +1,13 @@
 # leeway（余量·裕度）
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
+
 AI 编程 provider 用量 / 额度 / 重置时间的纯 CLI 探测工具——[CodexBar](https://github.com/steipete/CodexBar) 核心的 CLI 复刻。
 JSON 优先、stdout 只输出数据，方便 agent（Hermes 等）直接调用。
 
 支持 provider：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**。
+
+许可证：[MIT](LICENSE)。上游版权与移植范围见 [NOTICE](NOTICE)。感谢与参考名单见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。
 
 ## 安装
 
@@ -17,7 +21,7 @@ go build -o leeway ./cmd/leeway && ./leeway usage
 
 ## 命令
 
-日常看 `leeway` / `leeway help`；某一条看 `leeway help auth`（还有 usage / cookie / config / use / doctor）。
+日常看 `leeway` / `leeway help`；某一条看 `leeway help auth`（还有 usage / cookie / config / use / doctor / providers）。
 
 **查额度**
 
@@ -101,6 +105,8 @@ Codex / Kimi 用它们自己的登录：`codex login` / `kimi login`。
 | **L1** | `leeway cookie import --provider kimi --browser kimi-desktop`（直接读 Kimi 桌面端自己的 cookie 库，绕开浏览器和钥匙串） | kimi |
 | **L2** | `leeway cookie import --provider grok`（Chrome/Edge SQLite + macOS 钥匙串解密，自动扫全部 profile，cookie 最多的 profile 胜出） | grok / opencode-go / kimi |
 
+L2 只在你显式跑 `cookie import` 时触发，`leeway usage` 不会自己刮浏览器。macOS 上会向钥匙串要 Chrome / Edge Safe Storage（首次弹授权），并把对应站点的登录 cookie 写入 `~/.cache/leeway/cookies.json`，效果等于复制一份浏览器登录态。
+
 注意：cookie 会过期（grok 会话尤其短）——过期后重新 `import --force` 或 fetch 会明确报错；
 Linux 上 L2 未实现，用 L0/L1。`cookie clear` 只清导入缓存，手动 header 存于 config，需手动删除。
 
@@ -131,6 +137,10 @@ DSH 对凭据文件热重载，切换后下一次请求即用新 key。
 | **cursor** | 委托官方 `cursor-agent login`（`leeway auth login --provider cursor [--account NAME]`，每账号私有 HOME 下 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；无私有文件时兜底 macOS keychain | `api2.cursor.sh` GetCurrentPeriodUsage（Connect RPC，Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（limit − includedSpend） |
 | **codex** | 复用 Codex CLI 会话 `~/.codex/auth.json`（无需自实现 OAuth；过期提示重跑 `codex login`） | `chatgpt.com/backend-api`（可用 `chatgpt_base_url` 覆盖，见 `$CODEX_HOME/config.toml`） | Session 5h + Weekly 7d + 额外窗口 + Credits 余额 |
 | **opencode-go** | 双认证：① **订阅 API key**（`OPENCODE_GO_API_KEY` / `config set-api-key --account NAME`，多订阅，经网关 `/usage` 直接查）；② 多账户 cookie（`auth`/`__Host-auth`）+ 可选 `workspaceID` | ① 网关 `opencode.ai/zen/go/v1/usage`（每订阅）；② 服务器 `opencode.ai` 用量页 + Zen 余额 | 每订阅 / 每账户 5-hour / Weekly / Monthly；cookie 账户另有 Zen 余额 |
+
+凭据只来自你自己的环境变量、配置文件、官方 CLI 已写出的会话，或上面的显式 cookie import。
+
+数据源分两类：**公开余额 API**（DeepSeek `user/balance`、OpenCode Go 网关 `/usage`）和**无公开文档的仪表盘 / 内部 RPC**（Cursor api2、Codex backend-api、Kimi apiv2、Grok REST 与 grpc-web 回退、Command Code billing）。后一类各家条款未逐条核对，只查你自己的号。
 
 ## JSON 契约（`leeway usage --json` 真实输出）
 
@@ -189,3 +199,18 @@ DSH 对凭据文件热重载，切换后下一次请求即用新 key。
 - 架构、数据模型、探测方案与里程碑见 [DESIGN.md](DESIGN.md)
 - 各 provider 额度获取与凭据（API key / Cookie / CLI 会话）的**实现级**梳理见 [PROVIDER-FETCH.md](PROVIDER-FETCH.md)
 - 同类用量工具对照（登录 / 刷新 / 官方余量 vs 本地估算）见 [COMPETITORS.md](COMPETITORS.md)
+- 感谢与引用名单见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)
+
+## 许可证
+
+[MIT](LICENSE)。Copyright (c) 2026 helixliu；探测核心复刻自 Peter Steinberger 的 CodexBar / SweetCookieKit（同为 MIT），完整版权声明见 [NOTICE](NOTICE)。
+
+## 感谢
+
+- [Peter Steinberger](https://github.com/steipete) — [CodexBar](https://github.com/steipete/CodexBar)、[SweetCookieKit](https://github.com/steipete/SweetCookieKit)
+- [Fabio Akita](https://github.com/akitaonrails) — [ai-usagebar](https://github.com/akitaonrails/ai-usagebar)
+- [SRX9](https://github.com/SRX9) — [UsageAtlas](https://github.com/SRX9/UsageAtlas)
+- [Robin Ebers](https://github.com/robinebers) — [OpenUsage.ai](https://github.com/robinebers/openusage)
+- [ryoppippi](https://github.com/ryoppippi) — [ccusage](https://github.com/ryoppippi/ccusage)
+
+完整名单与「对照了什么」见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。

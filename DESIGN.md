@@ -4,6 +4,7 @@
 > 砍掉 macOS 菜单栏 UI 与周边，做成纯 CLI：简单输出必要信息、JSON 优先，方便集成到 Hermes 等 agent。
 > 支持 provider：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**（预留扩展位）。
 > 认证全做：API key、本地文件、CLI 会话复用、委托官方 CLI 登录（cursor / grok）、浏览器 cookie 导入（L0/L1/L2）。
+> 许可证 MIT，上游版权见 [NOTICE](NOTICE)，感谢与参考见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。
 
 ## 1. 从 CodexBar 的取舍
 
@@ -83,11 +84,11 @@ type Provider interface {
 
 | Provider | 认证来源 | 数据源 | 窗口 | 关键细节 |
 |---|---|---|---|---|
-| **deepseek** | `DEEPSEEK_API_KEY` env 或 `config set-api-key`（交互式无回显 / --key 直传） | **`api.deepseek.com/user/balance`**（公共 API，Swift 的 API-key 路径；`platform.deepseek.com` 有 WAF 会拦 API key）+ 平台 token 增强：`/api/v0/usage/amount` + `/api/v0/usage/cost` | 余额（¥）+ 当日用量 | 实测真实余额 ¥418.40 |
+| **deepseek** | `DEEPSEEK_API_KEY` env 或 `config set-api-key`（交互式无回显 / --key 直传） | **`api.deepseek.com/user/balance`**（公共 API，Swift 的 API-key 路径；`platform.deepseek.com` 有 WAF 会拦 API key）+ 平台 token 增强：`/api/v0/usage/amount` + `/api/v0/usage/cost` | 余额（¥）+ 当日用量 | 公共 API，余额单位 ¥ |
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `kimi login`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
 | **grok** | 三选一：**`leeway auth login --provider grok`**（私有 `GROK_HOME`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写）/ 官方 `~/.grok/auth.json`（共享）/ L2 Chrome cookie / 手动 header | 优先 `GET cli-chat-proxy.grok.com/v1/billing?format=credits`（`creditUsagePercent` + `currentPeriod.type`）；REST 4xx/5xx 回退 grok.com grpc-web 启发式 protobuf | 共享额度；窗口类型来自 REST `currentPeriod.type`（Weekly/Monthly） | 实测 REST `creditUsagePercent` 不再被 protobuf 截成整数 |
 | **cursor** | 委托官方 `cursor-agent login`（`leeway auth login --provider cursor [--account]`：`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME，只读 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；**无私有 auth.json 时**才兜底 macOS keychain | `POST api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（`limit − includedSpend`） | 不自实现浏览器 PKCE/poll；60d JWT 过期提示重登 |
-| **codex** | 复用 Codex CLI 已登录会话：`~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 实测真实数据（Weekly 78%） |
+| **codex** | 复用 Codex CLI 已登录会话：`~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 复用 Codex CLI 会话，不自实现 OAuth |
 | **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `config set-api-key --account`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额 | 多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 doctor 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
 | **commandcode** | `COMMAND_CODE_API_KEY` / `accounts[].apiKey`（`user_...`，commandcode.ai/studio） | `GET api.commandcode.ai/alpha/billing/credits`（`windowLimits.fiveHour/weekly` + `credits.monthlyCredits`）+ 可选 `/alpha/usage/summary` | 5-hour + Weekly + Monthly credits | 纯 API-key 多账号，同 opencode-go 订阅模式 |
 

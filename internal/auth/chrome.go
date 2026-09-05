@@ -322,7 +322,7 @@ type decodedCookie struct {
 // value column, and drops empty or undecryptable cookies. dropped counts rows
 // that were present but could not be decrypted — callers use it to tell
 // "no matching cookies" from "cookies exist but the Safe Storage key is wrong".
-func decryptRows(rows []cookieRow, password string, dbVersion int) (out []decodedCookie, dropped int) {
+func decryptRows(rows []cookieRow, password string, dbVersion int) (out []decodedCookie, dropped, decrypted int) {
 	out = make([]decodedCookie, 0, len(rows))
 	for _, r := range rows {
 		v := r.value
@@ -332,6 +332,7 @@ func decryptRows(rows []cookieRow, password string, dbVersion int) (out []decode
 				dropped++ // undecryptable — skip
 				continue
 			}
+			decrypted++
 			v = string(plain)
 		}
 		v = strings.TrimSpace(v)
@@ -340,7 +341,13 @@ func decryptRows(rows []cookieRow, password string, dbVersion int) (out []decode
 		}
 		out = append(out, decodedCookie{name: r.name, value: v, httpOnly: r.httpOnly, session: r.isSession()})
 	}
-	return out, dropped
+	return out, dropped, decrypted
+}
+
+// encryptedCookiesUnusable is true when every encrypted cookie failed to
+// decrypt. Leftover plaintext must not be treated as a usable session.
+func encryptedCookiesUnusable(dropped, decrypted int) bool {
+	return dropped > 0 && decrypted == 0
 }
 
 // buildHeader joins cookies into a "name=value; name=value" header. Order is
@@ -534,7 +541,10 @@ func importChrome(providerID, browser, profile string) (string, error) {
 		return "", fmt.Errorf("could not read %s cookies from %s: %v", browser, dbPath, err)
 	}
 	dbVersion := cookieDatabaseVersion(db)
-	decoded, dropped := decryptRows(rows, password, dbVersion)
+	decoded, dropped, decrypted := decryptRows(rows, password, dbVersion)
+	if encryptedCookiesUnusable(dropped, decrypted) {
+		return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
+	}
 	header := buildHeader(decoded)
 	if header == "" {
 		if dropped > 0 {

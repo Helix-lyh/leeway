@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"leeway/internal/model"
@@ -56,4 +57,30 @@ func TestRegisterDuplicatePanics(t *testing.T) {
 	}()
 	Register(testProvider{"dup"})
 	Register(testProvider{"dup"})
+}
+
+func TestLocalSessionPathHonorsEnvHomes(t *testing.T) {
+	grok := t.TempDir()
+	kimi := t.TempDir()
+	t.Setenv("GROK_HOME", grok)
+	t.Setenv("KIMI_CODE_HOME", kimi)
+
+	p, err := LocalSessionPath("~/.grok/auth.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != filepath.Join(grok, "auth.json") {
+		t.Fatalf("grok path = %s, want %s", p, filepath.Join(grok, "auth.json"))
+	}
+	p, err = LocalSessionPath("~/.kimi-code/credentials/kimi-code.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != filepath.Join(kimi, "credentials", "kimi-code.json") {
+		t.Fatalf("kimi path = %s, want under KIMI_CODE_HOME", p)
+	}
+	abs, err := LocalSessionPath("/tmp/custom.json")
+	if err != nil || abs != "/tmp/custom.json" {
+		t.Fatalf("passthrough = %s (%v)", abs, err)
+	}
 }

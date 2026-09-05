@@ -739,6 +739,14 @@ func runDoctor(args []string) int {
 			if !tokenOK && cfg.APIKey(p.ID()) != "" {
 				tokenOK = true
 			}
+			if !tokenOK {
+				for _, a := range cfg.Accounts(p.ID()) {
+					if a.APIKey != "" {
+						tokenOK = true
+						break
+					}
+				}
+			}
 			hint := "leeway auth login --provider " + p.ID()
 			if spec.SupportsAccounts {
 				hint += " --account NAME"
@@ -790,6 +798,17 @@ func runDoctor(args []string) int {
 					break
 				}
 			}
+			if !ok && cfg.APIKey(p.ID()) != "" {
+				ok = true
+			}
+			if !ok {
+				for _, a := range cfg.Accounts(p.ID()) {
+					if a.APIKey != "" {
+						ok = true
+						break
+					}
+				}
+			}
 			if !ok {
 				for _, a := range cursorAccounts(cfg) {
 					if _, has, err := auth.LoadCursorAuth(a.Name); err == nil && has {
@@ -805,7 +824,7 @@ func runDoctor(args []string) int {
 			checks = append(checks, check{p.DisplayName(), "codex session", ok, hintIf(!ok, "codex login")})
 		}
 		for _, f := range spec.LocalAuthFiles {
-			path, err := provider.HomePath(f)
+			path, err := provider.LocalSessionPath(f)
 			ok := err == nil && fileExists(path)
 			checks = append(checks, check{p.DisplayName(), "local session", ok, hintIf(!ok, spec.LoginHint)})
 		}

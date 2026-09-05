@@ -124,8 +124,8 @@ func TestDropDefaultAccounts(t *testing.T) {
 
 func TestMergeNamedAccounts(t *testing.T) {
 	base := []AccountConfig{{Name: "default"}}
-	got := MergeNamedAccounts(base, []string{"lymysql", "default", "codesmallstar"})
-	if len(got) != 3 || got[1].Name != "lymysql" || got[2].Name != "codesmallstar" {
+	got := MergeNamedAccounts(base, []string{"work", "default", "personal"})
+	if len(got) != 3 || got[1].Name != "work" || got[2].Name != "personal" {
 		t.Fatalf("got %+v", got)
 	}
 	tagged := []AccountConfig{{Name: "work", Email: "a@b.com"}}

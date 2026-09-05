@@ -67,7 +67,7 @@ func newHTTPClient(timeout time.Duration) *http.Client {
 // fetchUsage mirrors CodexOAuthUsageFetcher.fetchUsage: GET the usage
 // endpoint and classify the response.
 func (c *apiClient) fetchUsage(ctx context.Context, accessToken, accountID string) (*usageResponse, error) {
-	body, status, err := c.doGet(ctx, c.usageURL, accessToken, accountID, "CodexBar")
+	body, status, err := c.doGet(ctx, c.usageURL, accessToken, accountID, "leeway")
 	if err != nil {
 		return nil, err
 	}

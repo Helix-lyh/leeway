@@ -250,6 +250,13 @@ func TestResolveTokenPrecedence(t *testing.T) {
 	if err != nil || tok != "from-account" {
 		t.Fatalf("account apiKey precedence failed: %q, %v", tok, err)
 	}
+
+	// AuthToken is what ResolveCredentials writes for cursor's provider-level key.
+	req = provider.FetchRequest{Creds: provider.Credentials{AuthToken: "from-auth-token"}}
+	tok, err = resolveToken(context.Background(), req)
+	if err != nil || tok != "from-auth-token" {
+		t.Fatalf("AuthToken precedence failed: %q, %v", tok, err)
+	}
 }
 
 // writeCursorAuthFile drops an official-format auth.json into the account's

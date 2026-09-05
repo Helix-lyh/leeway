@@ -129,7 +129,7 @@ func canAttemptFetch(p provider.Provider, creds provider.Credentials) bool {
 		return true
 	}
 	for _, f := range spec.LocalAuthFiles {
-		if path, err := provider.HomePath(f); err == nil {
+		if path, err := provider.LocalSessionPath(f); err == nil {
 			if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
 				return true
 			}
@@ -215,7 +215,6 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 	}
 
 	creds, credsErr := ResolveCredentials(p, cfg, "")
-	canAttempt := canAttemptFetch(p, creds)
 
 	type accResult struct {
 		acc config.AccountConfig
@@ -243,27 +242,24 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 			if cookieErr != nil {
 				header = ""
 			}
-			if !canAttempt {
-				if acc.ManualCookieHeader == "" && acc.APIKey == "" && acc.AuthFile == "" && creds.CookieHeader == "" && creds.APIKey == "" && creds.AuthToken == "" && creds.CodexAuth == nil && !p.AuthSpec().UsesKeychain {
-					if credsErr != nil && !errors.Is(credsErr, auth.ErrCookieCacheUnreadable) {
-						ar.Status = "error"
-						ar.Error = credsErr.Error()
-						results[i] = accResult{acc, ar}
-						return
-					}
-					ar.Error = missingCredentialHint(p.ID(), p.AuthSpec())
-					results[i] = accResult{acc, ar}
-					return
-				}
-			}
 			req := provider.FetchRequest{
-				Creds:       creds,
+				Creds:       overlayAccountCreds(creds, acc, header),
 				Account:     acc.Name,
 				WorkspaceID: acc.WorkspaceID,
 				AuthFile:    acc.AuthFile,
 				Email:       acc.Email,
 			}
-			req.Creds = overlayAccountCreds(creds, acc, header)
+			if !canAttemptFetch(p, req.Creds) && acc.AuthFile == "" {
+				if credsErr != nil && !errors.Is(credsErr, auth.ErrCookieCacheUnreadable) {
+					ar.Status = "error"
+					ar.Error = credsErr.Error()
+					results[i] = accResult{acc, ar}
+					return
+				}
+				ar.Error = missingCredentialHint(p.ID(), p.AuthSpec())
+				results[i] = accResult{acc, ar}
+				return
+			}
 
 			actx, cancel := context.WithTimeout(ctx, timeout())
 			defer cancel()
@@ -338,8 +334,10 @@ func overlayAccountCreds(base provider.Credentials, acc config.AccountConfig, co
 	creds.CookieHeader = cookieHeader
 	if acc.APIKey != "" {
 		creds.APIKey = acc.APIKey
+		creds.AuthToken = acc.APIKey
 	} else if acc.ManualCookieHeader != "" || acc.Profile != "" || acc.WorkspaceID != "" || cookieHeader != "" {
 		creds.APIKey = ""
+		creds.AuthToken = ""
 	}
 	return creds
 }

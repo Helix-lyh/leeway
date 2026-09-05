@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"leeway/internal/auth"
 	"leeway/internal/config"
@@ -120,7 +121,7 @@ func TestAuthStatusListsCursorSessions(t *testing.T) {
 	isolateEnv(t)
 	dir := t.TempDir()
 	t.Setenv("LEEWAY_SESSIONS", dir)
-	p, err := auth.CursorAuthFile("lymysql")
+	p, err := auth.CursorAuthFile("work")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestAuthStatusListsCursorSessions(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("auth status = %d", code)
 	}
-	if !strings.Contains(string(out), "lymysql") {
+	if !strings.Contains(string(out), "work") {
 		t.Fatalf("status missing session account:\n%s", out)
 	}
 }
@@ -323,6 +324,99 @@ func TestDoctorKimiAuthToken(t *testing.T) {
 	}
 	if !tokenOK {
 		t.Fatalf("Kimi auth token should be ok:\n%s", out)
+	}
+}
+
+func TestDoctorAccountAPIKeyCountsAsAuthToken(t *testing.T) {
+	isolateEnv(t)
+	if got := Run([]string{"config", "set-api-key", "--provider", "kimi", "--account", "work", "--key", "sk-kimi"}); got != 0 {
+		t.Fatalf("set-api-key = %d", got)
+	}
+	out, _ := captureStdout(t, func() int {
+		return Run([]string{"doctor", "--json"})
+	})
+	var checks []struct {
+		Provider string `json:"provider"`
+		Check    string `json:"check"`
+		OK       bool   `json:"ok"`
+	}
+	if err := json.Unmarshal([]byte(out), &checks); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	var tokenOK bool
+	for _, c := range checks {
+		if c.Provider == "Kimi Code" && c.Check == "auth token" && c.OK {
+			tokenOK = true
+		}
+	}
+	if !tokenOK {
+		t.Fatalf("Kimi account apiKey should count as auth token:\n%s", out)
+	}
+}
+
+func TestAuthStatusListsKimiAccount(t *testing.T) {
+	isolateEnv(t)
+	if got := Run([]string{"config", "set-api-key", "--provider", "kimi", "--account", "work", "--key", "sk-kimi"}); got != 0 {
+		t.Fatalf("set-api-key = %d", got)
+	}
+	out, code := captureStdout(t, func() int {
+		return Run([]string{"auth", "status"})
+	})
+	if code != 0 {
+		t.Fatalf("auth status = %d", code)
+	}
+	if !strings.Contains(out, "kimi") || !strings.Contains(out, "work") {
+		t.Fatalf("status missing kimi account:\n%s", out)
+	}
+}
+
+func TestAuthStatusUnreadableCursorFile(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", dir)
+	p, err := auth.CursorAuthFile("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := authStatusRow(cfg, "cursor", "work")
+	if row.status != "error" {
+		t.Fatalf("status = %q cred=%q, want error (unreadable auth.json must not fall through to keychain)", row.status, row.cred)
+	}
+	if row.cred == "keychain" {
+		t.Fatal("unreadable auth.json must not report keychain")
+	}
+}
+
+func TestGrokAuthExpiryPrefersOIDC(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "auth.json")
+	raw := `{
+  "https://other.example::x": {"key": "other-key", "expires_at": "2099-01-01T00:00:00Z", "email": "other@example.com"},
+  "https://auth.x.ai::scope1": {"key": "oidc-key", "expires_at": "2030-06-01T00:00:00Z", "email": "oidc@example.com"}
+}`
+	if err := os.WriteFile(p, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	exp, err := grokAuthExpiry(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC)
+	if !exp.Equal(want) {
+		t.Fatalf("expiry = %v, want OIDC %v", exp, want)
+	}
+	if email := grokAuthEmail(p); email != "oidc@example.com" {
+		t.Fatalf("email = %q, want oidc@example.com", email)
 	}
 }
 

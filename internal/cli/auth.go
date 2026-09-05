@@ -16,6 +16,8 @@ import (
 
 	"leeway/internal/auth"
 	"leeway/internal/config"
+	"leeway/internal/fetch"
+	"leeway/internal/provider"
 )
 
 // keyPage is where a provider hands out API keys; `auth login` opens it
@@ -294,20 +296,11 @@ func authStatus(args []string) int {
 	}
 
 	var rows []authRow
-	for _, id := range []string{"cursor", "grok", "commandcode", "opencode-go", "deepseek"} {
+	for _, id := range config.ProviderIDs {
 		if !cfg.IsEnabled(id) {
 			continue
 		}
-		accs := cfg.Accounts(id)
-		if id == "cursor" {
-			accs = cursorAccounts(cfg)
-		} else {
-			accs = config.DropDefaultAccounts(accs)
-		}
-		if len(accs) == 0 {
-			continue
-		}
-		for _, acc := range accs {
+		for _, acc := range authStatusAccounts(cfg, id) {
 			rows = append(rows, authStatusRow(cfg, id, acc.Name))
 		}
 	}
@@ -341,12 +334,19 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 			label = accountStatusName(a.Name, a.Email)
 			account = a.Name
 		}
-		if ca, ok, err := auth.LoadCursorAuth(account); err == nil && ok && ca.AccessToken != "" {
+		ca, ok, err := auth.LoadCursorAuth(account)
+		if err != nil {
+			return authRow{id, label, "cursor auth.json (private)", "error", err.Error()}
+		}
+		if ok && ca.AccessToken != "" {
 			exp := "unknown"
 			if t, ok := auth.JWTExpiry(ca.AccessToken); ok {
 				exp = expiry(t)
 			}
 			return authRow{id, label, "cursor auth.json (private)", "ok", exp}
+		}
+		if ok {
+			return authRow{id, label, "cursor auth.json (private)", "not logged in", "leeway auth login --provider cursor" + suffixFlag(account)}
 		}
 		if (account == "" || account == "default") && keychainCursorToken() != "" {
 			return authRow{id, label, "keychain", "ok", "official CLI session"}
@@ -364,7 +364,9 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 			authFile = "~/.grok/auth.json" // official CLI shared state
 		}
 		p := authFile
-		if strings.HasPrefix(p, "~/") {
+		if path, err := provider.LocalSessionPath(authFile); err == nil {
+			p = path
+		} else if strings.HasPrefix(p, "~/") {
 			if home, err := os.UserHomeDir(); err == nil {
 				p = filepath.Join(home, p[2:])
 			}
@@ -377,7 +379,7 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 			return authRow{id, label, src, "ok", expiry(exp)}
 		}
 		return authRow{id, label, authFile, "not logged in", "leeway auth login --provider grok" + suffixFlag(account)}
-	default: // api-key providers: no expiry
+	default:
 		key := ""
 		if a, ok := cfg.Account(id, account); ok && a.APIKey != "" {
 			key = a.APIKey
@@ -387,8 +389,65 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 		if key != "" {
 			return authRow{id, account, "apiKey (config)", "ok", "—"}
 		}
+		if p, ok := provider.Get(id); ok {
+			spec := p.AuthSpec()
+			if spec.UsesCookies {
+				if h, err := auth.ResolveCookieHeader(id, cfg.Provider(id), account); err == nil && h != "" {
+					return authRow{id, account, "cookies", "ok", "—"}
+				}
+			}
+			if spec.UsesCodexCLI && fetch.HasCodexAuth() {
+				return authRow{id, account, "codex auth.json", "ok", "—"}
+			}
+			for _, f := range spec.LocalAuthFiles {
+				path, err := provider.LocalSessionPath(f)
+				if err == nil && fileExists(path) {
+					return authRow{id, account, "local session", "ok", "—"}
+				}
+			}
+		}
 		return authRow{id, account, "—", "not configured", "leeway auth login --provider " + id + suffixFlag(account)}
 	}
+}
+
+func authStatusAccounts(cfg *config.Config, id string) []config.AccountConfig {
+	if id == "cursor" {
+		return cursorAccounts(cfg)
+	}
+	accs := config.DropDefaultAccounts(cfg.Accounts(id))
+	if len(accs) > 0 {
+		return accs
+	}
+	if authStatusHasDefault(cfg, id) {
+		return []config.AccountConfig{{Name: "default"}}
+	}
+	return nil
+}
+
+func authStatusHasDefault(cfg *config.Config, id string) bool {
+	if cfg.APIKey(id) != "" {
+		return true
+	}
+	p, ok := provider.Get(id)
+	if !ok {
+		return false
+	}
+	spec := p.AuthSpec()
+	if spec.UsesCookies {
+		if h, err := auth.ResolveCookieHeader(id, cfg.Provider(id), "default"); err == nil && h != "" {
+			return true
+		}
+	}
+	if spec.UsesCodexCLI && fetch.HasCodexAuth() {
+		return true
+	}
+	for _, f := range spec.LocalAuthFiles {
+		path, err := provider.LocalSessionPath(f)
+		if err == nil && fileExists(path) {
+			return true
+		}
+	}
+	return false
 }
 
 // suffixFlag renders "--account NAME " for a named account (for hints).
@@ -432,15 +491,23 @@ func grokAuthEmail(path string) string {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return ""
 	}
-	for _, e := range m {
-		if e.Key != "" && e.Email != "" {
+	var first string
+	for scope, e := range m {
+		if e.Key == "" || e.Email == "" {
+			continue
+		}
+		if strings.HasPrefix(scope, "https://auth.x.ai::") {
 			return e.Email
 		}
+		if first == "" {
+			first = e.Email
+		}
 	}
-	return ""
+	return first
 }
 
-// grokAuthExpiry reads the usable entry's expires_at from a grok auth.json.
+// grokAuthExpiry reads expires_at from the usable grok auth.json entry.
+// The OIDC scope (https://auth.x.ai::) wins, matching fetch's loadGrokSession.
 func grokAuthExpiry(path string) (time.Time, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -453,28 +520,36 @@ func grokAuthExpiry(path string) (time.Time, error) {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return time.Time{}, err
 	}
-	for _, e := range m {
+	var first time.Time
+	var haveFirst bool
+	for scope, e := range m {
 		if e.Key == "" || e.ExpiresAt == "" {
 			continue
 		}
-		if t, err := time.Parse(time.RFC3339Nano, e.ExpiresAt); err == nil {
+		t, err := time.Parse(time.RFC3339Nano, e.ExpiresAt)
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(scope, "https://auth.x.ai::") {
 			return t, nil
 		}
+		if !haveFirst {
+			first = t
+			haveFirst = true
+		}
+	}
+	if haveFirst {
+		return first, nil
 	}
 	return time.Time{}, errors.New("no usable entry")
 }
 
 func keychainCursorToken() string {
-	if _, err := exec.LookPath("security"); err != nil {
+	tok, err := auth.CursorKeychainToken(context.Background())
+	if err != nil || tok == "" {
 		return ""
 	}
-	cmd := exec.Command("security", "find-generic-password",
-		"-a", "cursor-user", "-s", "cursor-access-token", "-w")
-	out, err := cmd.Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return tok
 }
 
 func authLogout(args []string) int {

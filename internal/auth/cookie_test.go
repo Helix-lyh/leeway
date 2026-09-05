@@ -124,7 +124,7 @@ func TestPlaintextFallback(t *testing.T) {
 		{name: "broken", encrypted: []byte("v10waytooshort"), hostKey: "grok.com", path: "/"},
 		{name: "whitespace", value: "  ", hostKey: "grok.com", path: "/"},
 	}
-	decoded, _ := decryptRows(rows, password, 30)
+	decoded, _, _ := decryptRows(rows, password, 30)
 	header := buildHeader(decoded)
 	for _, want := range []string{"plain=visible-value", "enc=secret"} {
 		if !strings.Contains(header, want) {
@@ -135,6 +135,26 @@ func TestPlaintextFallback(t *testing.T) {
 		if strings.Contains(header, banned) {
 			t.Fatalf("header %q must skip %s cookies", header, banned)
 		}
+	}
+}
+
+func TestEncryptedCookiesUnusableIgnoresPlaintextLeftovers(t *testing.T) {
+	rows := []cookieRow{
+		{name: "plain", value: "leftover", hostKey: "grok.com", path: "/"},
+		{name: "enc", encrypted: []byte("v10waytooshort"), hostKey: "grok.com", path: "/"},
+	}
+	decoded, dropped, decrypted := decryptRows(rows, "wrong-key", 30)
+	if dropped == 0 || decrypted != 0 {
+		t.Fatalf("dropped=%d decrypted=%d, want dropped>0 decrypted=0", dropped, decrypted)
+	}
+	if header := buildHeader(decoded); header == "" {
+		t.Fatal("plaintext leftover would previously look like a successful import")
+	}
+	if !encryptedCookiesUnusable(dropped, decrypted) {
+		t.Fatal("all encrypted cookies failed: leftover plaintext must not count as a session")
+	}
+	if encryptedCookiesUnusable(0, 0) {
+		t.Fatal("plaintext-only rows are a usable import")
 	}
 }
 
@@ -187,7 +207,7 @@ func TestWALImmutableOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadCookieRows: %v", err)
 	}
-	decoded, _ := decryptRows(rows, "test-key", 30)
+	decoded, _, _ := decryptRows(rows, "test-key", 30)
 	header := buildHeader(decoded)
 	if header != "sso=grok-token; plain=grok-plain" {
 		t.Fatalf("pipeline header: got %q", header)

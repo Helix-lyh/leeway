@@ -1,6 +1,6 @@
 # 竞品调研：用量仪表盘 vs leeway
 
-> 日期：2026-09-03。对照本机源码（浅克隆）+ 公开文档。
+> 日期：2026-09-03。对照公开仓库与文档。
 > 问题：别人怎么拿登录态、怎么存、怎么刷新、怎么显示余量；leeway 该学什么。
 > 相关：[RESEARCH.md](RESEARCH.md)（各家官方端点）、[PROVIDER-FETCH.md](PROVIDER-FETCH.md)（leeway 实现）。
 
@@ -19,7 +19,7 @@
 | 官方余量 | OpenUsage.ai、CrossUsage、ai-usagebar、UsageAtlas（Claude/Codex/Cursor） | 还剩百分之几、几点重置、账户还剩多少钱 |
 | 本地估算 | OpenUsage.sh、UsageAtlas 的 OpenCode、AIUsage、Token Monitor、AIUsageTracker 的 `opencode stats` | 本地日志烧了多少 token / 估多少钱 |
 
-leeway 只做上一档。你现在的栈（Cursor 多号、OpenCode Go 三订阅、DeepSeek、Grok、Command Code）里，官方余量最接近打满的是 **leeway + ai-usagebar**，不是 OpenUsage。
+leeway 只做上一档。Cursor / OpenCode Go / DeepSeek / Grok / Command Code 这条线上，官方余量最接近打满的是 **leeway + ai-usagebar**，不是 OpenUsage。
 
 ---
 
@@ -27,14 +27,14 @@ leeway 只做上一档。你现在的栈（Cursor 多号、OpenCode Go 三订阅
 
 | 项目 | 仓库 / 站点 | 形态 | 源码版本 |
 |---|---|---|---|
-| OpenUsage.ai | [robinebers/openusage](https://github.com/robinebers/openusage) · [openusage.ai](https://www.openusage.ai/) | macOS 菜单栏（Swift 重写） | `/tmp/openusage` |
-| CrossUsage | [barramee27/crossusage](https://github.com/barramee27/crossusage) · [crossusage.dev](https://crossusage.dev/) | Linux/Windows 托盘（旧 OpenUsage 的 Tauri 叉） | `/tmp/crossusage` |
-| OpenUsage.sh | [janekbaraniewski/openusage](https://github.com/janekbaraniewski/openusage) · [openusage.sh](https://openusage.sh/) | Go 终端仪表盘 + daemon，36 家 | `/tmp/openusage-go` @ `524b4a6` |
-| UsageAtlas | [SRX9/UsageAtlas](https://github.com/SRX9/UsageAtlas) · [usageatlas.com](https://usageatlas.com/) | 桌面端，Codex/Claude/Cursor/OpenCode | `/tmp/UsageAtlas-src` @ `41ee3cf` |
-| ai-usagebar | [akitaonrails/ai-usagebar](https://github.com/akitaonrails/ai-usagebar) | Rust 状态栏 / TUI；GOAT + OpenCode Go | `/tmp/ai-usagebar` @ `v1.10.0` |
-| AIUsageTracker | [rygel/AIUsageTracker](https://github.com/rygel/AIUsageTracker) | Windows 托盘 + `act` CLI | `/tmp/AIUsageTracker` |
+| OpenUsage.ai | [robinebers/openusage](https://github.com/robinebers/openusage) · [openusage.ai](https://www.openusage.ai/) | macOS 菜单栏（Swift 重写） | 公开仓库 |
+| CrossUsage | [barramee27/crossusage](https://github.com/barramee27/crossusage) · [crossusage.dev](https://crossusage.dev/) | Linux/Windows 托盘（旧 OpenUsage 的 Tauri 叉） | 公开仓库 |
+| OpenUsage.sh | [janekbaraniewski/openusage](https://github.com/janekbaraniewski/openusage) · [openusage.sh](https://openusage.sh/) | Go 终端仪表盘 + daemon，36 家 | `524b4a6` |
+| UsageAtlas | [SRX9/UsageAtlas](https://github.com/SRX9/UsageAtlas) · [usageatlas.com](https://usageatlas.com/) | 桌面端，Codex/Claude/Cursor/OpenCode | `41ee3cf` |
+| ai-usagebar | [akitaonrails/ai-usagebar](https://github.com/akitaonrails/ai-usagebar) | Rust 状态栏 / TUI；GOAT + OpenCode Go | `v1.10.0` |
+| AIUsageTracker | [rygel/AIUsageTracker](https://github.com/rygel/AIUsageTracker) | Windows 托盘 + `act` CLI | 公开仓库 |
 | AIUsage | [juliantanx/aiusage](https://github.com/juliantanx/aiusage) | 本地 JSONL/SQLite 账单 | 文档 + `quota.ts` |
-| Token Monitor | Token Monitor / iFence | 本地日志聚合 | `/tmp/TokenMonitor` |
+| Token Monitor | Token Monitor / iFence | 本地日志聚合 | 调研时对照 |
 
 OpenUsage.ai 与 OpenUsage.sh **不是同一个产品**。前者盯订阅窗口，后者盯本机花费。CrossUsage 跟的是前者的旧插件树，Command Code / DeepSeek 还在那边。
 
