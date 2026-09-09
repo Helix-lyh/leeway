@@ -23,6 +23,8 @@ leeway help                          # 全部命令
 leeway usage                         # 已配置的订阅
 leeway usage --provider cursor --account work
 leeway usage --json                  # 给脚本 / agent
+leeway history                       # 近 12 次点阵趋势
+leeway history --last 24 --provider cursor
 
 leeway auth status
 leeway auth login --provider cursor  # 账号名默认用邮箱；--account work 是 tag
@@ -70,7 +72,8 @@ Codex / Kimi 用它们自己的登录：`codex login` / `kimi login`。某一条
 ## 给脚本用
 
 - stdout 只有表格或 JSON；日志和错误走 stderr
-- `leeway usage --json`：`providers[].accounts[].snapshot.windows[]`（`usedPercent` / `used` / `limit` / `resetsAt`）
+- `leeway usage --json`：`providers[].accounts[].snapshot.windows[]`（`usedPercent` / `used` / `limit` / `resetsAt`，可选 `delta`）
+- `leeway history --json`：近 N 次按窗口的时间序列（`series[].points[]`）
 - 退出码：`0` 全部正常；`1` 有未配置或失败；`2` 用法错误
 - 超时默认 15s（`LEEWAY_TIMEOUT`），无 TTY 自动纯文本，`COLOR=0` 关颜色
 

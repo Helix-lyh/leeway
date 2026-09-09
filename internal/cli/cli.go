@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"sort"
@@ -17,6 +18,7 @@ import (
 	"leeway/internal/config"
 	"leeway/internal/credwrite"
 	"leeway/internal/fetch"
+	"leeway/internal/history"
 	"leeway/internal/model"
 	"leeway/internal/provider"
 	"leeway/internal/render"
@@ -33,6 +35,8 @@ func Run(args []string) int {
 	switch args[0] {
 	case "usage":
 		return runUsage(args[1:])
+	case "history":
+		return runHistory(args[1:])
 	case "use":
 		return runUse(args[1:])
 	case "providers":
@@ -78,6 +82,7 @@ func runUsage(args []string) int {
 		jsonOut        bool
 		watchSecs      int
 		noCache        bool
+		noDelta        bool
 	)
 	fs := newFlagSet("usage", &jsonOut)
 	fs.Help(usageHelp)
@@ -85,12 +90,16 @@ func runUsage(args []string) int {
 	fs.StringVar(&accountFilter, "account", "", "只查这个账号（tag、邮箱或订阅名）")
 	fs.IntVar(&watchSecs, "watch", 0, "每 N 秒刷新")
 	fs.BoolVar(&noCache, "no-cache", false, "不走 60s 缓存")
+	fs.BoolVar(&noDelta, "no-delta", false, "表上不画相对上次的增量（JSON 仍带 delta）")
 	if !fs.Parse(args) {
 		return 2
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	var watchPrev map[history.Key]history.Obs
+	watchRecorded := false
 
 	runOnce := func() (*model.Output, int) {
 		cfg, err := config.Load()
@@ -107,13 +116,40 @@ func runUsage(args []string) int {
 			fmt.Fprintln(os.Stderr, "fetch:", err)
 			return nil, 2
 		}
+		nextPrev := history.LastSeenFromOutput(out)
+		seen, lerr := history.LoadLastSeenBefore(out.GeneratedAt)
+		if lerr != nil {
+			log.Printf("history: load failed: %v", lerr)
+			seen = nil
+		}
+		if watchPrev != nil {
+			history.Attach(out, watchPrev)
+		} else {
+			history.Attach(out, seen)
+		}
+		if err := history.Record(out, history.Meta{
+			Watch:          watchSecs > 0,
+			ProviderFilter: providerFilter,
+			AccountFilter:  accountFilter,
+			Skip:           watchSecs > 0 && watchRecorded,
+		}); err != nil {
+			log.Printf("history: write failed (data is still valid): %v", err)
+		}
+		if watchSecs > 0 {
+			watchRecorded = true
+		}
 		if jsonOut {
 			if err := render.RenderJSON(os.Stdout, out); err != nil {
 				fmt.Fprintln(os.Stderr, "render:", err)
 				return nil, 2
 			}
+		} else if noDelta {
+			render.RenderTableNoDelta(os.Stdout, out, render.IsTTY())
 		} else {
 			render.RenderTable(os.Stdout, out, render.IsTTY())
+		}
+		if watchSecs > 0 {
+			watchPrev = nextPrev
 		}
 		return out, exitCodeFor(out)
 	}
@@ -134,6 +170,129 @@ func runUsage(args []string) int {
 	}
 	_, code := runOnce()
 	return code
+}
+
+const defaultHistoryLast = 12
+
+func runHistory(args []string) int {
+	var (
+		providerFilter string
+		accountFilter  string
+		jsonOut        bool
+		last           int
+	)
+	fs := newFlagSet("history", &jsonOut)
+	fs.Help(historyHelp)
+	fs.StringVar(&providerFilter, "provider", "", "只看这一家")
+	fs.StringVar(&accountFilter, "account", "", "只看这个账号 tag")
+	fs.IntVar(&last, "last", defaultHistoryLast, "近 N 次探测")
+	if !fs.Parse(args) {
+		return 2
+	}
+	if last < 1 {
+		fmt.Fprintln(os.Stderr, "history: --last 必须 ≥ 1")
+		return 2
+	}
+	series, err := history.Collect(last, providerFilter, accountFilter)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "history:", err)
+		return 1
+	}
+	if jsonOut {
+		type view struct {
+			Version int              `json:"version"`
+			Last    int              `json:"last"`
+			Series  []history.Series `json:"series"`
+		}
+		if series == nil {
+			series = []history.Series{}
+		}
+		return newJSONEncoder().Encode(view{Version: 1, Last: last, Series: series})
+	}
+	blocks := make([]render.SparkBlock, 0, len(series))
+	for _, s := range series {
+		b := render.SparkBlock{
+			Head:  historyHead(s.Provider, s.Account),
+			Title: windowTitle(s.Provider, s.Window),
+			N:     len(s.Points),
+		}
+		for _, p := range s.Points {
+			v, ok, label := pointValue(p)
+			if !ok {
+				continue
+			}
+			b.Vals = append(b.Vals, v)
+			b.Gaps = append(b.Gaps, p.Reset)
+			if b.First == "" {
+				b.First = label
+			}
+			b.Last = label
+		}
+		if len(b.Vals) == 0 {
+			continue
+		}
+		blocks = append(blocks, b)
+	}
+	render.RenderHistory(os.Stdout, blocks, render.IsTTY())
+	return 0
+}
+
+func historyHead(providerID, account string) string {
+	name := providerID
+	if p, ok := provider.Get(providerID); ok {
+		name = p.DisplayName()
+	}
+	if account == "" || account == "default" {
+		return name
+	}
+	return name + "  " + account
+}
+
+func windowTitle(providerID, windowID string) string {
+	if p, ok := provider.Get(providerID); ok {
+		for _, w := range p.DeclaredWindows() {
+			if w.ID == windowID {
+				return w.Title
+			}
+		}
+	}
+	switch windowID {
+	case "included":
+		return "Included"
+	case "credits":
+		return "Credits"
+	case "cost":
+		return "Balance"
+	case "ondemand":
+		return "On-demand"
+	case "renewal":
+		return "Renewal"
+	}
+	return windowID
+}
+
+func pointValue(p history.Point) (float64, bool, string) {
+	if p.UsedPercent != nil {
+		return *p.UsedPercent, true, fmt.Sprintf("%.0f%%", *p.UsedPercent)
+	}
+	if p.Used != nil {
+		return *p.Used, true, renderMoney(*p.Used, p.Currency)
+	}
+	return 0, false, ""
+}
+
+func renderMoney(v float64, currency string) string {
+	switch currency {
+	case "CNY", "¥", "RMB":
+		return fmt.Sprintf("¥%.2f", v)
+	case "USD", "$":
+		return fmt.Sprintf("$%.2f", v)
+	default:
+		if currency != "" {
+			return fmt.Sprintf("%s %.2f", currency, v)
+		}
+		return fmt.Sprintf("%.2f", v)
+	}
 }
 
 // --- use ----------------------------------------------------------------

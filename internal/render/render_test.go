@@ -244,6 +244,44 @@ func TestRenderTableTagColor(t *testing.T) {
 	}
 }
 
+func TestRenderTableDeltaAndReset(t *testing.T) {
+	pct := 95.0
+	dpp := 2.0
+	used := 400.0
+	gen := time.Date(2026, 9, 9, 14, 32, 0, 0, time.Local)
+	out := &model.Output{Version: 1, GeneratedAt: gen, Providers: []model.ProviderResult{{
+		ID: "cursor", DisplayName: "Cursor", Status: "ok",
+		Accounts: []model.AccountResult{{
+			Name: "work", Status: "ok",
+			Snapshot: &model.Snapshot{Windows: []model.RateWindow{
+				{ID: "primary", Title: "Monthly", UsedPercent: &pct, Delta: &model.WindowDelta{UsedPercent: &dpp}},
+				{ID: "included", Title: "Included", Used: &used, Limit: &used, Currency: "USD", Delta: &model.WindowDelta{Reset: true}},
+			}},
+		}},
+	}}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	if !strings.Contains(s, "+2") {
+		t.Fatalf("percent delta missing:\n%s", s)
+	}
+	if !strings.Contains(s, "reset") {
+		t.Fatalf("reset marker missing:\n%s", s)
+	}
+	if !strings.Contains(s, "as of 14:32") {
+		t.Fatalf("as of footer missing:\n%s", s)
+	}
+	buf.Reset()
+	RenderTableNoDelta(&buf, out, false)
+	hide := buf.String()
+	if strings.Contains(hide, "+2") || strings.Contains(hide, "reset") {
+		t.Fatalf("--no-delta still shows delta:\n%s", hide)
+	}
+	if !strings.Contains(hide, "as of 14:32") {
+		t.Fatalf("footer should remain:\n%s", hide)
+	}
+}
+
 func ptr(v float64) *float64 { return &v }
 
 func TestRenderTableShowsPlan(t *testing.T) {

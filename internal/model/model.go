@@ -14,23 +14,39 @@ import (
 // meaningfully — percent windows come from provider APIs, raw windows from
 // balance-style sources.
 type RateWindow struct {
-	ID            string     `json:"id"` // "primary"/"secondary"/"tertiary"/custom
-	Title         string     `json:"title"`
-	UsedPercent   *float64   `json:"usedPercent,omitempty"` // 0-100
-	Used          *float64   `json:"used,omitempty"`        // raw value
-	Limit         *float64   `json:"limit,omitempty"`
-	Currency      string     `json:"currency,omitempty"` // "CNY"/"USD"
-	ResetsAt      *time.Time `json:"resetsAt,omitempty"`
-	WindowMinutes *int       `json:"windowMinutes,omitempty"`
-	RateLimited   bool       `json:"rateLimited,omitempty"` // provider reports this lane as rate-limited
+	ID            string       `json:"id"` // "primary"/"secondary"/"tertiary"/custom
+	Title         string       `json:"title"`
+	UsedPercent   *float64     `json:"usedPercent,omitempty"` // 0-100
+	Used          *float64     `json:"used,omitempty"`        // raw value
+	Limit         *float64     `json:"limit,omitempty"`
+	Currency      string       `json:"currency,omitempty"` // "CNY"/"USD"
+	ResetsAt      *time.Time   `json:"resetsAt,omitempty"`
+	WindowMinutes *int         `json:"windowMinutes,omitempty"`
+	RateLimited   bool         `json:"rateLimited,omitempty"` // provider reports this lane as rate-limited
+	Delta         *WindowDelta `json:"delta,omitempty"`
+}
+
+// WindowDelta is the change vs the last successful observation of this
+// (provider, account, window id). Absent means there was no previous sample.
+type WindowDelta struct {
+	UsedPercent *float64 `json:"usedPercent,omitempty"` // percentage points, signed
+	Used        *float64 `json:"used,omitempty"`        // currency / raw units, signed
+	Reset       bool     `json:"reset,omitempty"`
 }
 
 // Cost is a monetary snapshot (balance, Zen balance, daily cost).
 type Cost struct {
-	Period   string   `json:"period"`
-	Currency string   `json:"currency,omitempty"`
-	Amount   *float64 `json:"amount,omitempty"`
-	Limit    *float64 `json:"limit,omitempty"`
+	Period   string     `json:"period"`
+	Currency string     `json:"currency,omitempty"`
+	Amount   *float64   `json:"amount,omitempty"`
+	Limit    *float64   `json:"limit,omitempty"`
+	Delta    *CostDelta `json:"delta,omitempty"`
+}
+
+// CostDelta is the change vs the last successful observation of Snapshot.Cost.
+type CostDelta struct {
+	Amount *float64 `json:"amount,omitempty"`
+	Reset  bool     `json:"reset,omitempty"`
 }
 
 // Identity identifies the account a snapshot belongs to.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -61,6 +62,15 @@ type tableLine struct {
 // Several accounts under one provider become a group: provider once, then
 // each tag on its own line so the tag is what you scan.
 func RenderTable(w io.Writer, out *model.Output, color bool) {
+	renderTable(w, out, color, true)
+}
+
+// RenderTableNoDelta is RenderTable without adjacent-run arrows.
+func RenderTableNoDelta(w io.Writer, out *model.Output, color bool) {
+	renderTable(w, out, color, false)
+}
+
+func renderTable(w io.Writer, out *model.Output, color, showDelta bool) {
 	if len(out.Providers) == 0 {
 		fmt.Fprintln(w, "(no providers)")
 		return
@@ -79,11 +89,15 @@ func RenderTable(w io.Writer, out *model.Output, color bool) {
 			fmt.Fprintln(w, colored(pr.DisplayName, cBold+statusColor(pr.Status, color), color))
 		}
 		for _, ar := range pr.Accounts {
-			printAccount(w, accountLine(pr, ar, grouped, color), grouped)
+			printAccount(w, accountLine(pr, ar, grouped, color, showDelta), grouped)
 		}
 	}
 	if n == 0 {
 		fmt.Fprintln(w, "(no providers)")
+		return
+	}
+	if !out.GeneratedAt.IsZero() {
+		fmt.Fprintln(w, colored("as of "+out.GeneratedAt.Local().Format("15:04"), cGray, color))
 	}
 }
 
@@ -171,7 +185,7 @@ func accountLabel(ar model.AccountResult) string {
 	return tag + "  " + extra
 }
 
-func accountLine(pr model.ProviderResult, ar model.AccountResult, grouped bool, color bool) tableLine {
+func accountLine(pr model.ProviderResult, ar model.AccountResult, grouped bool, color bool, showDelta bool) tableLine {
 	dim := func(s string) string { return colored(s, cGray, color) }
 	l := tableLine{head: accountHead(pr, ar, grouped, color)}
 	if ar.Snapshot == nil {
@@ -182,22 +196,25 @@ func accountLine(pr model.ProviderResult, ar model.AccountResult, grouped bool, 
 		}
 		return l
 	}
-	type item struct{ title, body string }
+	type item struct{ title, body, delta string }
 	var items []item
 	for _, win := range ar.Snapshot.Windows {
 		body := windowBody(win, color)
 		if body == "" {
 			continue
 		}
-		items = append(items, item{win.Title, body})
+		items = append(items, item{win.Title, body, windowDeltaText(win, color, showDelta)})
 	}
 	if c := ar.Snapshot.Cost; c != nil && c.Amount != nil && *c.Amount != 0 && !costDuplicatesWindow(*c, ar.Snapshot.Windows) {
-		items = append(items, item{c.Period, dim(money(*c.Amount, c.Currency))})
+		items = append(items, item{c.Period, dim(money(*c.Amount, c.Currency)), costDeltaText(c, color, showDelta)})
 	}
-	titleW := 0
+	titleW, bodyW := 0, 0
 	for _, it := range items {
 		if n := visibleLen(it.title); n > titleW {
 			titleW = n
+		}
+		if n := visibleLen(it.body); n > bodyW {
+			bodyW = n
 		}
 	}
 	for _, it := range items {
@@ -205,13 +222,114 @@ func accountLine(pr model.ProviderResult, ar model.AccountResult, grouped bool, 
 		if n := titleW - visibleLen(it.title); n > 0 {
 			title += strings.Repeat(" ", n)
 		}
+		body := it.body
+		if it.delta != "" {
+			if n := bodyW - visibleLen(it.body); n > 0 {
+				body += strings.Repeat(" ", n)
+			}
+			body += it.delta
+		}
 		if title == "" {
-			l.rows = append(l.rows, it.body)
+			l.rows = append(l.rows, body)
 			continue
 		}
-		l.rows = append(l.rows, title+"  "+it.body)
+		l.rows = append(l.rows, title+"  "+body)
 	}
 	return l
+}
+
+func windowDeltaText(win model.RateWindow, color, show bool) string {
+	if !show || win.Delta == nil {
+		return ""
+	}
+	return formatDelta(win.Delta.Reset, win.Delta.UsedPercent, win.Delta.Used, win.Currency, remainingWindow(win), color)
+}
+
+func costDeltaText(c *model.Cost, color, show bool) string {
+	if !show || c == nil || c.Delta == nil {
+		return ""
+	}
+	return formatDelta(c.Delta.Reset, nil, c.Delta.Amount, c.Currency, true, color)
+}
+
+func remainingWindow(win model.RateWindow) bool {
+	if win.UsedPercent != nil {
+		return false
+	}
+	return win.Used != nil && win.Limit == nil && !strings.HasPrefix(win.ID, "day-")
+}
+
+func formatDelta(reset bool, pp, used *float64, currency string, remaining, color bool) string {
+	if reset {
+		return "  " + colored("reset", cGray, color)
+	}
+	var v float64
+	moneyish := false
+	switch {
+	case pp != nil:
+		v = *pp
+	case used != nil:
+		v = *used
+		moneyish = true
+	default:
+		return ""
+	}
+	up := v > 0
+	var tone string
+	if remaining {
+		if up {
+			tone = cGreen
+		} else {
+			tone = cRed
+		}
+	} else {
+		if up {
+			tone = cRed
+		} else {
+			tone = cGreen
+		}
+	}
+	var text string
+	if moneyish {
+		text = moneyDelta(v, currency)
+	} else if color {
+		text = ppArrow(v)
+	} else {
+		text = ppASCII(v)
+	}
+	return "  " + colored(text, tone, color)
+}
+
+func ppArrow(v float64) string {
+	sign := "↑"
+	if v < 0 {
+		sign = "↓"
+	}
+	return sign + ppAbs(v)
+}
+
+func ppASCII(v float64) string {
+	sign := "+"
+	if v < 0 {
+		sign = "-"
+	}
+	return sign + ppAbs(v)
+}
+
+func ppAbs(v float64) string {
+	a := math.Abs(v)
+	if a >= 10 || math.Abs(a-math.Round(a)) < 0.05 {
+		return fmt.Sprintf("%.0f", a)
+	}
+	return fmt.Sprintf("%.1f", a)
+}
+
+func moneyDelta(v float64, currency string) string {
+	sign := "+"
+	if v < 0 {
+		sign = "-"
+	}
+	return sign + money(math.Abs(v), currency)
 }
 
 func windowBody(win model.RateWindow, color bool) string {

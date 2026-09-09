@@ -129,7 +129,8 @@ cursor / grok 的多账号见 §5：每账号一份私有 HOME / `auth.json`，�
 ## 8. CLI 设计（纯 CLI，无交互，agent 友好）
 
 ```
-leeway usage [--provider X] [--account Y] [--json] [--watch 30s]   # 查额度
+leeway usage [--provider X] [--account Y] [--json] [--watch 30s] [--no-delta]  # 查额度
+leeway history [--last N] [--provider X] [--account Y] [--json]   # 近 N 次点阵
 leeway auth login|logout|status --provider X [--account Y]        # 登录 / 清私有会话 / 订阅台账
 leeway providers [--json]                             # 各家怎么登录
 leeway cookie set|import|list|clear --provider X     # grok/kimi cookie 备选

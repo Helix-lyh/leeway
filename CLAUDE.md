@@ -38,6 +38,8 @@ leeway help auth
 leeway usage
 leeway usage --provider cursor --account work
 leeway usage --json
+leeway history
+leeway history --last 24 --provider cursor
 
 leeway auth status
 leeway doctor
@@ -46,7 +48,7 @@ leeway providers
 go test ./...
 ```
 
-日常看 `leeway help`；某一条看 `leeway help auth`（还有 usage / cookie / config / use / doctor）。无子命令时往 stderr 打帮助并退出 2。Codex / Kimi 用它们自己的登录：`codex login` / `kimi login`。`leeway use` 把 key 写给 DSH，不是切 leeway 自己看哪号。
+日常看 `leeway help`；某一条看 `leeway help auth`（还有 usage / cookie / config / use / doctor / history）。无子命令时往 stderr 打帮助并退出 2。Codex / Kimi 用它们自己的登录：`codex login` / `kimi login`。`leeway use` 把 key 写给 DSH，不是切 leeway 自己看哪号。
 
 退出码：`0` 全部通过；`1` 至少一个 provider 报错或未配置；`2` 用法 / 配置错误。
 

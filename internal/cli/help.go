@@ -14,6 +14,9 @@ const rootHelp = `leeway — 查各家 AI 编程额度还剩多少
   leeway usage --provider cursor --account work
   leeway usage --json                          给脚本 / agent
   leeway usage --watch 30                      每 30 秒刷新
+  leeway usage --no-delta                      表上不画相对上次的增量
+  leeway history                               近 12 次用量点阵
+  leeway history --last 24 --provider cursor
 
 管订阅
   leeway auth status                           谁已登录、何时到期
@@ -48,7 +51,7 @@ Codex / Kimi 用它们自己的登录：codex login / kimi login
   leeway providers
   leeway cookie import|set|list|clear --provider ID
   leeway config path | set-api-key | keys
-  leeway help COMMAND                          usage / auth / cookie / config / use / doctor / providers
+  leeway help COMMAND                          usage / auth / cookie / config / use / doctor / providers / history
 
 --account 可以是 tag、邮箱（cursor）或订阅名（opencode-go / commandcode）。
 不写时不读 default（官方 keychain / 共享 ~/.grok）；要看它请加 --account default。
@@ -63,7 +66,9 @@ const usageHelp = `leeway usage — 查额度
   leeway usage --provider cursor --account work
   leeway usage --json
   leeway usage --watch 30
+  leeway usage --no-delta
 
+表上默认画相对该窗口上次成功探测的增量（↑2 / +$12 / reset）。JSON 始终带可选 delta。
 --account 可以是 tag、邮箱或订阅名。不写只列出已命名账号，不读隐式 default（官方 keychain / 共享 ~/.grok）；要看它请加 --account default。
 `
 
@@ -163,6 +168,17 @@ const providersHelp = `leeway providers — 列出 provider 和怎么登录
   leeway providers --json
 `
 
+const historyHelp = `leeway history — 近 N 次用量点阵（盲文点阵，不是交互 TUI）
+
+  leeway history
+  leeway history --last 24
+  leeway history --provider cursor --account work
+  leeway history --json
+
+数据来自 ~/.cache/leeway/history.jsonl（每次 leeway usage 真探测追加）。
+不访问网上的 provider。窗口重置处断开，不当成额度下降。
+`
+
 func isHelpArg(s string) bool {
 	return s == "-h" || s == "--help" || s == "help"
 }
@@ -189,6 +205,8 @@ func helpTopic(name string) (string, bool) {
 		return doctorHelp, true
 	case "providers":
 		return providersHelp, true
+	case "history":
+		return historyHelp, true
 	default:
 		return "", false
 	}
@@ -197,7 +215,7 @@ func helpTopic(name string) (string, bool) {
 func runHelpTopic(name string) int {
 	text, ok := helpTopic(name)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "没有 %q 这条命令的帮助。可用：usage / auth / cookie / config / use / doctor / providers\n", name)
+		fmt.Fprintf(os.Stderr, "没有 %q 这条命令的帮助。可用：usage / auth / cookie / config / use / doctor / providers / history\n", name)
 		return 2
 	}
 	printHelp(os.Stdout, text)

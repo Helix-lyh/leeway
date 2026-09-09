@@ -109,6 +109,9 @@ func TestRunDispatch(t *testing.T) {
 		{"set-api-key empty key", []string{"config", "set-api-key", "--provider", "deepseek", "--key", ""}, 2},
 		{"unknown provider flag", []string{"usage", "--provider", "bogus"}, 2},
 		{"usage unconfigured", []string{"usage"}, 1}, // all providers not_configured
+		{"help history", []string{"help", "history"}, 0},
+		{"history empty", []string{"history"}, 0},
+		{"history last 0", []string{"history", "--last", "0"}, 2},
 	}
 	for _, c := range cases {
 		if got := Run(c.args); got != c.want {
@@ -148,6 +151,42 @@ func TestAuthStatusListsCursorSessions(t *testing.T) {
 	if !strings.Contains(string(out), "work") {
 		t.Fatalf("status missing session account:\n%s", out)
 	}
+}
+
+func TestRunHistoryJSON(t *testing.T) {
+	isolateEnv(t)
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	line := fmtLine(now, 93)
+	line2 := fmtLine(now.Add(time.Hour), 95)
+	p := filepath.Join(os.Getenv("LEEWAY_CACHE"), "history.jsonl")
+	if err := os.WriteFile(p, []byte(line+"\n"+line2+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdout
+	os.Stdout = w
+	code := Run([]string{"history", "--json", "--last", "2"})
+	w.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	if code != 0 {
+		t.Fatalf("history --json = %d", code)
+	}
+	s := string(out)
+	if !strings.Contains(s, `"version": 1`) || !strings.Contains(s, `"window": "primary"`) {
+		t.Fatalf("history json:\n%s", s)
+	}
+	if !strings.Contains(s, "93") || !strings.Contains(s, "95") {
+		t.Fatalf("points missing:\n%s", s)
+	}
+}
+
+func fmtLine(ts time.Time, pct float64) string {
+	n, _ := json.Marshal(pct)
+	return `{"v":1,"ts":"` + ts.Format(time.RFC3339Nano) + `","generatedAt":"` + ts.Format(time.RFC3339Nano) + `","entries":[{"provider":"deepseek","account":"default","windows":[{"id":"primary","usedPercent":` + string(n) + `}]}]}`
 }
 
 func TestRunUsageJSONUnconfigured(t *testing.T) {
