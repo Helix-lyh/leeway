@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"leeway/internal/auth"
 )
@@ -201,24 +201,42 @@ func TestOfficialPathsHonorOverrides(t *testing.T) {
 
 func TestCheckCursorIDECanBeDisabled(t *testing.T) {
 	t.Setenv("LEEWAY_CURSOR_IDE_CHECK", "0")
-	if CheckCursorIDE() {
+	if block, _ := CheckCursorIDE(); block {
 		t.Fatal("check should be off")
 	}
 }
 
-func TestNewestExistingPrefersNewer(t *testing.T) {
+func TestCheckCursorIDEFailsClosedWithoutPgrep(t *testing.T) {
+	t.Setenv("LEEWAY_CURSOR_IDE_CHECK", "1")
+	t.Setenv("PATH", t.TempDir())
+	block, reason := CheckCursorIDE()
+	if !block {
+		t.Fatal("missing pgrep should block the write")
+	}
+	if !strings.Contains(reason, "pgrep") {
+		t.Fatalf("reason = %q, want pgrep", reason)
+	}
+}
+
+func TestPickCursorStateDB(t *testing.T) {
 	dir := t.TempDir()
-	old := filepath.Join(dir, "old.db")
-	fresh := filepath.Join(dir, "fresh.db")
-	if err := os.WriteFile(old, []byte("old"), 0o600); err != nil {
+	a := filepath.Join(dir, "a.db")
+	b := filepath.Join(dir, "b.db")
+	if err := os.WriteFile(a, []byte("a"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Millisecond)
-	if err := os.WriteFile(fresh, []byte("new"), 0o600); err != nil {
+	if err := os.WriteFile(b, []byte("b"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := newestExisting([]string{old, fresh}); got != fresh {
-		t.Fatalf("newestExisting = %q, want %s", got, fresh)
+	if _, err := pickCursorStateDB([]string{filepath.Join(dir, "gone.db")}); err == nil {
+		t.Fatal("missing db should error")
+	}
+	got, err := pickCursorStateDB([]string{a, filepath.Join(dir, "gone.db")})
+	if err != nil || got != a {
+		t.Fatalf("one db = %q (%v), want %s", got, err, a)
+	}
+	if _, err := pickCursorStateDB([]string{a, b}); err == nil {
+		t.Fatal("multiple dbs should refuse")
 	}
 }
 

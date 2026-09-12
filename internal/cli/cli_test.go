@@ -77,6 +77,21 @@ func TestExitCodeFor(t *testing.T) {
 	}
 }
 
+func TestStatusExit(t *testing.T) {
+	if got := statusExit(nil, nil); got != 1 {
+		t.Fatalf("empty ledger = %d, want 1", got)
+	}
+	if got := statusExit([]authRow{{status: "ok"}}, nil); got != 0 {
+		t.Fatalf("all ok = %d, want 0", got)
+	}
+	if got := statusExit([]authRow{{status: "ok"}, {status: "not logged in"}}, nil); got != 1 {
+		t.Fatalf("one incomplete = %d, want 1", got)
+	}
+	if got := statusExit([]authRow{{status: "ok"}}, []statusHint{{provider: "kimi"}}); got != 1 {
+		t.Fatalf("missing hint = %d, want 1", got)
+	}
+}
+
 func TestRootHelpMentionsSubscriptions(t *testing.T) {
 	if !strings.Contains(usageText, "login") {
 		t.Fatal("root help should show login")
@@ -115,8 +130,16 @@ func TestRunDispatch(t *testing.T) {
 		{"help logout", []string{"help", "logout"}, 0},
 		{"help status", []string{"help", "status"}, 0},
 		{"help unknown", []string{"help", "nope"}, 2},
+		{"help leftover", []string{"help", "usage", "extra"}, 2},
+		{"help dash leftover", []string{"--help", "history"}, 2},
+		{"help short leftover", []string{"-h", "auth"}, 2},
+		{"help dash topic", []string{"--help", "login"}, 0},
 		{"help auth gone", []string{"help", "auth"}, 2},
 		{"help history gone", []string{"help", "history"}, 2},
+		{"login bogus cookie", []string{"login", "bogus", "--cookie"}, 2},
+		{"login bogus manual", []string{"login", "bogus", "--manual", "a=b"}, 2},
+		{"login bogus file", []string{"login", "bogus", "home", "--file", "/tmp/x"}, 2},
+		{"status empty", []string{"status"}, 1},
 		{"use missing", []string{"use"}, 2},
 		{"use provider only", []string{"use", "cursor"}, 2},
 		{"status leftover", []string{"status", "nope"}, 2},
@@ -168,8 +191,8 @@ func TestAuthStatusListsCursorSessions(t *testing.T) {
 	w.Close()
 	os.Stdout = old
 	out, _ := io.ReadAll(r)
-	if code != 0 {
-		t.Fatalf("status = %d", code)
+	if code != 1 {
+		t.Fatalf("status = %d, want 1 (other providers still missing)", code)
 	}
 	if !strings.Contains(string(out), "work") {
 		t.Fatalf("status missing session account:\n%s", out)
@@ -315,8 +338,8 @@ func TestAuthStatusListsKimiAccount(t *testing.T) {
 	out, code := captureStdout(t, func() int {
 		return runStatus(nil)
 	})
-	if code != 0 {
-		t.Fatalf("status = %d", code)
+	if code != 1 {
+		t.Fatalf("status = %d, want 1 (other providers still missing)", code)
 	}
 	if !strings.Contains(out, "kimi") || !strings.Contains(out, "work") {
 		t.Fatalf("status missing kimi account:\n%s", out)

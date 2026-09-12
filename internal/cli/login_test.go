@@ -101,8 +101,8 @@ func TestRunStatusJSON(t *testing.T) {
 	out, _, code := captureStd(t, func() int {
 		return runStatus([]string{"--json"})
 	})
-	if code != 0 {
-		t.Fatalf("status --json = %d, want 0\n%s", code, out)
+	if code != 1 {
+		t.Fatalf("status --json = %d, want 1\n%s", code, out)
 	}
 	if !json.Valid([]byte(strings.TrimSpace(out))) {
 		t.Fatalf("status --json is not JSON:\n%s", out)

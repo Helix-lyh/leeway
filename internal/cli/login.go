@@ -48,6 +48,15 @@ func runLogin(args []string) int {
 		fmt.Fprintln(os.Stderr, "empty key; aborting")
 		return 2
 	}
+	if providerID == "" {
+		fs.Usage()
+		return 2
+	}
+	if !knownProvider(providerID) {
+		fmt.Fprintf(os.Stderr, "unknown provider %q\n\n", providerID)
+		fs.Usage()
+		return 2
+	}
 
 	if useCookie {
 		return importBrowserCookies(providerID, account, browser, profile, force)
@@ -57,15 +66,6 @@ func runLogin(args []string) int {
 	}
 	if authFile != "" {
 		return saveAccountAuthFile(providerID, account, authFile)
-	}
-	if providerID == "" {
-		fs.Usage()
-		return 2
-	}
-	if !knownProvider(providerID) {
-		fmt.Fprintf(os.Stderr, "unknown provider %q\n\n", providerID)
-		fs.Usage()
-		return 2
 	}
 
 	if key != "" || isAPIKeyProvider(providerID) {

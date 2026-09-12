@@ -86,24 +86,26 @@ func cursorStateDB(home string) (string, error) {
 	default:
 		return "", errUnsupportedOS
 	}
-	if p := newestExisting(candidates); p != "" {
-		return p, nil
-	}
-	return "", fmt.Errorf("Cursor state.vscdb not found (looked in %s) — open Cursor once, then retry", strings.Join(candidates, ", "))
+	return pickCursorStateDB(candidates)
 }
 
-func newestExisting(paths []string) string {
-	best, bestTime := "", int64(0)
-	for _, p := range paths {
+func pickCursorStateDB(candidates []string) (string, error) {
+	var found []string
+	for _, p := range candidates {
 		fi, err := os.Stat(p)
 		if err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		if t := fi.ModTime().UnixNano(); best == "" || t > bestTime {
-			best, bestTime = p, t
-		}
+		found = append(found, p)
 	}
-	return best
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("Cursor state.vscdb not found (looked in %s) — open Cursor once, then retry", strings.Join(candidates, ", "))
+	case 1:
+		return found[0], nil
+	default:
+		return "", fmt.Errorf("found %d Cursor state.vscdb files (%s) — set LEEWAY_CURSOR_STATE_DB to the one to write", len(found), strings.Join(found, ", "))
+	}
 }
 
 // OfficialGrokAuthFile is ~/.grok/auth.json. LEEWAY_GROK_OFFICIAL overrides it.

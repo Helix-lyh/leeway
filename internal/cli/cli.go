@@ -43,11 +43,16 @@ func Run(args []string) int {
 	case "use":
 		return runUse(args[1:])
 	case "help", "-h", "--help":
-		if args[0] == "help" && len(args) > 1 {
-			return runHelpTopic(args[1])
+		rest := args[1:]
+		if len(rest) == 0 {
+			fmt.Print(usageText)
+			return 0
 		}
-		fmt.Print(usageText)
-		return 0
+		if len(rest) > 1 {
+			fmt.Fprintf(os.Stderr, "unexpected argument %q\n", rest[1])
+			return 2
+		}
+		return runHelpTopic(rest[0])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", args[0], usageText)
 		return 2
@@ -355,8 +360,8 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 		fmt.Fprintf(os.Stderr, "cursor 账号 %q 的令牌已过期 — leeway login cursor %s\n", name, name)
 		return 1
 	}
-	if switcher.CheckCursorIDE() {
-		fmt.Fprintln(os.Stderr, "Cursor 正在运行。先退出再切号，避免写坏 state.vscdb")
+	if block, reason := switcher.CheckCursorIDE(); block {
+		fmt.Fprintln(os.Stderr, reason)
 		return 1
 	}
 	targets, err := switcher.OfficialCursorTargets()

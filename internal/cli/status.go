@@ -61,7 +61,10 @@ func runStatus(args []string) int {
 		for _, h := range hints {
 			view.Hints = append(view.Hints, jsonHint{Provider: h.provider, Hint: h.hint})
 		}
-		return newJSONEncoder().Encode(view)
+		if code := newJSONEncoder().Encode(view); code != 0 {
+			return code
+		}
+		return statusExit(rows, hints)
 	}
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -74,6 +77,18 @@ func runStatus(args []string) int {
 	}
 	w.Flush()
 	fmt.Fprintln(os.Stderr, "config:", path)
+	return statusExit(rows, hints)
+}
+
+func statusExit(rows []authRow, hints []statusHint) int {
+	if len(hints) > 0 || len(rows) == 0 {
+		return 1
+	}
+	for _, r := range rows {
+		if r.status != "ok" {
+			return 1
+		}
+	}
 	return 0
 }
 

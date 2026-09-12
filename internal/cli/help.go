@@ -73,7 +73,7 @@ const statusHelp = `leeway status — 各家登录了没、号还在不在
   leeway status
   leeway status --json
 
-列出已保存的号，不访问网上的 provider。
+列出已保存的号，不访问网上的 provider。台账空着、有号没登录或有家缺登录时退出 1。
 `
 
 const useHelp = `leeway use — 把某个号变成本机正在用的那个
