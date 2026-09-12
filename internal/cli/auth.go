@@ -51,13 +51,14 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 
 	cmd := exec.CommandContext(ctx, bin, "login")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(),
-		"AGENT_CLI_CREDENTIAL_STORE=file", // write ~/.cursor/auth.json, not the keychain
-		"HOME="+home,                      // …into this account's private HOME
-	)
-	if noBrowser {
-		cmd.Env = append(cmd.Env, "NO_OPEN_BROWSER=1")
+	pairs := []string{
+		"AGENT_CLI_CREDENTIAL_STORE", "file", // write ~/.cursor/auth.json, not the keychain
+		"HOME", home, // …into this account's private HOME
 	}
+	if noBrowser {
+		pairs = append(pairs, "NO_OPEN_BROWSER", "1")
+	}
+	cmd.Env = overrideEnv(pairs...)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "cursor-agent login:", err)
 		return 1
@@ -143,7 +144,7 @@ func loginGrok(ctx context.Context, account string) int {
 
 	cmd := exec.CommandContext(ctx, bin, "login", "--device-auth")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "GROK_HOME="+home)
+	cmd.Env = overrideEnv("GROK_HOME", home)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "grok login:", err)
 		return 1

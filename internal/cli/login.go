@@ -139,6 +139,30 @@ func isolatedSessionHome(providerID, account string) (string, error) {
 	return filepath.Join(dir, providerID+"-"+safeSessionName(name)), nil
 }
 
+// overrideEnv copies the process environment, dropping any existing values
+// for the given keys so the child's getenv (first-wins on Unix) sees ours.
+func overrideEnv(kv ...string) []string {
+	drop := make(map[string]struct{}, len(kv)/2)
+	for i := 0; i+1 < len(kv); i += 2 {
+		drop[kv[i]] = struct{}{}
+	}
+	env := os.Environ()
+	out := make([]string, 0, len(env)+len(kv)/2)
+	for _, e := range env {
+		k, _, ok := strings.Cut(e, "=")
+		if ok {
+			if _, skip := drop[k]; skip {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	for i := 0; i+1 < len(kv); i += 2 {
+		out = append(out, kv[i]+"="+kv[i+1])
+	}
+	return out
+}
+
 func safeSessionName(s string) string {
 	return strings.Map(func(r rune) rune {
 		switch {
@@ -175,7 +199,7 @@ func loginCodex(ctx context.Context, account string) int {
 		fmt.Fprintln(os.Stderr, "create home:", err)
 		return 1
 	}
-	cmd.Env = append(os.Environ(), "CODEX_HOME="+home)
+	cmd.Env = overrideEnv("CODEX_HOME", home)
 	authFile := filepath.Join(home, "auth.json")
 
 	if err := cmd.Run(); err != nil {
@@ -221,7 +245,7 @@ func loginKimi(ctx context.Context, account string, noBrowser bool) int {
 
 	cmd := exec.CommandContext(ctx, bin, "login")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	cmd.Env = append(os.Environ(), "KIMI_CODE_HOME="+home)
+	cmd.Env = overrideEnv("KIMI_CODE_HOME", home)
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, "kimi login:", err)
 		return 1

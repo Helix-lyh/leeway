@@ -52,6 +52,33 @@ func TestRunLoginCursorMissingCLI(t *testing.T) {
 	}
 }
 
+func TestOverrideEnvDropsParentHome(t *testing.T) {
+	t.Setenv("HOME", "/tmp/real-home")
+	t.Setenv("CODEX_HOME", "/tmp/real-codex")
+	t.Setenv("GROK_HOME", "/tmp/real-grok")
+	env := overrideEnv("HOME", "/iso-home", "CODEX_HOME", "/iso-codex", "GROK_HOME", "/iso-grok")
+	got := map[string]int{}
+	want := map[string]string{"HOME": "/iso-home", "CODEX_HOME": "/iso-codex", "GROK_HOME": "/iso-grok"}
+	for _, e := range env {
+		k, v, ok := strings.Cut(e, "=")
+		if !ok {
+			continue
+		}
+		if _, keep := want[k]; !keep {
+			continue
+		}
+		got[k]++
+		if v != want[k] {
+			t.Fatalf("%s = %q, want %q", k, v, want[k])
+		}
+	}
+	for k := range want {
+		if got[k] != 1 {
+			t.Fatalf("%s appeared %d times, want 1", k, got[k])
+		}
+	}
+}
+
 func TestRunLoginEmptyKeyFlag(t *testing.T) {
 	isolateEnv(t)
 	if code := runLogin([]string{"deepseek", "--key", ""}); code != 2 {
