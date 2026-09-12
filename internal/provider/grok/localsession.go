@@ -87,7 +87,7 @@ func loadGrokSession(authFile string) (*grokSession, error) {
 	}
 	raw, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("grok auth.json not found (%s) — run: grok login", p)
+		return nil, fmt.Errorf("grok auth.json not found (%s) — run: leeway login grok", p)
 	}
 	if err != nil {
 		return nil, err
@@ -116,7 +116,7 @@ func loadGrokSession(authFile string) (*grokSession, error) {
 	if first != nil {
 		return first, nil
 	}
-	return nil, errors.New("grok auth.json contains no usable access tokens — run: grok login")
+	return nil, errors.New("grok auth.json contains no usable access tokens — run: leeway login grok")
 }
 
 func (e *grokSessionEntry) expired(now time.Time) bool {
@@ -138,7 +138,7 @@ func (e *grokSessionEntry) expired(now time.Time) bool {
 func (s *grokSession) refresh(ctx context.Context) error {
 	e := s.entry
 	if e.OIDCIssuer == "" || e.RefreshToken == "" {
-		return errors.New("grok session has no refresh_token/issuer — run: grok login")
+		return errors.New("grok session has no refresh_token/issuer — run: leeway login grok")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
@@ -157,7 +157,7 @@ func (s *grokSession) refresh(ctx context.Context) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("grok session refresh failed (HTTP %d) — run: grok login", resp.StatusCode)
+		return fmt.Errorf("grok session refresh failed (HTTP %d) — run: leeway login grok", resp.StatusCode)
 	}
 	var body struct {
 		AccessToken  string `json:"access_token"`
@@ -168,7 +168,7 @@ func (s *grokSession) refresh(ctx context.Context) error {
 		return fmt.Errorf("grok session refresh response unreadable: %w", err)
 	}
 	if body.AccessToken == "" {
-		return errors.New("grok session refresh returned no access_token — run: grok login")
+		return errors.New("grok session refresh returned no access_token — run: leeway login grok")
 	}
 	e.Key = body.AccessToken
 	if body.RefreshToken != "" {

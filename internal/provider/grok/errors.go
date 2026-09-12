@@ -35,7 +35,7 @@ type Error struct {
 var ErrMissingCredentials = &Error{Kind: kindMissingCredentials}
 
 // reauthMessage mirrors GrokWebBillingError.reauthMessage.
-const reauthMessage = "Grok web billing rejected credentials. Sign in to grok.com in Chrome or run `grok login` to refresh xAI auth."
+const reauthMessage = "Grok web billing rejected credentials. Sign in to grok.com in Chrome or run `leeway login grok` to refresh xAI auth."
 
 func (e *Error) Error() string {
 	switch e.Kind {
@@ -43,7 +43,7 @@ func (e *Error) Error() string {
 		if e.Message != "" {
 			return e.Message
 		}
-		return "Grok web billing requires a signed-in grok.com browser session or `grok login`."
+		return "Grok web billing requires a signed-in grok.com browser session or `leeway login grok`."
 	case kindEmptyResponse:
 		return "Grok web billing returned no protobuf payload."
 	case kindInvalidResponse:

@@ -592,7 +592,7 @@ func TestProviderFetch_BearerSession(t *testing.T) {
 }
 
 // An expired session whose refresh fails (issuer returns 400) surfaces
-// kindMissingCredentials with the "run: grok login" hint — the classification
+// kindMissingCredentials with the "leeway login grok" hint — the classification
 // doctor/agents rely on.
 func TestProviderFetch_ExpiredSessionRefreshFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -614,7 +614,7 @@ func TestProviderFetch_ExpiredSessionRefreshFails(t *testing.T) {
 		Account: "default",
 	})
 	assertErrorKind(t, err, kindMissingCredentials)
-	if err == nil || !strings.Contains(err.Error(), "grok login") {
+	if err == nil || !strings.Contains(err.Error(), "leeway login grok") {
 		t.Errorf("err = %v, want re-login hint", err)
 	}
 }
