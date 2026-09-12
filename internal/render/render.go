@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -75,11 +76,21 @@ func renderTable(w io.Writer, out *model.Output, color, showDelta bool) {
 		fmt.Fprintln(w, "(no providers)")
 		return
 	}
-	n := 0
+	var shown []model.ProviderResult
 	for _, pr := range out.Providers {
-		if len(pr.Accounts) == 0 {
-			continue
+		if len(pr.Accounts) > 0 {
+			shown = append(shown, pr)
 		}
+	}
+	sort.SliceStable(shown, func(i, j int) bool {
+		li, lj := providerPrintLines(shown[i]), providerPrintLines(shown[j])
+		if li != lj {
+			return li < lj
+		}
+		return shown[i].ID < shown[j].ID
+	})
+	n := 0
+	for _, pr := range shown {
 		if n > 0 {
 			fmt.Fprintln(w)
 		}
@@ -99,6 +110,25 @@ func renderTable(w io.Writer, out *model.Output, color, showDelta bool) {
 	if !out.GeneratedAt.IsZero() {
 		fmt.Fprintln(w, colored("as of "+out.GeneratedAt.Local().Format("15:04"), cGray, color))
 	}
+}
+
+func providerPrintLines(pr model.ProviderResult) int {
+	grouped := len(pr.Accounts) > 1
+	n := 0
+	if grouped {
+		n++
+	}
+	for _, ar := range pr.Accounts {
+		n += accountPrintLines(accountLine(pr, ar, grouped, false, false), grouped)
+	}
+	return n
+}
+
+func accountPrintLines(l tableLine, grouped bool) int {
+	if l.err != "" || (!grouped && len(l.rows) <= 1) {
+		return 1
+	}
+	return 1 + len(l.rows)
 }
 
 func printAccount(w io.Writer, l tableLine, grouped bool) {

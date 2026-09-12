@@ -213,8 +213,39 @@ func TestRenderTableMultiAccountHeads(t *testing.T) {
 	if strings.Contains(s, "OpenCode Go github") || strings.Contains(s, "OpenCode Go work") {
 		t.Fatalf("grouped tags must not trail the provider on the same line:\n%s", s)
 	}
-	if !strings.Contains(s, "OpenCode Go\n") || !strings.Contains(s, "\nDeepSeek") {
-		t.Fatalf("provider groups should be separated:\n%s", s)
+	if iDeep, iOC := strings.Index(s, "DeepSeek"), strings.Index(s, "OpenCode Go"); iDeep < 0 || iOC < 0 || iDeep > iOC {
+		t.Fatalf("fewer-line DeepSeek should print before grouped OpenCode:\n%s", s)
+	}
+}
+
+func TestRenderTableFewestLinesFirst(t *testing.T) {
+	pct := 10.0
+	win := func(title string) model.RateWindow {
+		return model.RateWindow{ID: title, Title: title, UsedPercent: &pct}
+	}
+	acct := func(windows ...model.RateWindow) []model.AccountResult {
+		return []model.AccountResult{{
+			Name: "default", Status: "ok",
+			Snapshot: &model.Snapshot{UpdatedAt: time.Now(), Windows: windows},
+		}}
+	}
+	out := &model.Output{Version: 1, Providers: []model.ProviderResult{
+		{ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok", Accounts: acct(win("Weekly"), win("Monthly"), win("Credits"), win("Zen"))},
+		{ID: "cursor", DisplayName: "Cursor", Status: "ok", Accounts: acct(win("Monthly"), win("Total"), win("Credits"))},
+		{ID: "grok", DisplayName: "Grok", Status: "ok", Accounts: acct(win("Weekly"), win("Pro"))},
+		{ID: "deepseek", DisplayName: "DeepSeek", Status: "ok", Accounts: acct(win("Balance"))},
+	}}
+	var buf bytes.Buffer
+	RenderTable(&buf, out, false)
+	s := buf.String()
+	order := []string{"DeepSeek", "Grok", "Cursor", "OpenCode Go"}
+	pos := -1
+	for _, name := range order {
+		i := strings.Index(s, name)
+		if i < 0 || i < pos {
+			t.Fatalf("want %v, got:\n%s", order, s)
+		}
+		pos = i
 	}
 }
 
