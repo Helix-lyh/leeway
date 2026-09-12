@@ -202,16 +202,48 @@ func (s *grokSession) writeBack() error {
 	if err := json.Unmarshal(raw, &m); err != nil {
 		return err
 	}
-	b, err := json.Marshal(s.entry)
+	merged, err := mergeSessionEntry(m[s.scope], s.entry)
 	if err != nil {
 		return err
 	}
-	m[s.scope] = b
+	m[s.scope] = merged
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err
 	}
 	return writeFileAtomic(p, out)
+}
+
+func mergeSessionEntry(existing json.RawMessage, e *grokSessionEntry) (json.RawMessage, error) {
+	entry := map[string]any{}
+	if len(existing) > 0 {
+		if err := json.Unmarshal(existing, &entry); err != nil {
+			return nil, err
+		}
+	}
+	if e == nil {
+		return json.Marshal(entry)
+	}
+	entry["key"] = e.Key
+	if e.RefreshToken != "" {
+		entry["refresh_token"] = e.RefreshToken
+	}
+	if e.ExpiresAt != nil {
+		entry["expires_at"] = *e.ExpiresAt
+	}
+	if e.Email != "" {
+		entry["email"] = e.Email
+	}
+	if e.PrincipalType != "" {
+		entry["principal_type"] = e.PrincipalType
+	}
+	if e.OIDCIssuer != "" {
+		entry["oidc_issuer"] = e.OIDCIssuer
+	}
+	if e.OIDCClientID != "" {
+		entry["oidc_client_id"] = e.OIDCClientID
+	}
+	return json.Marshal(entry)
 }
 
 // writeFileAtomic writes data to path via a temp file in the same directory

@@ -46,7 +46,8 @@ leeway logout cursor work
 
 ```sh
 leeway use cursor work               # 写入 Cursor IDE + ~/.cursor/auth.json（先退出 Cursor）
-leeway use grok home                 # 合并进 ~/.grok/auth.json
+leeway use grok home                 # 回写完整官方 ~/.grok/auth.json（瘦设备码文件会拒绝）
+leeway use kimi work                 # 有会话则写 ~/.kimi-code；只有 key 则写 DSH
 leeway use opencode-go work          # 把 key 写给 DSH
 ```
 
@@ -55,7 +56,7 @@ macOS / Linux。Cursor 必须先退出。`leeway use cursor` 写 `state.vscdb`�
 - macOS: `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
 - Linux: `~/.config/Cursor/...`（Flatpak 回退已在 switcher 里）
 
-Grok 官方文件两边都是 `~/.grok/auth.json`。先 `leeway login` 把要用的号都收进 leeway，再 `use`。
+Grok 官方文件两边都是 `~/.grok/auth.json`。每个号先用官方 grok 登录一次，再 `leeway login grok NAME --file ~/.grok/auth.json` 快照；之后 `use` 只换文件。Codex 只查额度，不写 `~/.codex`。
 
 ## 各家怎么登录
 

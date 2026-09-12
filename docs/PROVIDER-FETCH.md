@@ -311,8 +311,10 @@ cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官�
 
 | provider | 每账号凭据 | 登录 | 切号 |
 |---|---|---|---|
-| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway login cursor [A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME) | 查额度 `leeway usage cursor A`；本地 IDE 用 `leeway use cursor A` 写入 `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor）。macOS:`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`；Linux:`~/.config/Cursor/...`（Flatpak 回退已在 switcher 里） |
-| grok | 私有 `GROK_HOME` 的 `auth.json`,绑 `accounts[].authFile` | `leeway login grok [A]` 跑官方 `grok login --device-auth` | 查额度 `leeway usage grok A`；本地 CLI 用 `leeway use grok A` 合并进 `~/.grok/auth.json`（macOS / Linux 同一路径） |
+| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway login cursor [A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME)；或 `--file` 快照 | 查额度 `leeway usage cursor A`；本地 IDE 用 `leeway use cursor A` 写入 `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor）。macOS:`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`；Linux:`~/.config/Cursor/...`（Flatpak 回退已在 switcher 里） |
+| grok | 私有 `GROK_HOME` 的完整官方 `auth.json`（文件里已有 `auth_mode`/`user_id`，绑 `accounts[].authFile`） | 切本机用 `leeway login grok [A] --file ~/.grok/auth.json` 快照已能开 CLI 的会话。设备码只够查额度，不补资料字段，也不覆盖已有完整快照 | 查额度 `leeway usage grok A`；`leeway use grok A` 只回写完整条目。瘦设备码 / JWT `sub` 都拒绝写入 |
+| kimi | 隔离 `KIMI_CODE_HOME/credentials/kimi-code.json` 或 `accounts[].apiKey` | `leeway login kimi [A]` 跑官方 `kimi login`；或 `--file` 快照；或 `--key` | 查额度 `leeway usage kimi A`；有会话则 `leeway use kimi A` 写官方 kimi-code.json（`KIMI_CODE_HOME`）；只有 key 写 DSH |
+| codex | 隔离 `CODEX_HOME/auth.json` | `leeway login codex [A]` 跑官方 `codex login`；或 `--file` 快照 | 只查额度。`use` 不写官方 `~/.codex`，避免 refresh 把官方会话作废 |
 
 ---
 

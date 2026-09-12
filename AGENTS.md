@@ -50,7 +50,7 @@ leeway use grok home
 go test ./...
 ```
 
-日常看 `leeway help`；某一条看 `leeway help login`（还有 usage / logout / status / use）。无子命令时往 stderr 打帮助并退出 2。`leeway login cursor/grok/codex/kimi` 走官方 CLI；其余粘贴 key。`leeway use` 把 cursor 写给 Cursor IDE + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`，Linux `~/.config/Cursor/...`），grok 写给 `~/.grok/auth.json`，其余写 DSH；不是切 leeway 自己看哪号。`PROVIDER` / `ACCOUNT` 写在命令后面，也可写成 `--provider` / `--account`。近 N 次点阵用 `usage --last`。
+日常看 `leeway help`；某一条看 `leeway help login`（还有 usage / logout / status / use）。无子命令时往 stderr 打帮助并退出 2。`leeway login cursor/grok/codex/kimi` 走官方 CLI；其余粘贴 key。`leeway use` 把 cursor 写给 Cursor IDE + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`，Linux `~/.config/Cursor/...`），grok 只回写完整官方 `~/.grok/auth.json`，kimi 会话写官方 kimi-code.json，codex 不写 `~/.codex`，其余写 DSH；不是切 leeway 自己看哪号。`PROVIDER` / `ACCOUNT` 写在命令后面，也可写成 `--provider` / `--account`。近 N 次点阵用 `usage --last`。
 
 退出码：`0` 全部通过；`1` 至少一个 provider 报错或未配置；`2` 用法 / 配置错误。
 

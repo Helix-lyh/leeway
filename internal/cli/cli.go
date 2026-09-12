@@ -3,6 +3,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -19,6 +20,8 @@ import (
 	"leeway/internal/history"
 	"leeway/internal/model"
 	"leeway/internal/provider"
+	"leeway/internal/provider/grok"
+	"leeway/internal/provider/kimi"
 	"leeway/internal/render"
 	"leeway/internal/switcher"
 )
@@ -289,8 +292,8 @@ func renderMoney(v float64, currency string) string {
 // --- use ----------------------------------------------------------------
 
 // runUse makes a named account the one the local tool actually uses:
-// cursor → Cursor IDE + ~/.cursor/auth.json; grok → ~/.grok/auth.json;
-// everything else → the DSH credentials file.
+// cursor → Cursor IDE + ~/.cursor/auth.json; grok → complete ~/.grok/auth.json;
+// kimi session → official kimi-code.json; codex is refused; else DSH.
 func runUse(args []string) int {
 	var (
 		providerID string
@@ -317,6 +320,13 @@ func runUse(args []string) int {
 		return useCursor(cfg, account, jsonOut)
 	case "grok":
 		return useGrok(cfg, account, jsonOut)
+	case "kimi":
+		if a, ok := cfg.Account("kimi", account); ok && a.AuthFile != "" {
+			return useKimiSession(a, account, jsonOut)
+		}
+	case "codex":
+		fmt.Fprintln(os.Stderr, "codex 不写官方 ~/.codex（避免 refresh 把官方会话作废）。查额度：leeway usage codex "+account)
+		return 2
 	}
 
 	acc, ok := cfg.Account(providerID, account)
@@ -352,7 +362,7 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 		fmt.Fprintln(os.Stderr, "cursor auth:", err)
 		return 1
 	}
-	if !ok || ca.AccessToken == "" {
+	if !ok || ca.AccessToken == "" || ca.RefreshToken == "" {
 		fmt.Fprintf(os.Stderr, "cursor 账号 %q 还没登录 — leeway login cursor %s\n", name, name)
 		return 2
 	}
@@ -404,6 +414,10 @@ func useGrok(cfg *config.Config, account string, jsonOut bool) int {
 	if !fileExists(src) {
 		fmt.Fprintf(os.Stderr, "grok 账号 %q 的会话文件不在 %s — leeway login grok %s\n", name, src, name)
 		return 2
+	}
+	if !grok.HasOfficialShape(src) {
+		fmt.Fprintf(os.Stderr, "grok 账号 %q 还不是官方完整会话，写入会逼 grok 重新网页登录。先用能开 grok 的文件快照：leeway login grok %s --file ~/.grok/auth.json\n", name, name)
+		return 1
 	}
 	dst, err := switcher.OfficialGrokAuthFile()
 	if err != nil {
@@ -563,20 +577,246 @@ func accountSuffix(account string) string {
 }
 
 func saveAccountAuthFile(providerID, account, authFile string) int {
-	if providerID == "" || account == "" || authFile == "" {
+	if providerID == "" || authFile == "" {
 		return 2
 	}
+	switch providerID {
+	case "grok":
+		return snapshotGrokAuthFile(account, authFile)
+	case "kimi":
+		return snapshotKimiAuthFile(account, authFile)
+	case "cursor":
+		return snapshotCursorAuthFile(account, authFile)
+	case "codex":
+		return snapshotCodexAuthFile(account, authFile)
+	default:
+		fmt.Fprintf(os.Stderr, "%s 用 --key，不支持 --file\n", providerID)
+		return 2
+	}
+}
+
+func snapshotAccountName(account string) string {
+	if account == "" || account == "default" {
+		return "default"
+	}
+	return account
+}
+
+func snapshotGrokAuthFile(account, src string) int {
+	name := snapshotAccountName(account)
+	srcPath, err := provider.HomePath(src)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "auth file:", err)
+		return 2
+	}
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read grok session:", err)
+		return 1
+	}
+	home, err := grokHome(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "grok home:", err)
+		return 1
+	}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "create home:", err)
+		return 1
+	}
+	dst := filepath.Join(home, "auth.json")
+	incoming := dst + ".incoming"
+	if err := os.WriteFile(incoming, raw, 0o600); err != nil {
+		os.Remove(incoming)
+		fmt.Fprintln(os.Stderr, "write grok session:", err)
+		return 1
+	}
+	if !grok.HasOfficialShape(incoming) {
+		os.Remove(incoming)
+		fmt.Fprintln(os.Stderr, "这份文件缺官方资料字段（auth_mode / user_id）。请先用官方 grok 登录到能正常开 CLI，再 --file 那份 ~/.grok/auth.json")
+		return 1
+	}
+	if err := os.Rename(incoming, dst); err != nil {
+		os.Remove(incoming)
+		fmt.Fprintln(os.Stderr, "write grok session:", err)
+		return 1
+	}
+	return bindIsolatedAuthFile("grok", name, dst)
+}
+
+func snapshotKimiAuthFile(account, src string) int {
+	name := snapshotAccountName(account)
+	dst, err := isolatedSessionHome("kimi", name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kimi home:", err)
+		return 1
+	}
+	return snapshotJSONFile("kimi", name, src, filepath.Join(dst, "credentials", "kimi-code.json"), kimiSessionOK)
+}
+
+func snapshotCursorAuthFile(account, src string) int {
+	name := snapshotAccountName(account)
+	dst, err := auth.CursorAuthFile(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cursor home:", err)
+		return 1
+	}
+	return snapshotJSONFile("cursor", name, src, dst, cursorSessionOK)
+}
+
+func snapshotCodexAuthFile(account, src string) int {
+	name := snapshotAccountName(account)
+	home, err := isolatedSessionHome("codex", name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "codex home:", err)
+		return 1
+	}
+	return snapshotJSONFile("codex", name, src, filepath.Join(home, "auth.json"), codexSessionOK)
+}
+
+func snapshotJSONFile(providerID, account, src, dst string, ok func([]byte) bool) int {
+	srcPath, err := provider.HomePath(src)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "auth file:", err)
+		return 2
+	}
+	raw, err := os.ReadFile(srcPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read session:", err)
+		return 1
+	}
+	if !ok(raw) {
+		fmt.Fprintf(os.Stderr, "这份文件不是可用的 %s 会话\n", providerID)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "write session:", err)
+		return 1
+	}
+	tmp := dst + ".incoming"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		os.Remove(tmp)
+		fmt.Fprintln(os.Stderr, "write session:", err)
+		return 1
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		fmt.Fprintln(os.Stderr, "write session:", err)
+		return 1
+	}
+	return bindIsolatedAuthFile(providerID, account, dst)
+}
+
+func bindIsolatedAuthFile(providerID, account, dst string) int {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config:", err)
-		return 2
+		return 1
 	}
-	if err := cfg.SetAccountAuthFile(providerID, account, authFile); err != nil {
+	if err := cfg.SetAccountAuthFile(providerID, account, dst); err != nil {
 		fmt.Fprintln(os.Stderr, "config save:", err)
+		return 1
+	}
+	if providerID == "grok" {
+		if email := grokAuthEmail(dst); email != "" {
+			_ = cfg.SetAccountEmail("grok", account, email)
+		}
+	}
+	fmt.Fprintf(os.Stderr, "已快照 %s 账号 %s → %s\n", providerID, displayAccount(account), dst)
+	return 0
+}
+
+func kimiSessionOK(raw []byte) bool {
+	var m struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	return json.Unmarshal(raw, &m) == nil &&
+		strings.TrimSpace(m.AccessToken) != "" &&
+		strings.TrimSpace(m.RefreshToken) != ""
+}
+
+func cursorSessionOK(raw []byte) bool {
+	var m struct {
+		AccessToken  string `json:"accessToken"`
+		RefreshToken string `json:"refreshToken"`
+	}
+	return json.Unmarshal(raw, &m) == nil &&
+		strings.TrimSpace(m.AccessToken) != "" &&
+		strings.TrimSpace(m.RefreshToken) != ""
+}
+
+func samePath(a, b string) bool {
+	a, err := filepath.Abs(a)
+	if err != nil {
+		return false
+	}
+	b, err = filepath.Abs(b)
+	if err != nil {
+		return false
+	}
+	return a == b
+}
+
+func codexSessionOK(raw []byte) bool {
+	var m struct {
+		Tokens struct {
+			AccessToken string `json:"access_token"`
+		} `json:"tokens"`
+		OpenAIKey string `json:"OPENAI_API_KEY"`
+	}
+	if json.Unmarshal(raw, &m) != nil {
+		return false
+	}
+	return strings.TrimSpace(m.Tokens.AccessToken) != "" || strings.TrimSpace(m.OpenAIKey) != ""
+}
+
+func useKimiSession(a config.AccountConfig, account string, jsonOut bool) int {
+	src := a.AuthFile
+	if p, err := provider.LocalSessionPath(a.AuthFile); err == nil {
+		src = p
+	}
+	if !fileExists(src) {
+		fmt.Fprintf(os.Stderr, "kimi 账号 %q 的会话文件不在 %s — leeway login kimi %s\n", account, src, account)
 		return 2
 	}
-	fmt.Fprintf(os.Stderr, "saved auth-file %q for account %q of %q\n", authFile, account, providerID)
-	return 0
+	dst, err := kimi.OfficialCredentialPath()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kimi target:", err)
+		return 1
+	}
+	raw, err := os.ReadFile(src)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "read kimi session:", err)
+		return 1
+	}
+	if !kimiSessionOK(raw) {
+		fmt.Fprintf(os.Stderr, "kimi 账号 %q 不是完整 CLI 会话 — leeway login kimi %s\n", account, account)
+		return 1
+	}
+	if samePath(src, dst) {
+		fmt.Fprintf(os.Stderr, "kimi 账号 %q 绑在官方会话文件上。先快照：leeway login kimi %s --file %s\n", account, account, a.AuthFile)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		fmt.Fprintln(os.Stderr, "write kimi session:", err)
+		return 1
+	}
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		os.Remove(tmp)
+		fmt.Fprintln(os.Stderr, "write kimi session:", err)
+		return 1
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Remove(tmp)
+		fmt.Fprintln(os.Stderr, "write kimi session:", err)
+		return 1
+	}
+	return printUseResult(switcher.Result{
+		Provider: "kimi",
+		Account:  account,
+		Targets:  []string{switcher.DisplayPath(dst)},
+	}, jsonOut)
 }
 
 func maskKey(key string) string {

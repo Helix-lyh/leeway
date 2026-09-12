@@ -15,6 +15,7 @@ import (
 	"leeway/internal/config"
 	"leeway/internal/fetch"
 	"leeway/internal/provider"
+	"leeway/internal/provider/grok"
 )
 
 // keyPage is where a provider hands out API keys; `leeway login` opens it
@@ -126,12 +127,6 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 // accounts[].authFile, so grok CLI/browser logins on other accounts never
 // touch the credential leeway reads (and vice versa).
 func loginGrok(ctx context.Context, account string) int {
-	bin, err := exec.LookPath("grok")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "没找到 grok CLI，先安装：curl -fsSL https://x.ai/cli/install.sh | bash")
-		return 2
-	}
-
 	name := account
 	if name == "" || name == "default" {
 		name = "default"
@@ -140,6 +135,17 @@ func loginGrok(ctx context.Context, account string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "grok home:", err)
 		return 1
+	}
+	authFile := filepath.Join(home, "auth.json")
+	if grok.HasOfficialShape(authFile) {
+		fmt.Fprintf(os.Stderr, "grok 账号 %s 已有完整官方快照。切本机：leeway use grok %s；替换快照：leeway login grok %s --file ~/.grok/auth.json\n", name, name, name)
+		return 1
+	}
+
+	bin, err := exec.LookPath("grok")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "没找到 grok CLI，先安装：curl -fsSL https://x.ai/cli/install.sh | bash")
+		return 2
 	}
 
 	cmd := exec.CommandContext(ctx, bin, "login", "--device-auth")
@@ -150,7 +156,7 @@ func loginGrok(ctx context.Context, account string) int {
 		return 1
 	}
 
-	authFile := filepath.Join(home, "auth.json")
+	shaped := grok.HasOfficialShape(authFile)
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "config:", err)
@@ -160,13 +166,19 @@ func loginGrok(ctx context.Context, account string) int {
 		fmt.Fprintln(os.Stderr, "config save:", err)
 		return 1
 	}
+	label := name
 	if email := grokAuthEmail(authFile); email != "" {
 		_ = cfg.SetAccountEmail("grok", name, email)
-		name = accountStatusName(name, email)
+		label = accountStatusName(name, email)
 	}
-	fmt.Fprintf(os.Stderr, "\n已登录 grok 账号 %s → %s\n", name, authFile)
-	fmt.Fprintln(os.Stderr, "该账号与官方 grok CLI（~/.grok）完全独立。查额度在 usage 后面加号；要让本机 grok CLI 用这个号：")
-	fmt.Fprintln(os.Stderr, suffixAccount("leeway use grok", name))
+	fmt.Fprintf(os.Stderr, "\n已登录 grok 账号 %s → %s\n", label, authFile)
+	fmt.Fprintln(os.Stderr, "该账号与官方 grok CLI（~/.grok）完全独立。查额度：leeway usage grok"+suffixFlag(name))
+	if shaped {
+		fmt.Fprintln(os.Stderr, "要让本机 grok CLI 用这个号：")
+		fmt.Fprintln(os.Stderr, suffixAccount("leeway use grok", name))
+	} else {
+		fmt.Fprintf(os.Stderr, "设备码会话缺官方资料字段，use 会拒绝写入。切本机 grok 请先快照能开 CLI 的文件：leeway login grok %s --file ~/.grok/auth.json\n", name)
+	}
 	return 0
 }
 

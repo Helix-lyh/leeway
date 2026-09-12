@@ -53,10 +53,12 @@ const loginHelp = `leeway login — 给一家登录或写入凭据
 cursor / grok 走官方 CLI 浏览器登录（PATH 里要有 cursor-agent / grok）。
 opencode-go / commandcode / deepseek 打开申请页，粘贴 API key（不回显）。
 cursor 不写 ACCOUNT 时用邮箱当账号名。
+--file 把官方会话快照进隔离目录（grok / kimi / cursor / codex），不绑正在用的官方文件。
+grok 的 --file 必须是文件里已有 auth_mode / user_id 的完整 auth.json（不要靠设备码 JWT 冒充）。每个号网页授权一次，之后 use 只换文件。
 
 --cookie 从浏览器导入 cookie（仅 macOS）。Linux 用 --manual。
 --browser / --profile / --force 是导入时用的。
---manual 手动粘贴 Cookie header。--file 指定会话文件。--key 直接写入 API key。
+--manual 手动粘贴 Cookie header。--key 直接写入 API key。
 --no-browser 只打印登录 URL。--timeout 是等浏览器授权的分钟数（默认 15）。
 `
 
@@ -80,11 +82,14 @@ const useHelp = `leeway use — 把某个号变成本机正在用的那个
 
   leeway use cursor work
   leeway use grok home
+  leeway use kimi work
   leeway use opencode-go work
   leeway use cursor work --json
 
 cursor：写入 Cursor IDE（state.vscdb）和 ~/.cursor/auth.json。Cursor 在跑就先退出。
-grok：合并进 ~/.grok/auth.json。
+grok：把完整官方会话合并进 ~/.grok/auth.json（瘦设备码文件会拒绝，以免逼 grok 重新网页登录）。
+kimi：有隔离会话则写官方 kimi-code.json（尊重 KIMI_CODE_HOME）；只有 key 的号写 DSH。
+codex：不写官方 ~/.codex（避免 refresh 把官方会话作废）。
 其余：把 API key 写给 DSH。
 
 这不是「leeway 接下来查哪号」。查额度用 leeway usage cursor work。

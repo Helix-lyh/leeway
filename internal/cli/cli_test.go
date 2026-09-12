@@ -468,7 +468,7 @@ func TestUseGrokWritesOfficialAuth(t *testing.T) {
 	isolateEnv(t)
 	srcDir := t.TempDir()
 	src := filepath.Join(srcDir, "auth.json")
-	if err := os.WriteFile(src, []byte(`{"https://auth.x.ai::home":{"key":"home-key","email":"home@x.ai"}}`), 0o600); err != nil {
+	if err := os.WriteFile(src, []byte(`{"https://auth.x.ai::home":{"key":"home-key","email":"home@x.ai","auth_mode":"oidc","user_id":"u1"}}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(t.TempDir(), "official.json")
@@ -506,6 +506,346 @@ func TestUseGrokWritesOfficialAuth(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "home-key") || !strings.Contains(string(raw), "keep-key") {
 		t.Fatalf("official auth.json = %s", raw)
+	}
+	if !strings.Contains(string(raw), `"auth_mode"`) || !strings.Contains(string(raw), `"user_id"`) {
+		t.Fatalf("official fields missing: %s", raw)
+	}
+}
+
+func TestUseGrokRefusesSkinnySession(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(src, []byte(`{"https://auth.x.ai::home":{"key":"skinny-key"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "official.json")
+	if err := os.WriteFile(dst, []byte(`{"https://auth.x.ai::old":{"key":"keep-me","auth_mode":"oidc","user_id":"u"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEEWAY_GROK_OFFICIAL", dst)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountAuthFile("grok", "home", src); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"use", "grok", "home"}); code != 1 {
+		t.Fatalf("skinny use grok = %d, want 1", code)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "keep-me") || strings.Contains(string(raw), "skinny-key") {
+		t.Fatalf("official file should stay: %s", raw)
+	}
+	srcRaw, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(srcRaw), `"auth_mode"`) {
+		t.Fatalf("refused use must not rewrite isolated src: %s", srcRaw)
+	}
+}
+
+func TestUseGrokRefusesJWTSkinny(t *testing.T) {
+	isolateEnv(t)
+	h := "eyJhbGciOiJub25lIn0"
+	p := "eyJzdWIiOiJ1c2VyLTk5In0"
+	tok := h + "." + p + ".sig"
+	src := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(src, []byte(`{"https://auth.x.ai::home":{"key":"`+tok+`"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "official.json")
+	if err := os.WriteFile(dst, []byte(`{"https://auth.x.ai::old":{"key":"keep-me","auth_mode":"oidc","user_id":"u"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEEWAY_GROK_OFFICIAL", dst)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountAuthFile("grok", "home", src); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"use", "grok", "home"}); code != 1 {
+		t.Fatalf("jwt skinny use grok = %d, want 1", code)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), tok) {
+		t.Fatalf("official file should stay: %s", raw)
+	}
+}
+
+func TestLoginGrokFileSnapshots(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(src, []byte(`{"https://auth.x.ai::home":{"key":"snap-key","auth_mode":"oidc","user_id":"u2","email":"b@x.ai"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"grok", "home", "--file", src}); code != 0 {
+		t.Fatalf("login grok --file = %d", code)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := cfg.Account("grok", "home")
+	if !ok || a.AuthFile == "" || a.AuthFile == src {
+		t.Fatalf("authFile should be an isolated copy, got %+v", a)
+	}
+	raw, err := os.ReadFile(a.AuthFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "snap-key") || !strings.Contains(string(raw), "u2") {
+		t.Fatalf("snapshot = %s", raw)
+	}
+}
+
+func TestLoginGrokFileRefusesSkinnyKeepsExisting(t *testing.T) {
+	isolateEnv(t)
+	good := filepath.Join(t.TempDir(), "good.json")
+	if err := os.WriteFile(good, []byte(`{"https://auth.x.ai::home":{"key":"keep-key","auth_mode":"oidc","user_id":"u3"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"grok", "home", "--file", good}); code != 0 {
+		t.Fatalf("login good = %d", code)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := cfg.Account("grok", "home")
+	if !ok {
+		t.Fatal("missing grok account")
+	}
+	skinny := filepath.Join(t.TempDir(), "skinny.json")
+	if err := os.WriteFile(skinny, []byte(`{"https://auth.x.ai::home":{"key":"bad-key"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"grok", "home", "--file", skinny}); code != 1 {
+		t.Fatalf("login skinny = %d, want 1", code)
+	}
+	raw, err := os.ReadFile(a.AuthFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "keep-key") || strings.Contains(string(raw), "bad-key") {
+		t.Fatalf("isolated file should stay: %s", raw)
+	}
+}
+
+func TestLoginGrokRefusesDeviceAuthWhenSnapshotExists(t *testing.T) {
+	isolateEnv(t)
+	home, err := grokHome("home")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(home, "auth.json")
+	if err := os.WriteFile(p, []byte(`{"https://auth.x.ai::home":{"key":"keep-key","auth_mode":"oidc","user_id":"u4"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"grok", "home"}); code != 1 {
+		t.Fatalf("device-auth over snapshot = %d, want 1", code)
+	}
+	raw, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "keep-key") || !strings.Contains(string(raw), "u4") {
+		t.Fatalf("snapshot should stay: %s", raw)
+	}
+}
+
+func TestLoginCursorFileSnapshots(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(src, []byte(`{"accessToken":"cur-tok","refreshToken":"cur-rt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"cursor", "work", "--file", src}); code != 0 {
+		t.Fatalf("login cursor --file = %d", code)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := cfg.Account("cursor", "work")
+	if !ok || a.AuthFile == "" || a.AuthFile == src {
+		t.Fatalf("authFile should be an isolated copy, got %+v", a)
+	}
+	if !strings.Contains(a.AuthFile, os.Getenv("LEEWAY_SESSIONS")) {
+		t.Fatalf("cursor snapshot not under sessions: %s", a.AuthFile)
+	}
+	raw, err := os.ReadFile(a.AuthFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "cur-tok") || !strings.Contains(string(raw), "cur-rt") {
+		t.Fatalf("snapshot = %s", raw)
+	}
+	srcRaw, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(srcRaw), "cur-tok") {
+		t.Fatal("source file should stay")
+	}
+}
+
+func TestLoginCursorFileRejectsSkinny(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "auth.json")
+	if err := os.WriteFile(src, []byte(`{"accessToken":"only-at"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"cursor", "work", "--file", src}); code != 1 {
+		t.Fatalf("skinny cursor --file = %d, want 1", code)
+	}
+}
+
+func TestLoginKimiFileSnapshots(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "kimi-code.json")
+	if err := os.WriteFile(src, []byte(`{"access_token":"kimi-tok","refresh_token":"rt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"kimi", "work", "--file", src}); code != 0 {
+		t.Fatalf("login kimi --file = %d", code)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, ok := cfg.Account("kimi", "work")
+	if !ok || a.AuthFile == "" || a.AuthFile == src {
+		t.Fatalf("authFile should be an isolated copy, got %+v", a)
+	}
+	raw, err := os.ReadFile(a.AuthFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "kimi-tok") {
+		t.Fatalf("snapshot = %s", raw)
+	}
+}
+
+func TestUseKimiWritesOfficialSession(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "kimi-code.json")
+	if err := os.WriteFile(src, []byte(`{"access_token":"kimi-tok","refresh_token":"rt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountAuthFile("kimi", "work", src); err != nil {
+		t.Fatal(err)
+	}
+	out, code := captureStdout(t, func() int {
+		return Run([]string{"use", "kimi", "work", "--json"})
+	})
+	if code != 0 {
+		t.Fatalf("use kimi = %d out=%s", code, out)
+	}
+	if strings.Contains(out, "kimi-tok") {
+		t.Fatalf("json leaked token:\n%s", out)
+	}
+	dst := filepath.Join(os.Getenv("KIMI_CODE_HOME"), "credentials", "kimi-code.json")
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "kimi-tok") {
+		t.Fatalf("official kimi session = %s", raw)
+	}
+}
+
+func TestUseKimiRejectsBadSession(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "kimi-code.json")
+	if err := os.WriteFile(src, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(os.Getenv("KIMI_CODE_HOME"), "credentials", "kimi-code.json")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte(`{"access_token":"keep-me","refresh_token":"rt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountAuthFile("kimi", "work", src); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"use", "kimi", "work"}); code != 1 {
+		t.Fatalf("bad kimi use = %d, want 1", code)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "keep-me") {
+		t.Fatalf("official kimi session should stay: %s", raw)
+	}
+}
+
+func TestUseKimiRefusesOfficialBinding(t *testing.T) {
+	isolateEnv(t)
+	dst := filepath.Join(os.Getenv("KIMI_CODE_HOME"), "credentials", "kimi-code.json")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte(`{"access_token":"live-tok","refresh_token":"rt"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountAuthFile("kimi", "work", dst); err != nil {
+		t.Fatal(err)
+	}
+	if code := Run([]string{"use", "kimi", "work"}); code != 1 {
+		t.Fatalf("official-bound kimi use = %d, want 1", code)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "live-tok") {
+		t.Fatalf("official kimi session should stay: %s", raw)
+	}
+}
+
+func TestUseCodexRefused(t *testing.T) {
+	isolateEnv(t)
+	if code := Run([]string{"use", "codex", "home"}); code != 2 {
+		t.Fatalf("use codex = %d, want 2", code)
+	}
+}
+
+func TestLoginDeepseekFileRejected(t *testing.T) {
+	isolateEnv(t)
+	src := filepath.Join(t.TempDir(), "x.json")
+	if err := os.WriteFile(src, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if code := runLogin([]string{"deepseek", "home", "--file", src}); code != 2 {
+		t.Fatalf("login deepseek --file = %d, want 2", code)
 	}
 }
 

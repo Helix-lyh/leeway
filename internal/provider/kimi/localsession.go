@@ -77,6 +77,12 @@ func kimiCredentialPath(authFile string) (string, error) {
 	if authFile != "" {
 		return provider.LocalSessionPath(authFile)
 	}
+	return OfficialCredentialPath()
+}
+
+// OfficialCredentialPath is the Kimi CLI session file the official client
+// reads: ~/.kimi-code/credentials/kimi-code.json (KIMI_CODE_HOME overrides).
+func OfficialCredentialPath() (string, error) {
 	dir, err := kimiCodeHomeDir()
 	if err != nil {
 		return "", err

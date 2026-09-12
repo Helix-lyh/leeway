@@ -91,7 +91,7 @@ type Provider interface {
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `leeway login kimi`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
 | **grok** | 三选一：**`leeway login grok`**（私有 `GROK_HOME`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写）/ 官方 `~/.grok/auth.json`（共享）/ L2 Chrome cookie / 手动 header | 优先 `GET cli-chat-proxy.grok.com/v1/billing?format=credits`（`creditUsagePercent` + `currentPeriod.type`）；REST 4xx/5xx 回退 grok.com grpc-web 启发式 protobuf | 共享额度；窗口类型来自 REST `currentPeriod.type`（Weekly/Monthly） | 实测 REST `creditUsagePercent` 不再被 protobuf 截成整数 |
 | **cursor** | 委托官方 `cursor-agent login`（`leeway login cursor [ACCOUNT]`：`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME，只读 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；**无私有 auth.json 时**才兜底 macOS keychain | `POST api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（`limit − includedSpend`） | 不自实现浏览器 PKCE/poll；60d JWT 过期提示重登 |
-| **codex** | 复用 Codex CLI 已登录会话：`leeway login codex` 写入 `~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 复用 Codex CLI 会话，不自实现 OAuth |
+| **codex** | `leeway login codex` 写入隔离 `CODEX_HOME/auth.json`（不碰官方 `~/.codex`；`use` 也不写） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 复用 Codex CLI 会话，不自实现 OAuth |
 | **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `leeway login opencode-go`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额 | 多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 status 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
 | **commandcode** | `COMMAND_CODE_API_KEY` / `accounts[].apiKey`（`user_...`，commandcode.ai/studio） | `GET api.commandcode.ai/alpha/billing/credits`（`windowLimits.fiveHour/weekly` + `credits.monthlyCredits`）+ 可选 `/alpha/usage/summary` | 5-hour + Weekly + Monthly credits | 纯 API-key 多账号，同 opencode-go 订阅模式 |
 
@@ -124,7 +124,7 @@ L2 步骤（macOS）：
 - `leeway login opencode-go --cookie` 扫描全部 Chrome profile，每个登录态 = 一个账户候选
 - 多账户并发 ≤3；`--account work` 可过滤
 - 快速切换：`leeway use opencode-go <订阅>` 把 key 写入 DSH 凭据（`keyTarget`，可配置）
-- cursor / grok 的本地切号：`leeway use cursor|grok NAME`。cursor 写 Cursor IDE `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`）；grok 合并进 `~/.grok/auth.json`。探测和登录仍用隔离目录。
+- cursor / grok 的本地切号：`leeway use cursor|grok NAME`。cursor 写 Cursor IDE `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`）；grok 只回写文件里已有 `auth_mode`/`user_id` 的官方 `auth.json`（`login grok --file` 快照，不从 JWT 编造字段）。探测和登录仍用隔离目录。
 
 ## 8. CLI 设计（纯 CLI，无交互，agent 友好）
 
@@ -133,7 +133,7 @@ leeway usage [PROVIDER [ACCOUNT]] [--json] [--watch N] [--last N]  # 查额度�
 leeway login  PROVIDER [ACCOUNT]                                  # cursor/grok/codex/kimi → 官方 CLI；其余粘贴 key
 leeway logout PROVIDER [ACCOUNT]
 leeway status [--json]
-leeway use    PROVIDER ACCOUNT                                    # cursor → IDE + ~/.cursor/auth.json；grok → ~/.grok/auth.json；其余 → DSH
+leeway use    PROVIDER ACCOUNT                                    # cursor → IDE；grok → 完整 ~/.grok/auth.json；kimi 会话 → ~/.kimi-code；其余 → DSH
 leeway help [COMMAND]
 ```
 
