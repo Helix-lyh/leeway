@@ -339,8 +339,8 @@ func TestFetchUsageStatusClassification(t *testing.T) {
 		wantErr string
 	}{
 		{"ok", "usage_partial.json", 200, ""},
-		{"unauthorized", "usage_partial.json", 401, "session expired — run: codex login"},
-		{"forbidden", "usage_partial.json", 403, "session expired — run: codex login"},
+		{"unauthorized", "usage_partial.json", 401, "session expired — run: leeway login codex"},
+		{"forbidden", "usage_partial.json", 403, "session expired — run: leeway login codex"},
 		{"server error with body", "usage_partial.json", 500, "Codex API error 500: boom"},
 		{"server error empty", "", 502, "Codex API error 502."},
 	}
@@ -588,8 +588,8 @@ func TestFetchCreditsOnlyPartialSnapshot(t *testing.T) {
 func TestProviderFetchMissingSession(t *testing.T) {
 	p := codexProvider{}
 	_, err := p.Fetch(context.Background(), provider.FetchRequest{})
-	if err == nil || !strings.Contains(err.Error(), "codex login") {
-		t.Fatalf("err = %v, want codex login hint", err)
+	if err == nil || !strings.Contains(err.Error(), "leeway login codex") {
+		t.Fatalf("err = %v, want leeway login codex hint", err)
 	}
 }
 

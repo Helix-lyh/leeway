@@ -26,6 +26,7 @@ leeway 能做成，是因为先有人把「各家额度怎么查」走通了。�
 | CodexBar | https://github.com/steipete/CodexBar | 各家 fetcher / parser / 窗口归一 |
 | SweetCookieKit | https://github.com/steipete/SweetCookieKit | Chromium cookie 解密 |
 | OpenUsage.ai | https://github.com/robinebers/openusage · https://www.openusage.ai/ | Cursor api2 RPC、Grok REST |
+| Cockpit Tools | https://github.com/jlcodes99/cockpit-tools | 桌面切号落点：Cursor `state.vscdb` 的 `cursorAuth/*`、Grok 官方 `auth.json` registry 合并。只对照公开路径，不移植其代码 |
 | CrossUsage | https://github.com/barramee27/crossusage · https://crossusage.dev/ | 旧 OpenUsage 插件树、多账号库 |
 | OpenUsage.sh | https://github.com/janekbaraniewski/openusage · https://openusage.sh/ | 终端仪表盘覆盖面（本地花费档） |
 | UsageAtlas | https://github.com/SRX9/UsageAtlas · https://usageatlas.com/ | Codex app-server、不碰 OAuth 文件 |

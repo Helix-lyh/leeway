@@ -33,22 +33,24 @@ go install ./cmd/leeway
 go build -o leeway ./cmd/leeway && ./leeway usage
 
 leeway help
-leeway help auth
+leeway help login
 
 leeway usage
-leeway usage --provider cursor --account work
+leeway usage cursor work
 leeway usage --json
-leeway history
-leeway history --last 24 --provider cursor
+leeway usage --last 24 cursor
 
-leeway auth status
-leeway doctor
-leeway providers
+leeway status
+leeway login cursor
+leeway login kimi
+leeway logout cursor work
+leeway use cursor work
+leeway use grok home
 
 go test ./...
 ```
 
-日常看 `leeway help`；某一条看 `leeway help auth`（还有 usage / cookie / config / use / doctor / history）。无子命令时往 stderr 打帮助并退出 2。Codex / Kimi 用它们自己的登录：`codex login` / `kimi login`。`leeway use` 把 key 写给 DSH，不是切 leeway 自己看哪号。
+日常看 `leeway help`；某一条看 `leeway help login`（还有 usage / logout / status / use）。无子命令时往 stderr 打帮助并退出 2。`leeway login cursor/grok/codex/kimi` 走官方 CLI；其余粘贴 key。`leeway use` 把 cursor 写给 Cursor IDE + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`，Linux `~/.config/Cursor/...`），grok 写给 `~/.grok/auth.json`，其余写 DSH；不是切 leeway 自己看哪号。`PROVIDER` / `ACCOUNT` 写在命令后面，也可写成 `--provider` / `--account`。近 N 次点阵用 `usage --last`。
 
 退出码：`0` 全部通过；`1` 至少一个 provider 报错或未配置；`2` 用法 / 配置错误。
 

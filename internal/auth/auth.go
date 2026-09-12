@@ -1,7 +1,7 @@
 // Package auth resolves cookie headers for cookie-based providers.
 //
 // Sources, by preference: manual cookie header (config) > imported browser
-// cookies (~/.cache/leeway/cookies.json, populated by `leeway cookie import`).
+// cookies (~/.cache/leeway/cookies.json, populated by `leeway login --cookie`).
 // Browser importers (chrome/edge/kimi-desktop) live in this package.
 package auth
 
@@ -19,7 +19,7 @@ import (
 	"leeway/internal/config"
 )
 
-// ImportTTL bounds the freshness of imported cookies; `cookie import --force`
+// ImportTTL bounds the freshness of imported cookies; `login --cookie --force`
 // refreshes regardless.
 const ImportTTL = 12 * time.Hour
 
@@ -146,7 +146,7 @@ func ClearCookieCache(providerID, profile string) error {
 }
 
 // AllCookieCaches lists every imported cookie header in stable order
-// (provider ID, then import time) so `cookie list` output is deterministic.
+// (provider ID, then import time).
 func AllCookieCaches() ([]CookieCache, error) {
 	cache, err := readCache()
 	if err != nil {
@@ -193,7 +193,7 @@ func ResolveCookieHeader(providerID string, pc config.ProviderConfig, account st
 	if ok && cc.Header != "" {
 		return sanitizeHeader(cc.Header), nil
 	}
-	return "", fmt.Errorf("no cookie credentials for %q — run: leeway cookie import --provider %s (or: leeway cookie set --provider %s --manual ...)", providerID, providerID, providerID)
+	return "", fmt.Errorf("no cookie credentials for %q — run: leeway login %s --cookie (or: leeway login %s --manual ...)", providerID, providerID, providerID)
 }
 
 // cacheUnreadableError distinguishes a corrupt/unreadable cookie cache from
@@ -204,7 +204,7 @@ func cacheUnreadableError(err error) error {
 	if perr != nil {
 		p = "(unresolvable)"
 	}
-	return fmt.Errorf("%w: %v — delete %s and re-run leeway cookie import", ErrCookieCacheUnreadable, err, p)
+	return fmt.Errorf("%w: %v — delete %s and re-run leeway login --cookie", ErrCookieCacheUnreadable, err, p)
 }
 
 // RemoveCookieCacheFile deletes cookies.json. A missing file is success.
@@ -253,10 +253,10 @@ func manualHeaderFor(providerID string, pc config.ProviderConfig, account string
 // Import imports cookies for a provider from a browser and returns the
 // "name=value; name=value" header. Browsers: "chrome" (default), "edge",
 // "kimi-desktop" (Kimi desktop app's own store), or "manual" (use
-// `leeway cookie set --provider <id> --manual ...` instead). profile names a
+// `leeway login <id> --manual ...` instead). profile names a
 // specific Chrome profile ("Default", "Profile 1", …); empty auto-picks the
 // profile with the most matching cookies. Imported headers are cached with
-// ImportTTL; `leeway cookie import --force` refreshes regardless. Concrete
+// ImportTTL; `leeway login --cookie --force` refreshes regardless. Concrete
 // importers live in chrome.go and kimi_desktop.go.
 func Import(providerID, browser, profile string) (string, error) {
 	return importImpl(providerID, browser, profile)

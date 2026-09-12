@@ -73,8 +73,8 @@ func TestResolveCookieHeaderPrecedence(t *testing.T) {
 	// Nothing stored anywhere (different provider, no entries): descriptive
 	// error naming the fix.
 	_, err := ResolveCookieHeader("opencode-go", config.ProviderConfig{}, "default")
-	if err == nil || !strings.Contains(err.Error(), "cookie import") {
-		t.Fatalf("absent err = %v, want cookie import hint", err)
+	if err == nil || !strings.Contains(err.Error(), "leeway login opencode-go --cookie") {
+		t.Fatalf("absent err = %v, want login --cookie hint", err)
 	}
 }
 

@@ -31,8 +31,8 @@ var defaultClient = &http.Client{Timeout: 15 * time.Second}
 
 // resolveToken resolves a per-account token: env override wins, then the
 // account's apiKey (config), then the official auth.json the cursor-agent
-// CLI wrote into this account's private HOME (when `leeway auth login
-// --provider cursor` was used), then the macOS keychain the official Cursor
+// CLI wrote into this account's private HOME (when `leeway login cursor`
+// was used), then the macOS keychain the official Cursor
 // client maintains. An account that holds a private auth.json never falls
 // back to the keychain: the keychain tracks the official CLI's own (possibly
 // different) account, so falling through would silently mix accounts.
@@ -50,11 +50,11 @@ func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error
 		return "", err
 	} else if ok {
 		if ca.AccessToken == "" {
-			return "", errors.New("Cursor auth file is empty — re-run: leeway auth login --provider cursor" + accountSuffix(req.Account))
+			return "", errors.New("Cursor auth file is empty — re-run: leeway login cursor" + accountSuffix(req.Account))
 		}
 		if exp, ok := auth.JWTExpiry(ca.AccessToken); ok && !exp.After(time.Now()) {
-			return "", fmt.Errorf("Cursor session for account %q expired at %s — re-run: leeway auth login --provider cursor --account %s",
-				req.Account, exp.Local().Format("2006-01-02 15:04"), req.Account)
+			return "", fmt.Errorf("Cursor session for account %q expired at %s — re-run: leeway login cursor%s",
+				req.Account, exp.Local().Format("2006-01-02 15:04"), accountSuffix(req.Account))
 		}
 		return ca.AccessToken, nil
 	}
@@ -63,13 +63,13 @@ func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error
 	} else if err != nil && !auth.IsKeychainItemMissing(err) {
 		return "", err
 	}
-	return "", errors.New("no Cursor token — set CURSOR_ACCESS_TOKEN, run `leeway auth login --provider cursor`, or sign in with the Cursor CLI")
+	return "", errors.New("no Cursor token — set CURSOR_ACCESS_TOKEN, run `leeway login cursor`, or sign in with the Cursor CLI")
 }
 
-// accountSuffix renders the --account flag for an account in hints.
+// accountSuffix appends a named account to a suggested command.
 func accountSuffix(account string) string {
 	if account != "" && account != "default" {
-		return " --account " + account
+		return " " + account
 	}
 	return ""
 }
@@ -125,7 +125,7 @@ func (p *cursorProvider) fetchUsage(ctx context.Context, token string) (*usageDa
 	}
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return nil, fmt.Errorf("Cursor token rejected (HTTP %d) — re-run: leeway auth login --provider cursor", status)
+		return nil, fmt.Errorf("Cursor token rejected (HTTP %d) — re-run: leeway login cursor", status)
 	case status < 200 || status >= 300:
 		return nil, fmt.Errorf("Cursor usage request failed (HTTP %d): %.120s", status, strings.TrimSpace(string(body)))
 	}

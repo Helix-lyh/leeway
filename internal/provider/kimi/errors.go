@@ -27,7 +27,7 @@ func (e *Error) Error() string { return e.Msg }
 // MissingToken mirrors KimiAPIError.missingToken.
 func MissingToken() error {
 	return &Error{Kind: KindMissingToken,
-		Msg: "Kimi auth token is missing. Add your JWT token from the Kimi console (or: leeway cookie import --provider kimi)."}
+		Msg: "Kimi auth token is missing. Add your JWT token from the Kimi console (or: leeway login kimi --cookie)."}
 }
 
 // InvalidToken mirrors KimiAPIError.invalidToken. The hint covers both the
@@ -35,7 +35,7 @@ func MissingToken() error {
 // refresh a web token, so re-importing the browser session is the fix).
 func InvalidToken() error {
 	return &Error{Kind: KindInvalidToken,
-		Msg: "Kimi auth token is invalid or expired. Refresh it (KIMI_AUTH_TOKEN, or: leeway cookie import --force --provider kimi; or: kimi login)."}
+		Msg: "Kimi auth token is invalid or expired. Refresh it (KIMI_AUTH_TOKEN, or: leeway login kimi --cookie --force)."}
 }
 
 // MissingAPIKey mirrors KimiAPIError.missingAPIKey.

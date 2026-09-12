@@ -9,7 +9,7 @@ import (
 // errMissingSession is the clear error for absent Codex credentials; the
 // fetch orchestrator maps missing credentials to "not_configured" before
 // Fetch is called, so this is a defensive backstop (never panic).
-var errMissingSession = errors.New("missing Codex session — run: codex login")
+var errMissingSession = errors.New("missing Codex session — run: leeway login codex")
 
 // errNoRateLimitsFound mirrors CodexBar's UsageError.noRateLimitsFound.
 var errNoRateLimitsFound = errors.New("found sessions, but no rate limit events yet")
@@ -38,7 +38,7 @@ func (e *fetchError) Error() string {
 	case kindUnauthorized:
 		// CodexBar: "Codex OAuth token expired or invalid. Run `codex` to
 		// re-authenticate."; leeway contract keeps the same hint shorter.
-		return "session expired — run: codex login"
+		return "session expired — run: leeway login codex"
 	case kindInvalidResponse:
 		return "Invalid response from Codex usage API."
 	case kindServerError:

@@ -127,10 +127,10 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 > 不逆向重放私有协议。**
 
 - 逆向仅用于"搞清楚机制"，不作为实现手段。
-- leeway 现实现：`leeway auth login --provider cursor` → 跑官方 `cursor-agent login`
+- leeway 现实现：`leeway login cursor` → 跑官方 `cursor-agent login`
   （env `AGENT_CLI_CREDENTIAL_STORE=file` + `HOME=<sessions>/cursor[-acct]`）→ 官方自己完成
   浏览器授权并写 `<home>/.cursor/auth.json` → leeway 读回校验 + 显示 JWT 到期。
-- `auth logout --provider cursor` 只删私有 HOME，**keychain 官方会话不碰**。
+- `leeway logout cursor` 只删私有 HOME，**keychain 官方会话不碰**。
 
 ---
 
@@ -138,15 +138,15 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 
 | provider | 每账号凭据载体 | 登录命令 | token 生命周期 | 切号 |
 |---|---|---|---|---|
-| cursor | 私有 `HOME` 下的 `.cursor/auth.json`（0600） | `leeway auth login --provider cursor [--account A]` | 60d JWT，无 refresh，过期报错提示重登 | 换 `--account` |
-| grok | 私有 `GROK_HOME` 的 `auth.json`，自动绑 `accounts[].authFile` | `leeway auth login --provider grok [--account A]` | OIDC 自动 refresh 写回 | 换 `--account` |
-| opencode-go | `accounts[].apiKey`（订阅 key） | `config set-api-key --account` | key 不过期 | 换 `--account` |
-| deepseek | `apiKeys` / env | `config set-api-key` | key 不过期 | — |
+| cursor | 私有 `HOME` 下的 `.cursor/auth.json`（0600） | `leeway login cursor [A]` | 60d JWT，无 refresh，过期报错提示重登 | 换账号名 |
+| grok | 私有 `GROK_HOME` 的 `auth.json`，自动绑 `accounts[].authFile` | `leeway login grok [A]` | OIDC 自动 refresh 写回 | 换账号名 |
+| opencode-go | `accounts[].apiKey`（订阅 key） | `leeway login opencode-go A` | key 不过期 | 换账号名 |
+| deepseek | `apiKeys` / env | `leeway login deepseek` | key 不过期 | — |
 
 - fetch 层 token 解析（cursor）：env `CURSOR_ACCESS_TOKEN` > account apiKey > **私有
   auth.json（有即用、空/过期报错，不回退 keychain 防账号混用）** > keychain（仅兜底）。
 - fetch 层 not_configured 拦截已计入 `acc.AuthFile`（修过 bug + 回归测试）。
-- `leeway auth status` 提供多账号台账（凭据来源 + 到期时间），cursor 区分
+- `leeway status` 提供多账号台账（凭据来源 + 到期时间），cursor 区分
   私有 auth.json vs keychain，grok 区分私有 vs `~/.grok (shared)`。
 
 ---
@@ -184,8 +184,8 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 
 | # | 事项 | 现状 | 预期方案 | 验收 |
 |---|---|---|---|---|
-| A1 | **Cursor 多账号登录** | 无私有 auth.json 时会兜底 keychain | `leeway auth login --provider cursor`；第二号加 `--account work` | `leeway auth status` 各号一行私有 auth.json；`usage --provider cursor --account work` 出数据 |
-| A2 | **Grok 默认账号私有化**（可选） | 不写 `--account` 时不读共享 `~/.grok` | 需要独立台账时跑 `leeway auth login --provider grok` | `auth status` 显示私有 authFile |
+| A1 | **Cursor 多账号登录** | 无私有 auth.json 时会兜底 keychain | `leeway login cursor`；第二号加 `work` | `leeway status` 各号一行私有 auth.json；`usage cursor work` 出数据 |
+| A2 | **Grok 默认账号私有化**（可选） | 不写账号时不读共享 `~/.grok` | 需要独立台账时跑 `leeway login grok` | `status` 显示私有 authFile |
 
 > 前提：`cursor-agent` 与 `grok` CLI 在 PATH（leeway 找不到会明确提示安装命令）。
 
@@ -194,7 +194,7 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 | # | 事项 | 根因/证据 | 预期方案 | 改动面 |
 |---|---|---|---|---|
 | B1 | **Cursor Credits 显示 bug（已落地）** | GetCurrentPeriodUsage 响应无 `remaining`，`toModel` 的 Credits 条恒 `0.00 / 40000.00` | `remaining = limit − includedSpend`（limit>0 时），语义变成"周期内可花额度"；或直接去掉现金条只留百分比。**推荐前者** | `cursor/fetcher.go toModel` 约 5 行 + 1 个单测 |
-| B2 | **文档/注释同步（已落地）** | `cursor/provider.go` 头注释仍写"env>apiKey>keychain"，漏私有 auth.json；README 未列 cursor provider 与 `auth login/logout/status`；DESIGN/PROVIDER-FETCH 均未收 cursor + 委托模型 | 同步 provider.go 注释；README 补 Cursor 行 + auth 命令 + §4 引用；DESIGN/PROVIDER-FETCH 各补一小节 | 3 个 md + 1 段注释 |
+| B2 | **文档/注释同步（已落地）** | `cursor/provider.go` 头注释仍写"env>apiKey>keychain"，漏私有 auth.json；README 未列 cursor provider 与 `login/logout/status`；DESIGN/PROVIDER-FETCH 均未收 cursor + 委托模型 | 同步 provider.go 注释；README 补 Cursor 行 + login 命令 + §4 引用；DESIGN/PROVIDER-FETCH 各补一小节 | 3 个 md + 1 段注释 |
 
 ### C. 功能增强（P2）
 
@@ -214,7 +214,7 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 ## 8. 建议执行顺序
 
 1. **B1+B2**（小改，我先做，30–60 分钟可交付）→ 顺带把 README 的 Cursor 支持补齐。
-2. **A1+A2**（各约 2 分钟；B 完成后跑，auth status 台账即全绿）。
+2. **A1+A2**（各约 2 分钟；B 完成后跑，`status` 台账即全绿）。
 3. **C1**（Grok REST，收益明确：精度 + 周期类型，半天内）。
 4. **C2**（Command Code，有 API key 后做端到端验收）。
 

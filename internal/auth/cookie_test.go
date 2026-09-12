@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -254,15 +255,22 @@ func TestDomainsForProvider(t *testing.T) {
 // ---- dispatch errors (no network, no keychain) ----
 
 func TestImportDispatchErrors(t *testing.T) {
-	if _, err := Import("grok", "manual", ""); err == nil || !strings.Contains(err.Error(), "cookie set") {
-		t.Fatalf("manual should point at `cookie set`, got %v", err)
+	if _, err := Import("grok", "manual", ""); err == nil || !strings.Contains(err.Error(), "leeway login grok --manual") {
+		t.Fatalf("manual should point at login --manual, got %v", err)
 	}
-	if _, err := Import("grok", "firefox", ""); err == nil || !strings.Contains(err.Error(), "manual cookies") {
-		t.Fatalf("unsupported browser should suggest manual cookies, got %v", err)
+	if _, err := Import("grok", "firefox", ""); err == nil || !strings.Contains(err.Error(), "leeway login") {
+		t.Fatalf("unsupported browser should suggest leeway login --manual, got %v", err)
 	}
 	// Unknown provider must fail before any keychain access.
 	if _, err := Import("bogus", "chrome", ""); err == nil || !strings.Contains(err.Error(), "unknown provider") {
 		t.Fatalf("unknown provider should error before touching the keychain, got %v", err)
+	}
+	if runtime.GOOS == "darwin" {
+		return
+	}
+	_, err := Import("grok", "chrome", "")
+	if err == nil || !strings.Contains(err.Error(), "macOS-only") {
+		t.Fatalf("linux chrome import = %v, want macOS-only hint", err)
 	}
 }
 

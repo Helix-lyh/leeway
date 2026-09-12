@@ -57,7 +57,7 @@ func (*commandCode) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
 		EnvAPIKey:        []string{"COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY"},
 		SupportsAccounts: true,
-		LoginHint:        "run: leeway auth login --provider commandcode",
+		LoginHint:        "run: leeway login commandcode",
 	}
 }
 

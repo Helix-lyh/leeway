@@ -45,6 +45,28 @@ func CursorAuthFile(account string) (string, error) {
 	return filepath.Join(home, ".cursor", "auth.json"), nil
 }
 
+// WriteCursorAuth writes an official-format auth.json into an account's
+// private HOME (0600). Used when switching away from an official Cursor
+// session that leeway does not already hold.
+func WriteCursorAuth(account string, ca CursorAuth) error {
+	p, err := CursorAuthFile(account)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		return err
+	}
+	raw, err := json.Marshal(ca)
+	if err != nil {
+		return err
+	}
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, p)
+}
+
 // LoadCursorAuth reads an account's official auth.json. ok is false when no
 // login has been done for the account yet; a present but unreadable file is
 // an error so the user is told to re-login rather than silently falling back

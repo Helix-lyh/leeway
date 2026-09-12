@@ -7,7 +7,7 @@
 // billing-cycle bounds. leeway reuses that endpoint.
 //
 // Sign-in is delegated to the official cursor-agent CLI
-// (`leeway auth login --provider cursor`): leeway runs it with
+// (`leeway login cursor`): leeway runs it with
 // AGENT_CLI_CREDENTIAL_STORE=file and a private HOME, then reads the
 // auth.json the CLI wrote. The browser PKCE/poll protocol is not
 // reimplemented. Each account has its own HOME, isolated from the official

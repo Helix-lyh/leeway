@@ -10,7 +10,7 @@ import (
 )
 
 func errMissingKey() error {
-	return fmt.Errorf("missing Command Code API key — set COMMAND_CODE_API_KEY or: leeway config set-api-key --provider commandcode")
+	return fmt.Errorf("missing Command Code API key — set COMMAND_CODE_API_KEY or: leeway login commandcode")
 }
 
 func errInvalidKey(status int) error {

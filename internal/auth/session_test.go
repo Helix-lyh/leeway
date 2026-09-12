@@ -85,6 +85,18 @@ func TestLoadCursorAuth(t *testing.T) {
 	}
 }
 
+func TestWriteCursorAuth(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", dir)
+	if err := WriteCursorAuth("work", CursorAuth{AccessToken: "tok-write", RefreshToken: "rt"}); err != nil {
+		t.Fatal(err)
+	}
+	ca, ok, err := LoadCursorAuth("work")
+	if err != nil || !ok || ca.AccessToken != "tok-write" || ca.RefreshToken != "rt" {
+		t.Fatalf("wrote %+v ok=%v err=%v", ca, ok, err)
+	}
+}
+
 func TestListCursorSessionAccounts(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LEEWAY_SESSIONS", dir)

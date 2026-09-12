@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -44,11 +45,11 @@ func keychainKey(service, providerID string) (string, error) {
 		if detail != "" {
 			detail = ": " + detail
 		}
-		return "", fmt.Errorf("could not read the %q keychain key%v — grant keychain access (first import prompts) or use manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", service, detail, providerID)
+		return "", fmt.Errorf("could not read the %q keychain key%v — grant keychain access (first import prompts) or use manual cookies: leeway login %s --manual \"name=value; ...\"", service, detail, providerID)
 	}
 	key := strings.TrimSpace(string(out))
 	if key == "" {
-		return "", fmt.Errorf("the %q keychain key is empty — grant keychain access or use manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", service, providerID)
+		return "", fmt.Errorf("the %q keychain key is empty — grant keychain access or use manual cookies: leeway login %s --manual \"name=value; ...\"", service, providerID)
 	}
 	return key, nil
 }
@@ -512,12 +513,15 @@ func importChrome(providerID, browser, profile string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if runtime.GOOS != "darwin" {
+		return "", fmt.Errorf("browser cookie import is macOS-only — on Linux use: leeway login %s --manual \"name=value; ...\"", providerID)
+	}
 	userData, err := chromeUserDataDir(browser)
 	if err != nil {
 		return "", err
 	}
 	if fi, err := os.Stat(userData); err != nil || !fi.IsDir() {
-		return "", fmt.Errorf("%s is not installed or its profile directory %s is missing — log in to %s first, or use manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", browser, userData, browser, providerID)
+		return "", fmt.Errorf("%s is not installed or its profile directory %s is missing — log in to %s first, or use manual cookies: leeway login %s --manual \"name=value; ...\"", browser, userData, browser, providerID)
 	}
 	service := "Chrome Safe Storage"
 	if browser == "edge" {
@@ -529,7 +533,7 @@ func importChrome(providerID, browser, profile string) (string, error) {
 	}
 	dbPath, err := pickCookieDB(userData, profile, domains)
 	if err != nil {
-		return "", fmt.Errorf("%s cookie import failed: %v — log in to %s in %s, then retry `leeway cookie import --provider %s --force`; or use manual cookies", browser, err, providerID, browser, providerID)
+		return "", fmt.Errorf("%s cookie import failed: %v — log in to %s in %s, then retry `leeway login %s --cookie --force`; or use --manual", browser, err, providerID, browser, providerID)
 	}
 	db, err := openCookieDB(dbPath)
 	if err != nil {
@@ -543,7 +547,7 @@ func importChrome(providerID, browser, profile string) (string, error) {
 	dbVersion := cookieDatabaseVersion(db)
 	decoded, dropped, decrypted := decryptRows(rows, password, dbVersion)
 	if encryptedCookiesUnusable(dropped, decrypted) {
-		return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
+		return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway login %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
 	}
 	header := buildHeader(decoded)
 	if header == "" {
@@ -551,9 +555,9 @@ func importChrome(providerID, browser, profile string) (string, error) {
 			// Cookies were found but every encrypted value failed to decrypt:
 			// re-logging-in cannot fix that, the key is stale or keychain access
 			// was denied mid-import.
-			return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
+			return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway login %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
 		}
-		return "", fmt.Errorf("no %s session cookies for %v found in %s — log in to %s in %s, then retry `leeway cookie import --provider %s --force`", providerID, domains, browser, providerID, browser, providerID)
+		return "", fmt.Errorf("no %s session cookies for %v found in %s — log in to %s in %s, then retry `leeway login %s --cookie --force`", providerID, domains, browser, providerID, browser, providerID)
 	}
 	return header, nil
 }

@@ -5,7 +5,7 @@
 // Two credential layers, matching CodexBar's API strategy:
 //
 //   - Required: DeepSeek API key (DEEPSEEK_API_KEY or DEEPSEEK_KEY, or
-//     `leeway config set-api-key`). The wallet balance comes from
+//     `leeway login deepseek`). The wallet balance comes from
 //     GET https://api.deepseek.com/user/balance with
 //     Authorization: Bearer <apiKey> (platform.deepseek.com is WAF-protected
 //     and rejects API-key calls).

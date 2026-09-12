@@ -38,7 +38,7 @@ func (*grokProvider) AuthSpec() provider.AuthSpec {
 		UsesCookies:      true,
 		CookieDomains:    []string{"grok.com"},
 		LocalAuthFiles:   []string{"~/.grok/auth.json"},
-		LoginHint:        "leeway auth login --provider grok",
+		LoginHint:        "leeway login grok",
 		SupportsAccounts: true, // per-account auth.json via account.authFile
 	}
 }

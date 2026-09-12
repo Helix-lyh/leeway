@@ -91,7 +91,7 @@ func ResolveCredentials(p provider.Provider, cfg *config.Config, account string)
 		if err == nil {
 			creds.CodexAuth = cx
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return creds, fmt.Errorf("Codex auth.json unreadable: %w — run: codex login", err)
+			return creds, fmt.Errorf("Codex auth.json unreadable: %w — run: leeway login codex", err)
 		}
 	}
 	return creds, nil
@@ -249,6 +249,17 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 				AuthFile:    acc.AuthFile,
 				Email:       acc.Email,
 			}
+			if p.AuthSpec().UsesCodexCLI && acc.AuthFile != "" {
+				cx, err := loadCodexAuthFile(acc.AuthFile)
+				if err == nil {
+					req.Creds.CodexAuth = cx
+				} else if !errors.Is(err, os.ErrNotExist) {
+					ar.Status = "error"
+					ar.Error = err.Error()
+					results[i] = accResult{acc, ar}
+					return
+				}
+			}
 			if !canAttemptFetch(p, req.Creds) && acc.AuthFile == "" {
 				if credsErr != nil && !errors.Is(credsErr, auth.ErrCookieCacheUnreadable) {
 					ar.Status = "error"
@@ -320,8 +331,13 @@ func accountsFor(p provider.Provider, cfg *config.Config, filter string) []confi
 		return hit
 	}
 	accs = config.DropDefaultAccounts(accs)
-	if len(accs) == 0 && !p.AuthSpec().SupportsAccounts {
-		return []config.AccountConfig{{Name: "default"}}
+	if len(accs) == 0 {
+		if a, ok := cfg.Account(p.ID(), "default"); ok && a.AuthFile != "" {
+			return []config.AccountConfig{a}
+		}
+		if !p.AuthSpec().SupportsAccounts {
+			return []config.AccountConfig{{Name: "default"}}
+		}
 	}
 	return accs
 }
@@ -345,22 +361,22 @@ func overlayAccountCreds(base provider.Credentials, acc config.AccountConfig, co
 func missingCredentialHint(id string, spec provider.AuthSpec) string {
 	switch {
 	case spec.UsesKeychain:
-		return "missing Cursor token — run: leeway auth login --provider cursor (or set CURSOR_ACCESS_TOKEN / config set-api-key)"
+		return "missing Cursor token — run: leeway login cursor (or set CURSOR_ACCESS_TOKEN)"
 	case len(spec.EnvAPIKey) > 0 && spec.UsesCookies:
 		if len(spec.EnvAuthToken) > 0 {
-			return fmt.Sprintf("missing credentials — set %s or %s or: leeway config set-api-key --provider %s --account NAME (or: leeway cookie import --provider %s)", spec.EnvAPIKey[0], spec.EnvAuthToken[0], id, id)
+			return fmt.Sprintf("missing credentials — set %s or %s or: leeway login %s (or: leeway login %s --cookie)", spec.EnvAPIKey[0], spec.EnvAuthToken[0], id, id)
 		}
-		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key --provider %s --account NAME (or: leeway cookie import --provider %s)", spec.EnvAPIKey[0], id, id)
+		return fmt.Sprintf("missing credentials — set %s or: leeway login %s (or: leeway login %s --cookie)", spec.EnvAPIKey[0], id, id)
 	case len(spec.EnvAPIKey) > 0:
-		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key", spec.EnvAPIKey[0])
+		return fmt.Sprintf("missing credentials — set %s or: leeway login %s", spec.EnvAPIKey[0], id)
 	case len(spec.EnvAuthToken) > 0:
-		return fmt.Sprintf("missing credentials — set %s or: leeway config set-api-key", spec.EnvAuthToken[0])
-	case spec.UsesCookies:
-		return "missing cookies — run: leeway cookie import (or: leeway cookie set --manual ...)"
-	case spec.UsesCodexCLI:
-		return "missing Codex session — run: codex login"
+		return fmt.Sprintf("missing credentials — set %s or: leeway login %s", spec.EnvAuthToken[0], id)
 	case len(spec.LocalAuthFiles) > 0 && spec.LoginHint != "":
 		return "missing local session — " + spec.LoginHint
+	case spec.UsesCookies:
+		return "missing cookies — run: leeway login grok --manual (or: leeway login kimi --cookie)"
+	case spec.UsesCodexCLI:
+		return "missing Codex session — run: leeway login codex"
 	default:
 		return "missing credentials"
 	}

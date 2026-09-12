@@ -22,7 +22,19 @@ type codexAuthFile struct {
 
 // loadCodexAuth reads the Codex CLI session file if present.
 func loadCodexAuth() (*provider.CodexAuth, error) {
-	p, err := codex.AuthFilePath()
+	return loadCodexAuthFile("")
+}
+
+func loadCodexAuthFile(path string) (*provider.CodexAuth, error) {
+	var (
+		p   string
+		err error
+	)
+	if path != "" {
+		p, err = provider.LocalSessionPath(path)
+	} else {
+		p, err = codex.AuthFilePath()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -48,8 +60,7 @@ func loadCodexAuth() (*provider.CodexAuth, error) {
 }
 
 // HasCodexAuth reports whether a usable Codex CLI session exists, using the
-// same resolution as credential loading (doctor uses it so its diagnostic
-// matches what fetch actually needs).
+// same resolution as credential loading.
 func HasCodexAuth() bool {
 	cx, err := loadCodexAuth()
 	return err == nil && cx != nil && cx.AccessToken != ""

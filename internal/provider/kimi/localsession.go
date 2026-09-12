@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"leeway/internal/provider"
 )
 
 // kimiOAuthHost returns the kimi-code OAuth server (KIMI_CODE_OAUTH_HOST
@@ -63,7 +65,7 @@ type kimiCodeOAuthCredential struct {
 // errSessionMissing distinguishes "no CLI session file" (falls back to the
 // generic missing-token error) from "session exists but unusable" (surfaces
 // its own hint).
-var errSessionMissing = errors.New("kimi CLI session not found — run: kimi login")
+var errSessionMissing = errors.New("kimi CLI session not found — run: leeway login kimi")
 
 // errSessionExpired marks refresh failures of a present-but-expired session so
 // callers can classify them with errors.Is instead of substring matching.
@@ -71,26 +73,37 @@ var errSessionExpired = errors.New("kimi CLI session expired")
 
 // loadKimiCodeCredential reads the CLI session file. Returns a descriptive
 // error when missing or unreadable.
-func loadKimiCodeCredential() (*kimiCodeOAuthCredential, error) {
+func kimiCredentialPath(authFile string) (string, error) {
+	if authFile != "" {
+		return provider.LocalSessionPath(authFile)
+	}
 	dir, err := kimiCodeHomeDir()
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "credentials", "kimi-code.json"))
+	return filepath.Join(dir, "credentials", "kimi-code.json"), nil
+}
+
+func loadKimiCodeCredential(authFile string) (*kimiCodeOAuthCredential, string, error) {
+	p, err := kimiCredentialPath(authFile)
+	if err != nil {
+		return nil, "", err
+	}
+	raw, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, errSessionMissing
+		return nil, "", errSessionMissing
 	}
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var c kimiCodeOAuthCredential
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return nil, fmt.Errorf("parsing kimi-code.json: %w", err)
+		return nil, "", fmt.Errorf("parsing kimi-code.json: %w", err)
 	}
 	if strings.TrimSpace(c.AccessToken) == "" {
-		return nil, errors.New("kimi CLI session has no access_token — run: kimi login")
+		return nil, "", errors.New("kimi CLI session has no access_token — run: leeway login kimi")
 	}
-	return &c, nil
+	return &c, p, nil
 }
 
 // fresh mirrors KimiSettingsReader.isKimiCodeCredentialFresh: the token is
@@ -104,15 +117,15 @@ func (c *kimiCodeOAuthCredential) fresh(now time.Time) bool {
 // CLI's oauth-manager. Returns a re-login hint when refresh fails. ctx bounds
 // the refresh request so a hung OIDC server cannot block the fetch past the
 // orchestrator's deadline.
-func localCLIToken(ctx context.Context, now time.Time) (string, error) {
-	cred, err := loadKimiCodeCredential()
+func localCLIToken(ctx context.Context, now time.Time, authFile string) (string, error) {
+	cred, path, err := loadKimiCodeCredential(authFile)
 	if err != nil {
 		return "", err
 	}
 	if cred.fresh(now) {
 		return strings.TrimSpace(cred.AccessToken), nil
 	}
-	if err := refreshKimiCredential(ctx, cred); err != nil {
+	if err := refreshKimiCredential(ctx, cred, path); err != nil {
 		return "", err
 	}
 	return strings.TrimSpace(cred.AccessToken), nil
@@ -122,10 +135,10 @@ func localCLIToken(ctx context.Context, now time.Time) (string, error) {
 // rotated tokens back to kimi-code.json. The client_id is decoded from the
 // refresh_token JWT payload (the kimi CLI embeds it there). Failures wrap
 // errSessionExpired so callers can classify them with errors.Is.
-func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential) error {
+func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential, path string) error {
 	clientID := jwtClaim(cred.RefreshToken, "client_id")
 	if clientID == "" || cred.RefreshToken == "" {
-		return fmt.Errorf("%w with no usable refresh token — run: kimi login", errSessionExpired)
+		return fmt.Errorf("%w with no usable refresh token — run: leeway login kimi", errSessionExpired)
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
@@ -139,11 +152,11 @@ func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential) e
 	req.Header.Set("User-Agent", "leeway")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w; refresh failed: %v — run: kimi login", errSessionExpired, err)
+		return fmt.Errorf("%w; refresh failed: %v — run: leeway login kimi", errSessionExpired, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w; refresh failed (HTTP %d) — run: kimi login", errSessionExpired, resp.StatusCode)
+		return fmt.Errorf("%w; refresh failed (HTTP %d) — run: leeway login kimi", errSessionExpired, resp.StatusCode)
 	}
 	var body struct {
 		AccessToken  string `json:"access_token"`
@@ -153,10 +166,10 @@ func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential) e
 		TokenType    string `json:"token_type"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return fmt.Errorf("%w; refresh response unreadable: %v — run: kimi login", errSessionExpired, err)
+		return fmt.Errorf("%w; refresh response unreadable: %v — run: leeway login kimi", errSessionExpired, err)
 	}
 	if body.AccessToken == "" || body.RefreshToken == "" {
-		return fmt.Errorf("%w; refresh returned incomplete tokens — run: kimi login", errSessionExpired)
+		return fmt.Errorf("%w; refresh returned incomplete tokens — run: leeway login kimi", errSessionExpired)
 	}
 	cred.AccessToken = body.AccessToken
 	cred.RefreshToken = body.RefreshToken
@@ -167,19 +180,14 @@ func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential) e
 	if body.TokenType != "" {
 		cred.TokenType = body.TokenType
 	}
-	return cred.writeBack()
+	return cred.writeBack(path)
 }
 
 // writeBack persists the refreshed credential to kimi-code.json (0600),
 // preserving any unknown fields. The write is atomic (temp file + rename) so
 // a crash mid-write cannot truncate the session file the kimi CLI itself
 // depends on.
-func (c *kimiCodeOAuthCredential) writeBack() error {
-	dir, err := kimiCodeHomeDir()
-	if err != nil {
-		return err
-	}
-	p := filepath.Join(dir, "credentials", "kimi-code.json")
+func (c *kimiCodeOAuthCredential) writeBack(p string) error {
 	raw, err := os.ReadFile(p)
 	if err != nil {
 		return err

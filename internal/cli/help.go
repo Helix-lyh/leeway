@@ -8,176 +8,107 @@ import (
 
 const rootHelp = `leeway — 查各家 AI 编程额度还剩多少
 
-查额度
-  leeway usage                                 全部已配置的订阅
-  leeway usage --provider cursor               只看一家
-  leeway usage --provider cursor --account work
-  leeway usage --json                          给脚本 / agent
-  leeway usage --watch 30                      每 30 秒刷新
-  leeway usage --no-delta                      表上不画相对上次的增量
-  leeway history                               近 12 次用量点阵
-  leeway history --last 24 --provider cursor
+  usage  [PROVIDER [ACCOUNT]]   [--json] [--watch N] [--last N]
+  login  PROVIDER [ACCOUNT]     [--cookie] [--manual] [--file] [--key]
+                                [--browser] [--profile] [--force]
+                                [--no-browser] [--timeout N]
+  logout PROVIDER [ACCOUNT]
+  status                        [--json]
+  use    PROVIDER ACCOUNT       [--json]
+  help   [COMMAND]
 
-管订阅
-  leeway auth status                           谁已登录、何时到期
-  leeway auth login --provider ID [--account TAG]
-  leeway auth logout --provider ID [--account TAG]
+PROVIDER / ACCOUNT 也可写成 --provider / --account（tag、邮箱或订阅名）。
+不写 ACCOUNT 不读隐式 default（官方 keychain / 共享 ~/.grok）。
+某一条的参数：leeway help usage（还有 login / logout / status / use）。
+login cursor/grok/codex/kimi 走官方 CLI；其余粘贴 key。
 
-  浏览器登录（PATH 里要有官方 CLI）
-    cursor        leeway auth login --provider cursor
-                  不写 --account 时用邮箱当账号名；--account work 是 tag
-    grok          leeway auth login --provider grok [--account home]
-
-  API key（会打开申请页，粘贴 key，不回显）
-    opencode-go   leeway auth login --provider opencode-go --account work
-    commandcode   leeway auth login --provider commandcode --account goat
-    deepseek      leeway auth login --provider deepseek
-
-  只查某一个订阅
-    leeway usage --provider opencode-go --account work
-
-  列出已存的 API key（脱敏）
-    leeway config keys --provider opencode-go
-
-  把某个订阅的 key 写给 DSH 用（不影响 leeway 自己看哪号）
-    leeway use --provider opencode-go --account work
-
-Codex / Kimi 用它们自己的登录：codex login / kimi login
-
-体检
-  leeway doctor                                缺什么、补哪条命令
-
-其他
-  leeway providers
-  leeway cookie import|set|list|clear --provider ID
-  leeway config path | set-api-key | keys
-  leeway help COMMAND                          usage / auth / cookie / config / use / doctor / providers / history
-
---account 可以是 tag、邮箱（cursor）或订阅名（opencode-go / commandcode）。
-不写时不读 default（官方 keychain / 共享 ~/.grok）；要看它请加 --account default。
-
-退出码  0 全部正常  1 有未配置或失败  2 用法错误
+退出码  0 正常  1 有失败或未配置  2 用法错
 `
 
 const usageHelp = `leeway usage — 查额度
 
   leeway usage
-  leeway usage --provider cursor
-  leeway usage --provider cursor --account work
+  leeway usage cursor
+  leeway usage cursor work
   leeway usage --json
   leeway usage --watch 30
-  leeway usage --no-delta
+  leeway usage --last 12
 
+PROVIDER / ACCOUNT 过滤要看的家和号。不写 ACCOUNT 只列出已命名账号，不读隐式 default。
 表上默认画相对该窗口上次成功探测的增量（↑2 / +$12 / reset）。JSON 始终带可选 delta。
---account 可以是 tag、邮箱或订阅名。不写只列出已命名账号，不读隐式 default（官方 keychain / 共享 ~/.grok）；要看它请加 --account default。
+--last N 看近 N 次的点阵，不联网。不能和 --watch 一起用。
 `
 
-const authHelp = `leeway auth — 登录、退出、看订阅台账
+const loginHelp = `leeway login — 给一家登录或写入凭据
 
-  leeway auth status
-  leeway auth login --provider cursor [--account work]
-  leeway auth login --provider grok [--account home]
-  leeway auth login --provider opencode-go --account work
-  leeway auth login --provider commandcode --account goat
-  leeway auth login --provider deepseek
-  leeway auth logout --provider ID [--account TAG]
+  leeway login cursor
+  leeway login grok home
+  leeway login opencode-go work
+  leeway login commandcode goat
+  leeway login deepseek --key sk-...
+  leeway login grok --cookie
+  leeway login grok --manual "a=b; c=d"
+  leeway login grok home --file ~/.grok/auth.json
 
-浏览器登录：cursor、grok（需要 cursor-agent / grok 在 PATH）。
-API key：opencode-go、commandcode、deepseek（打开申请页，粘贴 key）。
-logout 只删 leeway 私有凭据，不动官方 CLI / keychain。
+cursor / grok 走官方 CLI 浏览器登录（PATH 里要有 cursor-agent / grok）。
+opencode-go / commandcode / deepseek 打开申请页，粘贴 API key（不回显）。
+cursor 不写 ACCOUNT 时用邮箱当账号名。
+
+--cookie 从浏览器导入 cookie（仅 macOS）。Linux 用 --manual。
+--browser / --profile / --force 是导入时用的。
+--manual 手动粘贴 Cookie header。--file 指定会话文件。--key 直接写入 API key。
+--no-browser 只打印登录 URL。--timeout 是等浏览器授权的分钟数（默认 15）。
 `
 
-const authLoginHelp = `leeway auth login — 给一家 provider 登录或写入 API key
+const logoutHelp = `leeway logout — 清掉 leeway 保存的登录
 
-  leeway auth login --provider cursor [--account work]
-  leeway auth login --provider grok [--account home]
-  leeway auth login --provider opencode-go --account work
-  leeway auth login --provider commandcode --account goat
-  leeway auth login --provider deepseek
+  leeway logout cursor
+  leeway logout grok home
 
-cursor / grok 会拉起官方 CLI 做浏览器授权。
-其余会打开 key 申请页，粘贴 key（不回显）。
+只删 leeway 自己的目录，不动官方 CLI / keychain。
 `
 
-const authLogoutHelp = `leeway auth logout — 清除 leeway 保存的登录
+const statusHelp = `leeway status — 各家登录了没、号还在不在
 
-  leeway auth logout --provider cursor [--account work]
-  leeway auth logout --provider grok [--account home]
+  leeway status
+  leeway status --json
 
-只删 leeway 私有目录，不动官方 CLI / keychain。
-API key 订阅没有私有会话可清，用 config 覆盖或改配置文件。
+列出已保存的号，不访问网上的 provider。
 `
 
-const cookieHelp = `leeway cookie — 从浏览器导入登录 cookie（grok / kimi / opencode-go 备选）
+const useHelp = `leeway use — 把某个号变成本机正在用的那个
 
-  leeway cookie import --provider grok
-  leeway cookie import --provider kimi --browser kimi-desktop
-  leeway cookie set --provider grok --manual "a=b; c=d"
-  leeway cookie list
-  leeway cookie clear --provider grok
+  leeway use cursor work
+  leeway use grok home
+  leeway use opencode-go work
+  leeway use cursor work --json
 
-默认 import 会读 Chrome / Edge 的 Cookie SQLite；macOS 上还要解密钥匙串
-（首次会弹授权），并把对应站点的登录 cookie 写入 ~/.cache/leeway/cookies.json。
-usage 不会自己刮浏览器。Linux 上这一档未实现，用 --manual 或 kimi-desktop。
+cursor：写入 Cursor IDE（state.vscdb）和 ~/.cursor/auth.json。Cursor 在跑就先退出。
+grok：合并进 ~/.grok/auth.json。
+其余：把 API key 写给 DSH。
 
-grok 更推荐：leeway auth login --provider grok
+这不是「leeway 接下来查哪号」。查额度用 leeway usage cursor work。
+macOS / Linux。
 `
 
-const configHelp = `leeway config — 配置文件和 API key
+var helpTopics = []struct {
+	name string
+	text string
+}{
+	{"usage", usageHelp},
+	{"login", loginHelp},
+	{"logout", logoutHelp},
+	{"status", statusHelp},
+	{"use", useHelp},
+}
 
-  leeway config path
-  leeway config set-api-key --provider ID [--account NAME] [--key VALUE]
-  leeway config keys --provider ID
-  leeway config set-auth-file --provider grok --account NAME --auth-file PATH
-
-日常加订阅用 leeway auth login，效果和 set-api-key 一样。
-keys 列出命名订阅（脱敏）；active 表示上次 leeway use 写进 DSH 的那把。
-`
-
-const configSetKeyHelp = `leeway config set-api-key — 写入 API key
-
-  leeway config set-api-key --provider deepseek
-  leeway config set-api-key --provider opencode-go --account work --key sk-...
-
-不传 --key 时交互输入，不回显。日常也可以用 leeway auth login。
-`
-
-const configKeysHelp = `leeway config keys — 列出命名订阅（key 脱敏）
-
-  leeway config keys --provider opencode-go
-  leeway config keys --provider commandcode
-`
-
-const useHelp = `leeway use — 把某个订阅的 API key 写给 DSH
-
-  leeway use --provider opencode-go --account work
-
-这是给 DSH 热切换用的，不是「leeway 接下来看哪号」。
-leeway 自己查哪号：leeway usage --provider opencode-go --account work
-`
-
-const doctorHelp = `leeway doctor — 体检：每个 provider 缺什么凭据
-
-  leeway doctor
-  leeway doctor --json
-`
-
-const providersHelp = `leeway providers — 列出 provider 和怎么登录
-
-  leeway providers
-  leeway providers --json
-`
-
-const historyHelp = `leeway history — 近 N 次用量点阵（盲文点阵，不是交互 TUI）
-
-  leeway history
-  leeway history --last 24
-  leeway history --provider cursor --account work
-  leeway history --json
-
-数据来自 ~/.cache/leeway/history.jsonl（每次 leeway usage 真探测追加）。
-不访问网上的 provider。窗口重置处断开，不当成额度下降。
-`
+func helpTopicNames() string {
+	names := make([]string, len(helpTopics))
+	for i, t := range helpTopics {
+		names[i] = t.name
+	}
+	return strings.Join(names, " / ")
+}
 
 func isHelpArg(s string) bool {
 	return s == "-h" || s == "--help" || s == "help"
@@ -188,34 +119,18 @@ func printHelp(w *os.File, text string) {
 }
 
 func helpTopic(name string) (string, bool) {
-	switch name {
-	case "usage":
-		return usageHelp, true
-	case "auth":
-		return authHelp, true
-	case "login":
-		return authLoginHelp, true
-	case "cookie":
-		return cookieHelp, true
-	case "config":
-		return configHelp, true
-	case "use":
-		return useHelp, true
-	case "doctor":
-		return doctorHelp, true
-	case "providers":
-		return providersHelp, true
-	case "history":
-		return historyHelp, true
-	default:
-		return "", false
+	for _, t := range helpTopics {
+		if t.name == name {
+			return t.text, true
+		}
 	}
+	return "", false
 }
 
 func runHelpTopic(name string) int {
 	text, ok := helpTopic(name)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "没有 %q 这条命令的帮助。可用：usage / auth / cookie / config / use / doctor / providers / history\n", name)
+		fmt.Fprintf(os.Stderr, "没有 %q 这条命令的帮助。可用：%s\n", name, helpTopicNames())
 		return 2
 	}
 	printHelp(os.Stdout, text)

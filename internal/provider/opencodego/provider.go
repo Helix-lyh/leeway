@@ -82,7 +82,7 @@ func (p *opencodeGo) Fetch(ctx context.Context, req provider.FetchRequest) (*mod
 	}
 	rawCookie := req.Creds.CookieHeader
 	if strings.TrimSpace(rawCookie) == "" {
-		return nil, fmt.Errorf("missing cookies — run: leeway cookie import (or: leeway cookie set --manual ...) for %q", p.ID())
+		return nil, fmt.Errorf("missing cookies — run: leeway login %s --cookie (or: leeway login %s --manual ...)", p.ID(), p.ID())
 	}
 	cookieHeader, err := requestCookieHeader(rawCookie)
 	if err != nil {

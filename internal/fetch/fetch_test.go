@@ -424,7 +424,7 @@ func TestGrokAccountAuthFileNotBlocked(t *testing.T) {
 
 // Profile-bound cookies used to be invisible to the not_configured gate:
 // canAttemptFetch ran on provider-level creds before overlay, so a named
-// account whose only secret was cookie import --account X --profile P
+// account whose only secret was login --cookie --account X --profile P
 // never reached Fetch.
 func TestProfileBoundCookieCanAttempt(t *testing.T) {
 	isolateEnv(t)

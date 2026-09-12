@@ -31,6 +31,8 @@ func isolateEnv(t *testing.T) {
 	t.Setenv("LEEWAY_CONFIG", filepath.Join(t.TempDir(), "config.json"))
 	t.Setenv("LEEWAY_CACHE", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LEEWAY_SESSIONS", t.TempDir())
+	t.Setenv("LEEWAY_CURSOR_IDE_CHECK", "0")
 	t.Setenv("KIMI_CODE_HOME", t.TempDir())
 	t.Setenv("GROK_HOME", t.TempDir())
 	t.Setenv("CODEX_HOME", t.TempDir())
@@ -76,14 +78,26 @@ func TestExitCodeFor(t *testing.T) {
 }
 
 func TestRootHelpMentionsSubscriptions(t *testing.T) {
-	if !strings.Contains(usageText, "leeway auth status") {
-		t.Fatal("root help should show auth status")
+	if !strings.Contains(usageText, "login") {
+		t.Fatal("root help should show login")
 	}
-	if !strings.Contains(usageText, "把某个订阅的 key 写给 DSH") {
-		t.Fatal("root help should distinguish leeway use from usage --account")
+	if !strings.Contains(usageText, "status") {
+		t.Fatal("root help should show status")
 	}
-	if !strings.Contains(authHelp, "opencode-go") || !strings.Contains(authHelp, "commandcode") {
-		t.Fatal("auth help should list API-key providers")
+	if strings.Contains(usageText, "leeway auth") || strings.Contains(usageText, "cookie import") {
+		t.Fatal("root help should not mention removed commands")
+	}
+	if !strings.Contains(usageText, "use    PROVIDER ACCOUNT") {
+		t.Fatal("root help should show use as a command with PROVIDER ACCOUNT")
+	}
+	if !strings.Contains(usageText, "--watch") || !strings.Contains(usageText, "--json") || !strings.Contains(usageText, "--last") {
+		t.Fatal("root help should list leaf flags next to the commands that take them")
+	}
+	if !strings.Contains(useHelp, "cursor") || !strings.Contains(useHelp, "grok") {
+		t.Fatal("use help should cover cursor/grok local switch")
+	}
+	if !strings.Contains(loginHelp, "opencode-go") || !strings.Contains(loginHelp, "commandcode") {
+		t.Fatal("login help should list API-key providers")
 	}
 }
 
@@ -97,21 +111,30 @@ func TestRunDispatch(t *testing.T) {
 		{"no args", nil, 2},
 		{"unknown command", []string{"frobnicate"}, 2},
 		{"help", []string{"help"}, 0},
-		{"help auth", []string{"help", "auth"}, 0},
+		{"help login", []string{"help", "login"}, 0},
+		{"help logout", []string{"help", "logout"}, 0},
+		{"help status", []string{"help", "status"}, 0},
 		{"help unknown", []string{"help", "nope"}, 2},
-		{"auth no args", []string{"auth"}, 2},
-		{"auth -h", []string{"auth", "-h"}, 0},
-		{"config -h", []string{"config", "-h"}, 0},
-		{"cookie -h", []string{"cookie", "-h"}, 0},
-		{"cookie set without manual", []string{"cookie", "set"}, 2},
-		{"cookie unknown subcommand", []string{"cookie", "bogus"}, 2},
-		{"config unknown subcommand", []string{"config", "bogus"}, 2},
-		{"set-api-key empty key", []string{"config", "set-api-key", "--provider", "deepseek", "--key", ""}, 2},
+		{"help auth gone", []string{"help", "auth"}, 2},
+		{"help history gone", []string{"help", "history"}, 2},
+		{"use missing", []string{"use"}, 2},
+		{"use provider only", []string{"use", "cursor"}, 2},
+		{"status leftover", []string{"status", "nope"}, 2},
+		{"auth gone", []string{"auth"}, 2},
+		{"cookie gone", []string{"cookie", "set"}, 2},
+		{"config gone", []string{"config", "set-api-key"}, 2},
+		{"doctor gone", []string{"doctor"}, 2},
+		{"providers gone", []string{"providers"}, 2},
+		{"history gone", []string{"history"}, 2},
+		{"login empty key", []string{"login", "deepseek", "--key", ""}, 2},
 		{"unknown provider flag", []string{"usage", "--provider", "bogus"}, 2},
+		{"unknown provider positional", []string{"usage", "bogus"}, 2},
+		{"usage positional then json", []string{"usage", "deepseek", "--json"}, 1},
 		{"usage unconfigured", []string{"usage"}, 1}, // all providers not_configured
-		{"help history", []string{"help", "history"}, 0},
-		{"history empty", []string{"history"}, 0},
-		{"history last 0", []string{"history", "--last", "0"}, 2},
+		{"usage last 12 empty", []string{"usage", "--last", "12"}, 0},
+		{"usage last 0", []string{"usage", "--last", "0"}, 2},
+		{"usage last and watch", []string{"usage", "--last", "12", "--watch", "1"}, 2},
+		{"usage last 0 and watch", []string{"usage", "--last", "0", "--watch", "1"}, 2},
 	}
 	for _, c := range cases {
 		if got := Run(c.args); got != c.want {
@@ -141,12 +164,12 @@ func TestAuthStatusListsCursorSessions(t *testing.T) {
 	}
 	old := os.Stdout
 	os.Stdout = w
-	code := Run([]string{"auth", "status"})
+	code := runStatus(nil)
 	w.Close()
 	os.Stdout = old
 	out, _ := io.ReadAll(r)
 	if code != 0 {
-		t.Fatalf("auth status = %d", code)
+		t.Fatalf("status = %d", code)
 	}
 	if !strings.Contains(string(out), "work") {
 		t.Fatalf("status missing session account:\n%s", out)
@@ -168,16 +191,16 @@ func TestRunHistoryJSON(t *testing.T) {
 	}
 	old := os.Stdout
 	os.Stdout = w
-	code := Run([]string{"history", "--json", "--last", "2"})
+	code := Run([]string{"usage", "--json", "--last", "2"})
 	w.Close()
 	os.Stdout = old
 	out, _ := io.ReadAll(r)
 	if code != 0 {
-		t.Fatalf("history --json = %d", code)
+		t.Fatalf("usage --last --json = %d", code)
 	}
 	s := string(out)
 	if !strings.Contains(s, `"version": 1`) || !strings.Contains(s, `"window": "primary"`) {
-		t.Fatalf("history json:\n%s", s)
+		t.Fatalf("usage --last json:\n%s", s)
 	}
 	if !strings.Contains(s, "93") || !strings.Contains(s, "95") {
 		t.Fatalf("points missing:\n%s", s)
@@ -198,17 +221,15 @@ func TestRunUsageJSONUnconfigured(t *testing.T) {
 	}
 }
 
-func TestRunCookieListCorruptConfig(t *testing.T) {
+func TestRunStatusCorruptConfig(t *testing.T) {
 	isolateEnv(t)
-	// A corrupt config.json must yield a "config:" diagnostic and exit 2,
-	// not a nil-dereference panic.
 	dir := t.TempDir()
 	t.Setenv("LEEWAY_CONFIG", filepath.Join(dir, "config.json"))
 	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := Run([]string{"cookie", "list"}); got != 2 {
-		t.Fatalf("cookie list with corrupt config = %d, want 2", got)
+	if got := runStatus(nil); got != 1 {
+		t.Fatalf("status with corrupt config = %d, want 1", got)
 	}
 }
 
@@ -234,8 +255,8 @@ func TestRunUseDispatch(t *testing.T) {
 func TestRunUseWritesTarget(t *testing.T) {
 	isolateEnv(t)
 	// Register a named subscription key.
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
-		t.Fatalf("set-api-key = %d, want 0", got)
+	if got := runLogin([]string{"opencode-go", "work", "--key", "sk-work123"}); got != 0 {
+		t.Fatalf("login = %d, want 0", got)
 	}
 	if got := Run([]string{"use", "--provider", "opencode-go", "--account", "work"}); got != 0 {
 		t.Fatalf("use = %d, want 0", got)
@@ -253,29 +274,13 @@ func TestRunUseWritesTarget(t *testing.T) {
 	}
 }
 
-func TestRunConfigKeys(t *testing.T) {
-	isolateEnv(t)
-	if got := Run([]string{"config", "keys"}); got != 2 {
-		t.Fatalf("config keys without provider = %d, want 2", got)
-	}
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-abc12345"}); got != 0 {
-		t.Fatalf("set-api-key = %d, want 0", got)
-	}
-	// Human output must show the account with a masked key.
-	if got := Run([]string{"config", "keys", "--provider", "opencode-go"}); got != 0 {
-		t.Fatalf("config keys = %d, want 0", got)
-	}
-}
-
 func TestRunSetAccountKeyDoesNotKeepCookieDefault(t *testing.T) {
 	isolateEnv(t)
-	// A manual cookie header (and an imported cache) must NOT spawn a "default"
-	// account: the API-key subscription is the only account.
-	if got := Run([]string{"cookie", "set", "--provider", "opencode-go", "--manual", "sess=x"}); got != 0 {
-		t.Fatalf("cookie set = %d, want 0", got)
+	if got := saveManualCookie("opencode-go", "sess=x"); got != 0 {
+		t.Fatalf("manual cookie = %d, want 0", got)
 	}
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
-		t.Fatalf("set-api-key = %d, want 0", got)
+	if got := runLogin([]string{"opencode-go", "work", "--key", "sk-work123"}); got != 0 {
+		t.Fatalf("login = %d, want 0", got)
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -289,8 +294,8 @@ func TestRunSetAccountKeyDoesNotKeepCookieDefault(t *testing.T) {
 	if err := auth.SaveCookieCache("opencode-go", "", "sess=imported", "chrome"); err != nil {
 		t.Fatal(err)
 	}
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "personal", "--key", "sk-pers456"}); got != 0 {
-		t.Fatalf("set personal = %d, want 0", got)
+	if got := runLogin([]string{"opencode-go", "personal", "--key", "sk-pers456"}); got != 0 {
+		t.Fatalf("login personal = %d, want 0", got)
 	}
 	cfg, err = config.Load()
 	if err != nil {
@@ -302,107 +307,16 @@ func TestRunSetAccountKeyDoesNotKeepCookieDefault(t *testing.T) {
 	}
 }
 
-func TestRunConfigKeysMarksActive(t *testing.T) {
-	isolateEnv(t)
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "work", "--key", "sk-work123"}); got != 0 {
-		t.Fatalf("set work = %d", got)
-	}
-	if got := Run([]string{"config", "set-api-key", "--provider", "opencode-go", "--account", "personal", "--key", "sk-pers456"}); got != 0 {
-		t.Fatalf("set personal = %d", got)
-	}
-	if got := Run([]string{"use", "--provider", "opencode-go", "--account", "work"}); got != 0 {
-		t.Fatalf("use = %d", got)
-	}
-	out, code := captureStdout(t, func() int {
-		return Run([]string{"config", "keys", "--provider", "opencode-go", "--json"})
-	})
-	if code != 0 {
-		t.Fatalf("config keys = %d out=%s", code, out)
-	}
-	var rows []struct {
-		Account string `json:"account"`
-		Active  bool   `json:"active"`
-	}
-	if err := json.Unmarshal([]byte(out), &rows); err != nil {
-		t.Fatalf("json: %v\n%s", err, out)
-	}
-	active := map[string]bool{}
-	for _, r := range rows {
-		active[r.Account] = r.Active
-	}
-	if !active["work"] || active["personal"] {
-		t.Fatalf("active map = %v, want work only", active)
-	}
-}
-
-func TestDoctorKimiAuthToken(t *testing.T) {
-	isolateEnv(t)
-	t.Setenv("KIMI_AUTH_TOKEN", "tok")
-	out, _ := captureStdout(t, func() int {
-		return Run([]string{"doctor", "--json"})
-	})
-	var checks []struct {
-		Provider string `json:"provider"`
-		Check    string `json:"check"`
-		OK       bool   `json:"ok"`
-	}
-	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		t.Fatalf("json: %v\n%s", err, out)
-	}
-	var tokenOK bool
-	for _, c := range checks {
-		if c.Provider != "Kimi Code" {
-			continue
-		}
-		if c.Check == "auth token" && c.OK {
-			tokenOK = true
-		}
-		if (c.Check == "api key" || c.Check == "cookies") && !c.OK {
-			t.Fatalf("Kimi %s should not be shown as failing when auth token is ok:\n%s", c.Check, out)
-		}
-	}
-	if !tokenOK {
-		t.Fatalf("Kimi auth token should be ok:\n%s", out)
-	}
-}
-
-func TestDoctorAccountAPIKeyCountsAsAuthToken(t *testing.T) {
-	isolateEnv(t)
-	if got := Run([]string{"config", "set-api-key", "--provider", "kimi", "--account", "work", "--key", "sk-kimi"}); got != 0 {
-		t.Fatalf("set-api-key = %d", got)
-	}
-	out, _ := captureStdout(t, func() int {
-		return Run([]string{"doctor", "--json"})
-	})
-	var checks []struct {
-		Provider string `json:"provider"`
-		Check    string `json:"check"`
-		OK       bool   `json:"ok"`
-	}
-	if err := json.Unmarshal([]byte(out), &checks); err != nil {
-		t.Fatalf("json: %v\n%s", err, out)
-	}
-	var tokenOK bool
-	for _, c := range checks {
-		if c.Provider == "Kimi Code" && c.Check == "auth token" && c.OK {
-			tokenOK = true
-		}
-	}
-	if !tokenOK {
-		t.Fatalf("Kimi account apiKey should count as auth token:\n%s", out)
-	}
-}
-
 func TestAuthStatusListsKimiAccount(t *testing.T) {
 	isolateEnv(t)
-	if got := Run([]string{"config", "set-api-key", "--provider", "kimi", "--account", "work", "--key", "sk-kimi"}); got != 0 {
-		t.Fatalf("set-api-key = %d", got)
+	if got := runLogin([]string{"kimi", "work", "--key", "sk-kimi"}); got != 0 {
+		t.Fatalf("login = %d", got)
 	}
 	out, code := captureStdout(t, func() int {
-		return Run([]string{"auth", "status"})
+		return runStatus(nil)
 	})
 	if code != 0 {
-		t.Fatalf("auth status = %d", code)
+		t.Fatalf("status = %d", code)
 	}
 	if !strings.Contains(out, "kimi") || !strings.Contains(out, "work") {
 		t.Fatalf("status missing kimi account:\n%s", out)
@@ -465,10 +379,134 @@ func TestCookieImportRemovesCorruptCache(t *testing.T) {
 	if err := os.WriteFile(cache, []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_ = Run([]string{"cookie", "import", "--provider", "grok"})
+	_ = importBrowserCookies("grok", "", "", "", false)
 	raw, err := os.ReadFile(cache)
 	if err == nil && string(raw) == "{not json" {
 		t.Fatal("corrupt cookies.json must be removed before import continues")
+	}
+}
+
+func TestUseCursorWritesOfficialFiles(t *testing.T) {
+	isolateEnv(t)
+	sessions := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", sessions)
+	stateDB := filepath.Join(t.TempDir(), "state.vscdb")
+	authJSON := filepath.Join(t.TempDir(), "auth.json")
+	t.Setenv("LEEWAY_CURSOR_STATE_DB", stateDB)
+	t.Setenv("LEEWAY_CURSOR_AUTH_JSON", authJSON)
+
+	p, err := auth.CursorAuthFile("work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(`{"accessToken":"tok-work","refreshToken":"rt-work"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountEmail("cursor", "work", "work@example.com"); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := captureStdout(t, func() int {
+		return Run([]string{"use", "cursor", "work"})
+	})
+	if code != 0 {
+		t.Fatalf("use cursor = %d out=%s", code, out)
+	}
+	if strings.Contains(out, "tok-work") || strings.Contains(out, "rt-work") {
+		t.Fatalf("stdout leaked token:\n%s", out)
+	}
+	if !strings.Contains(out, `switched cursor to account "work"`) {
+		t.Fatalf("stdout = %q", out)
+	}
+	raw, err := os.ReadFile(authJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "tok-work") {
+		t.Fatalf("auth.json not written: %s", raw)
+	}
+}
+
+func TestUseCursorMissingLogin(t *testing.T) {
+	isolateEnv(t)
+	if code := Run([]string{"use", "--provider", "cursor", "--account", "missing"}); code != 2 {
+		t.Fatalf("missing cursor login = %d, want 2", code)
+	}
+}
+
+func TestUseGrokWritesOfficialAuth(t *testing.T) {
+	isolateEnv(t)
+	srcDir := t.TempDir()
+	src := filepath.Join(srcDir, "auth.json")
+	if err := os.WriteFile(src, []byte(`{"https://auth.x.ai::home":{"key":"home-key","email":"home@x.ai"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "official.json")
+	if err := os.WriteFile(dst, []byte(`{"https://other.example::keep":{"key":"keep-key"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEEWAY_GROK_OFFICIAL", dst)
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetAccountAuthFile("grok", "home", src); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := captureStdout(t, func() int {
+		return Run([]string{"use", "--provider", "grok", "--account", "home", "--json"})
+	})
+	if code != 0 {
+		t.Fatalf("use grok = %d out=%s", code, out)
+	}
+	if strings.Contains(out, "home-key") {
+		t.Fatalf("json leaked token:\n%s", out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["provider"] != "grok" || got["account"] != "home" {
+		t.Fatalf("json = %s", out)
+	}
+	raw, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "home-key") || !strings.Contains(string(raw), "keep-key") {
+		t.Fatalf("official auth.json = %s", raw)
+	}
+}
+
+func TestUnderDirRefusesRoot(t *testing.T) {
+	if underDir("/", "/.codex") || underDir("/", "/Users") {
+		t.Fatal("underDir must not treat filesystem root as a session dir")
+	}
+}
+
+func TestGrokHomeStaysUnderSessions(t *testing.T) {
+	isolateEnv(t)
+	root := os.Getenv("LEEWAY_SESSIONS")
+	home, err := grokHome("../../.codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !underDir(root, home) {
+		t.Fatalf("grokHome escaped sessions: %s", home)
+	}
+	if code := runLogout([]string{"grok", "../../.codex"}); code != 0 {
+		t.Fatalf("logout grok escaped name = %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".codex")); err == nil {
+		t.Fatal("logout must not create or touch ~/.codex")
 	}
 }
 

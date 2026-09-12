@@ -66,8 +66,8 @@ func TestRenderTablePercentWindow(t *testing.T) {
 
 func TestRenderTableErrorRow(t *testing.T) {
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
-		ID: "codex", DisplayName: "Codex", Status: "error", Error: "session expired — run: codex login",
-		Accounts: []model.AccountResult{{Name: "default", Status: "error", Error: "session expired — run: codex login"}},
+		ID: "codex", DisplayName: "Codex", Status: "error", Error: "session expired — run: leeway login codex",
+		Accounts: []model.AccountResult{{Name: "default", Status: "error", Error: "session expired — run: leeway login codex"}},
 	}}}
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)

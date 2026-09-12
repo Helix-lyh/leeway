@@ -4,7 +4,7 @@
 // Two auth paths are supported, mirroring CodexBar's strategy order (API key
 // strategy first in auto mode, enriched by a web token when available):
 //
-//   - Kimi Code API key (KIMI_CODE_API_KEY, or `leeway config set-api-key`):
+//   - Kimi Code API key (KIMI_CODE_API_KEY, or `leeway login kimi --key`):
 //     GET {base}/coding/v1/usages with Authorization: Bearer <apiKey>.
 //   - Web session JWT (kimi-auth cookie via imported/manual cookies, or
 //     KIMI_AUTH_TOKEN / kimi_auth_token env):
@@ -88,7 +88,7 @@ func (kimiProvider) AuthSpec() provider.AuthSpec {
 		EnvAPIKey:       []string{"KIMI_CODE_API_KEY"},
 		EnvAuthToken:    []string{"KIMI_AUTH_TOKEN", "kimi_auth_token"}, // KimiSettingsReader.authToken
 		LocalAuthFiles:  []string{"~/.kimi-code/credentials/kimi-code.json"},
-		LoginHint:       "run: kimi login",
+		LoginHint:       "run: leeway login kimi",
 		UsesCookies:     true,
 		CookieDomains:   []string{"www.kimi.com", "kimi.com"},
 		CookieFallbacks: []string{"kimi-desktop"},
@@ -122,7 +122,7 @@ func (p kimiProvider) Fetch(ctx context.Context, req provider.FetchRequest) (*mo
 	var localErr error
 	var cliToken string
 	{
-		tok, err := localCLIToken(ctx, p.now())
+		tok, err := localCLIToken(ctx, p.now(), req.AuthFile)
 		switch {
 		case err == nil:
 			cliToken = tok

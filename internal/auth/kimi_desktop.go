@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -24,7 +25,18 @@ func kimiDesktopCookieDB() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("cannot locate home directory: %w", err)
 	}
-	return filepath.Join(home, "Library", "Application Support", "kimi-desktop", "Cookies"), nil
+	mac := filepath.Join(home, "Library", "Application Support", "kimi-desktop", "Cookies")
+	if runtime.GOOS == "darwin" {
+		return mac, nil
+	}
+	linux := filepath.Join(home, ".config", "kimi-desktop", "Cookies")
+	if fi, err := os.Stat(linux); err == nil && fi.Mode().IsRegular() {
+		return linux, nil
+	}
+	if fi, err := os.Stat(mac); err == nil && fi.Mode().IsRegular() {
+		return mac, nil
+	}
+	return linux, nil
 }
 
 // kimiDesktopQuery is the exact query from KimiDesktopAuthToken.read:
@@ -41,14 +53,14 @@ LIMIT 1`
 // desktop app's own cookie store.
 func importKimiDesktop(providerID string) (string, error) {
 	if providerID != "kimi" {
-		return "", fmt.Errorf("kimi-desktop cookies only exist for the kimi provider (got %q) — use browser \"chrome\" or manual cookies: leeway cookie set --provider %s --manual \"name=value; ...\"", providerID, providerID)
+		return "", fmt.Errorf("kimi-desktop cookies only exist for the kimi provider (got %q) — use browser \"chrome\" or manual cookies: leeway login %s --manual \"name=value; ...\"", providerID, providerID)
 	}
 	path, err := kimiDesktopCookieDB()
 	if err != nil {
 		return "", err
 	}
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("kimi-desktop cookie store %s not found — open the Kimi desktop app and sign in, then retry `leeway cookie import --provider kimi --browser kimi-desktop`; or use manual cookies", path)
+		return "", fmt.Errorf("kimi-desktop cookie store %s not found — open the Kimi desktop app and sign in, then retry `leeway login kimi --cookie --browser kimi-desktop`; or: leeway login kimi --manual", path)
 	}
 	db, err := openCookieDB(path)
 	if err != nil {

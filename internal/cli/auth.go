@@ -7,11 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"leeway/internal/auth"
@@ -20,73 +17,12 @@ import (
 	"leeway/internal/provider"
 )
 
-// keyPage is where a provider hands out API keys; `auth login` opens it
+// keyPage is where a provider hands out API keys; `leeway login` opens it
 // before prompting for the pasted value.
 var keyPage = map[string]string{
 	"deepseek":    "https://platform.deepseek.com/api_keys",
 	"opencode-go": "https://opencode.ai/zen/go",
 	"commandcode": "https://commandcode.ai/studio",
-}
-
-func runAuth(args []string) int {
-	if len(args) < 1 || isHelpArg(args[0]) {
-		printHelp(os.Stderr, authHelp)
-		if len(args) > 0 && isHelpArg(args[0]) {
-			return 0
-		}
-		return 2
-	}
-	switch args[0] {
-	case "login":
-		return authLogin(args[1:])
-	case "logout":
-		return authLogout(args[1:])
-	case "status":
-		return authStatus(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "auth: unknown subcommand %q\n\n", args[0])
-		printHelp(os.Stderr, authHelp)
-		return 2
-	}
-}
-
-func authLogin(args []string) int {
-	var (
-		providerID string
-		account    string
-		noBrowser  bool
-		timeoutMin int
-	)
-	fs := newFlagSet("auth login", nil)
-	fs.Help(authLoginHelp)
-	fs.StringVar(&providerID, "provider", "", "cursor | grok | opencode-go | commandcode | deepseek")
-	fs.StringVar(&account, "account", "", "tag / 订阅名；cursor 省略则用邮箱当账号名")
-	fs.BoolVar(&noBrowser, "no-browser", false, "只打印登录 URL，不打开浏览器")
-	fs.IntVar(&timeoutMin, "timeout", 15, "等待浏览器授权的分钟数")
-	if !fs.Parse(args) {
-		return 2
-	}
-	if providerID == "" {
-		fs.Usage()
-		return 2
-	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	if timeoutMin > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutMin)*time.Minute)
-		defer cancel()
-	}
-
-	switch providerID {
-	case "cursor":
-		return loginCursor(ctx, account, noBrowser)
-	case "grok":
-		return loginGrok(ctx, account)
-	default:
-		return loginAPIKey(providerID, account, noBrowser)
-	}
 }
 
 // loginCursor delegates the sign-in to the official cursor-agent CLI, run
@@ -178,8 +114,8 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	p, _ := auth.CursorAuthFile(name)
 	label := accountStatusName(name, email)
 	fmt.Fprintf(os.Stderr, "\n已登录 cursor 账号 %s%s，令牌由官方 CLI 写入 %s（0600）\n", label, expiresIn, p)
-	fmt.Fprintln(os.Stderr, "该账号与官方 Cursor CLI / keychain 完全独立，切号只需换 --account（tag 或邮箱），不用再 logout/login")
-	fmt.Fprintln(os.Stderr, suffixAccount("查额度：leeway usage --provider cursor", name))
+	fmt.Fprintln(os.Stderr, "该账号与官方 Cursor CLI / keychain 完全独立。查额度在 usage 后面加号；要让本机 Cursor 用这个号：")
+	fmt.Fprintln(os.Stderr, suffixAccount("leeway use cursor", name))
 	return 0
 }
 
@@ -228,7 +164,8 @@ func loginGrok(ctx context.Context, account string) int {
 		name = accountStatusName(name, email)
 	}
 	fmt.Fprintf(os.Stderr, "\n已登录 grok 账号 %s → %s\n", name, authFile)
-	fmt.Fprintln(os.Stderr, "该账号与官方 grok CLI（~/.grok）完全独立，切号只需换 --account，不用再 logout/login")
+	fmt.Fprintln(os.Stderr, "该账号与官方 grok CLI（~/.grok）完全独立。查额度在 usage 后面加号；要让本机 grok CLI 用这个号：")
+	fmt.Fprintln(os.Stderr, suffixAccount("leeway use grok", name))
 	return 0
 }
 
@@ -238,25 +175,32 @@ func grokHome(account string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "grok-"+account), nil
+	return filepath.Join(dir, "grok-"+safeSessionName(account)), nil
 }
 
 // loginAPIKey covers providers whose only credential is an API key: open the
 // key page, then read the pasted value without echoing it, so the key never
 // lands in shell history or the scrollback.
-func loginAPIKey(providerID, account string, noBrowser bool) int {
-	page := keyPage[providerID]
-	if page != "" && !noBrowser {
-		fmt.Fprintf(os.Stderr, "打开 %s 创建并复制 API key…\n", page)
-		if err := auth.OpenBrowser(page); err != nil {
-			fmt.Fprintf(os.Stderr, "(打不开浏览器，请手动访问 %s)\n", page)
+func loginAPIKey(providerID, account string, noBrowser bool, key string) int {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		page := keyPage[providerID]
+		if page != "" && !noBrowser {
+			fmt.Fprintf(os.Stderr, "打开 %s 创建并复制 API key…\n", page)
+			if err := auth.OpenBrowser(page); err != nil {
+				fmt.Fprintf(os.Stderr, "(打不开浏览器，请手动访问 %s)\n", page)
+			}
+		}
+		var err error
+		key, err = auth.PromptSecret("粘贴 API key（不回显）: ")
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "read key:", err)
+			return 2
 		}
 	}
-
-	key, err := auth.PromptSecret("粘贴 API key（不回显）: ")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "read key:", err)
-		return 1
+	if key == "" {
+		fmt.Fprintln(os.Stderr, "empty key; aborting")
+		return 2
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -275,9 +219,9 @@ func loginAPIKey(providerID, account string, noBrowser bool) int {
 
 	fmt.Fprintf(os.Stderr, "已保存 %s 的 key（%s）\n", providerID, maskKey(key))
 	if account != "" && account != "default" {
-		fmt.Fprintln(os.Stderr, suffixAccount("查额度：leeway usage --provider "+providerID, account))
+		fmt.Fprintln(os.Stderr, suffixAccount("查额度：leeway usage "+providerID, account))
 	} else {
-		fmt.Fprintln(os.Stderr, "查额度：leeway usage --provider "+providerID)
+		fmt.Fprintln(os.Stderr, "查额度：leeway usage "+providerID)
 	}
 	return 0
 }
@@ -288,13 +232,7 @@ func loginAPIKey(providerID, account string, noBrowser bool) int {
 // official CLIs.
 type authRow struct{ provider, account, cred, status, expires string }
 
-func authStatus(args []string) int {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
-		return 1
-	}
-
+func collectAuthRows(cfg *config.Config) []authRow {
 	var rows []authRow
 	for _, id := range config.ProviderIDs {
 		if !cfg.IsEnabled(id) {
@@ -304,14 +242,7 @@ func authStatus(args []string) int {
 			rows = append(rows, authStatusRow(cfg, id, acc.Name))
 		}
 	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "PROVIDER\tACCOUNT\tCREDENTIAL\tSTATUS\tEXPIRES")
-	for _, r := range rows {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", r.provider, r.account, r.cred, r.status, r.expires)
-	}
-	w.Flush()
-	return 0
+	return rows
 }
 
 func authStatusRow(cfg *config.Config, id, account string) authRow {
@@ -346,12 +277,12 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 			return authRow{id, label, "cursor auth.json (private)", "ok", exp}
 		}
 		if ok {
-			return authRow{id, label, "cursor auth.json (private)", "not logged in", "leeway auth login --provider cursor" + suffixFlag(account)}
+			return authRow{id, label, "cursor auth.json (private)", "not logged in", "leeway login cursor" + suffixFlag(account)}
 		}
 		if (account == "" || account == "default") && keychainCursorToken() != "" {
 			return authRow{id, label, "keychain", "ok", "official CLI session"}
 		}
-		return authRow{id, label, "—", "not logged in", "leeway auth login --provider cursor" + suffixFlag(account)}
+		return authRow{id, label, "—", "not logged in", "leeway login cursor" + suffixFlag(account)}
 	case "grok":
 		authFile := ""
 		label := accountStatusName(account, "")
@@ -378,8 +309,18 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 			}
 			return authRow{id, label, src, "ok", expiry(exp)}
 		}
-		return authRow{id, label, authFile, "not logged in", "leeway auth login --provider grok" + suffixFlag(account)}
+		return authRow{id, label, authFile, "not logged in", "leeway login grok" + suffixFlag(account)}
 	default:
+		if a, ok := cfg.Account(id, account); ok && a.AuthFile != "" {
+			p := a.AuthFile
+			if path, err := provider.LocalSessionPath(a.AuthFile); err == nil {
+				p = path
+			}
+			if fileExists(p) {
+				return authRow{id, account, "authFile (private)", "ok", "—"}
+			}
+			return authRow{id, account, a.AuthFile, "not logged in", "leeway login " + id + suffixFlag(account)}
+		}
 		key := ""
 		if a, ok := cfg.Account(id, account); ok && a.APIKey != "" {
 			key = a.APIKey
@@ -406,7 +347,7 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 				}
 			}
 		}
-		return authRow{id, account, "—", "not configured", "leeway auth login --provider " + id + suffixFlag(account)}
+		return authRow{id, account, "—", "not configured", "leeway login " + id + suffixFlag(account)}
 	}
 }
 
@@ -427,6 +368,15 @@ func authStatusAccounts(cfg *config.Config, id string) []config.AccountConfig {
 func authStatusHasDefault(cfg *config.Config, id string) bool {
 	if cfg.APIKey(id) != "" {
 		return true
+	}
+	if a, ok := cfg.Account(id, "default"); ok && a.AuthFile != "" {
+		p := a.AuthFile
+		if path, err := provider.LocalSessionPath(a.AuthFile); err == nil {
+			p = path
+		}
+		if fileExists(p) {
+			return true
+		}
 	}
 	p, ok := provider.Get(id)
 	if !ok {
@@ -450,10 +400,10 @@ func authStatusHasDefault(cfg *config.Config, id string) bool {
 	return false
 }
 
-// suffixFlag renders "--account NAME " for a named account (for hints).
+// suffixFlag appends a named account to a suggested command.
 func suffixFlag(account string) string {
 	if account != "" && account != "default" {
-		return " --account " + account
+		return " " + account
 	}
 	return ""
 }
@@ -552,63 +502,60 @@ func keychainCursorToken() string {
 	return tok
 }
 
-func authLogout(args []string) int {
-	var providerID, account string
-	fs := newFlagSet("auth logout", nil)
-	fs.Help(authLogoutHelp)
-	fs.StringVar(&providerID, "provider", "", "cursor | grok | …")
-	fs.StringVar(&account, "account", "", "tag / 邮箱 / 订阅名")
-	if !fs.Parse(args) {
-		return 2
+func logoutCursor(account string) int {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "config:", err)
+		return 1
 	}
-	if providerID == "" {
-		fs.Usage()
-		return 2
+	name := account
+	if a, ok := cfg.Account("cursor", account); ok {
+		name = a.Name
 	}
-
-	switch providerID {
-	case "cursor":
-		cfg, err := config.Load()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "config:", err)
-			return 1
-		}
-		name := account
-		if a, ok := cfg.Account("cursor", account); ok {
-			name = a.Name
-		}
-		home, _ := auth.CursorHome(name)
-		if err := auth.RemoveCursorHome(name); err != nil {
-			fmt.Fprintln(os.Stderr, "clear cursor auth:", err)
-			return 1
-		}
-		_ = cfg.RemoveAccount("cursor", name)
-		fmt.Fprintf(os.Stderr, "已清除 cursor 账号的私有登录（%s）；keychain 里的官方会话不受影响\n", home)
-	case "grok":
-		name := account
-		if name == "" || name == "default" {
-			name = "default"
-		}
-		home, err := grokHome(name)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "grok home:", err)
-			return 1
-		}
-		if err := os.RemoveAll(home); err != nil {
-			fmt.Fprintln(os.Stderr, "clear grok auth:", err)
-			return 1
-		}
-		fmt.Fprintf(os.Stderr, "已清除 grok 账号 %q 的私有登录（%s）\n", name, home)
-	default:
-		fmt.Fprintf(os.Stderr, "%s 的 key 存在 config 里（apiKey），没有 leeway 私有会话可清；想移除请用 leeway config 覆盖或手动编辑 %s\n", providerID, configPath())
+	home, _ := auth.CursorHome(name)
+	if err := auth.RemoveCursorHome(name); err != nil {
+		fmt.Fprintln(os.Stderr, "clear cursor auth:", err)
+		return 1
 	}
+	_ = cfg.RemoveAccount("cursor", name)
+	fmt.Fprintf(os.Stderr, "已清除 cursor 账号的私有登录（%s）；keychain 里的官方会话不受影响\n", home)
 	return 0
 }
 
-// suffixAccount appends the --account filter to a suggested command.
+func logoutGrok(account string) int {
+	name := account
+	if name == "" || name == "default" {
+		name = "default"
+	}
+	home, err := grokHome(name)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "grok home:", err)
+		return 1
+	}
+	root, err := auth.SessionDir()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "session dir:", err)
+		return 1
+	}
+	if !underDir(root, home) {
+		fmt.Fprintf(os.Stderr, "refuse to delete %s (not a leeway session dir)\n", home)
+		return 1
+	}
+	if err := os.RemoveAll(home); err != nil {
+		fmt.Fprintln(os.Stderr, "clear grok auth:", err)
+		return 1
+	}
+	if cfg, err := config.Load(); err == nil {
+		_ = cfg.RemoveAccount("grok", name)
+	}
+	fmt.Fprintf(os.Stderr, "已清除 grok 账号 %q 的私有登录（%s）\n", name, home)
+	return 0
+}
+
+// suffixAccount appends a named account to a suggested command.
 func suffixAccount(base, account string) string {
 	if account != "" && account != "default" {
-		return base + " --account " + account
+		return base + " " + account
 	}
 	return base
 }

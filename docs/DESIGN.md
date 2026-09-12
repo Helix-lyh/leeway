@@ -37,7 +37,8 @@ leeway/
     deepseek/  kimi/  grok/  codex/  cursor/  opencodego/  commandcode/
   internal/auth/            # cookie importer、cursor/grok 私有会话目录
   internal/config/          # ~/.config/leeway/config.json（0600）
-  internal/credwrite/       # `leeway use` 打补丁 YAML 凭据
+  internal/credwrite/       # `leeway use` 打补丁 YAML 凭据（API key 家）
+  internal/switcher/        # `leeway use` 把 cursor/grok 写给官方客户端
   internal/fetch/           # 并行探测编排
   internal/cli/             # 子命令与 flag
   internal/render/          # json / 表格
@@ -80,18 +81,18 @@ type Provider interface {
 }
 ```
 
-新 provider 声明 `EnvAPIKey` / `EnvAuthToken`、`CookieDomains`、本地会话等字段后，doctor 和凭据解析按这份声明判断缺什么，不必再写一套解析代码。
+新 provider 声明 `EnvAPIKey` / `EnvAuthToken`、`CookieDomains`、本地会话等字段后，`status` 和凭据解析按这份声明判断缺什么，不必再写一套解析代码。
 
 ## 5. 七个 provider 探测方案
 
 | Provider | 认证来源 | 数据源 | 窗口 | 关键细节 |
 |---|---|---|---|---|
-| **deepseek** | `DEEPSEEK_API_KEY` env 或 `config set-api-key`（交互式无回显 / --key 直传） | **`api.deepseek.com/user/balance`**（公共 API，Swift 的 API-key 路径；`platform.deepseek.com` 有 WAF 会拦 API key）+ 平台 token 增强：`/api/v0/usage/amount` + `/api/v0/usage/cost` | 余额（¥）+ 当日用量 | 公共 API，余额单位 ¥ |
-| **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `kimi login`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
-| **grok** | 三选一：**`leeway auth login --provider grok`**（私有 `GROK_HOME`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写）/ 官方 `~/.grok/auth.json`（共享）/ L2 Chrome cookie / 手动 header | 优先 `GET cli-chat-proxy.grok.com/v1/billing?format=credits`（`creditUsagePercent` + `currentPeriod.type`）；REST 4xx/5xx 回退 grok.com grpc-web 启发式 protobuf | 共享额度；窗口类型来自 REST `currentPeriod.type`（Weekly/Monthly） | 实测 REST `creditUsagePercent` 不再被 protobuf 截成整数 |
-| **cursor** | 委托官方 `cursor-agent login`（`leeway auth login --provider cursor [--account]`：`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME，只读 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；**无私有 auth.json 时**才兜底 macOS keychain | `POST api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（`limit − includedSpend`） | 不自实现浏览器 PKCE/poll；60d JWT 过期提示重登 |
-| **codex** | 复用 Codex CLI 已登录会话：`~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 复用 Codex CLI 会话，不自实现 OAuth |
-| **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `config set-api-key --account`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额 | 多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 doctor 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
+| **deepseek** | `DEEPSEEK_API_KEY` env 或 `leeway login deepseek`（交互式无回显 / --key 直传） | **`api.deepseek.com/user/balance`**（公共 API，Swift 的 API-key 路径；`platform.deepseek.com` 有 WAF 会拦 API key）+ 平台 token 增强：`/api/v0/usage/amount` + `/api/v0/usage/cost` | 余额（¥）+ 当日用量 | 公共 API，余额单位 ¥ |
+| **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `leeway login kimi`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
+| **grok** | 三选一：**`leeway login grok`**（私有 `GROK_HOME`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写）/ 官方 `~/.grok/auth.json`（共享）/ L2 Chrome cookie / 手动 header | 优先 `GET cli-chat-proxy.grok.com/v1/billing?format=credits`（`creditUsagePercent` + `currentPeriod.type`）；REST 4xx/5xx 回退 grok.com grpc-web 启发式 protobuf | 共享额度；窗口类型来自 REST `currentPeriod.type`（Weekly/Monthly） | 实测 REST `creditUsagePercent` 不再被 protobuf 截成整数 |
+| **cursor** | 委托官方 `cursor-agent login`（`leeway login cursor [ACCOUNT]`：`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME，只读 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；**无私有 auth.json 时**才兜底 macOS keychain | `POST api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（`limit − includedSpend`） | 不自实现浏览器 PKCE/poll；60d JWT 过期提示重登 |
+| **codex** | 复用 Codex CLI 已登录会话：`leeway login codex` 写入 `~/.codex/auth.json` OAuth token（免自实现 device flow） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 复用 Codex CLI 会话，不自实现 OAuth |
+| **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `leeway login opencode-go`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额 | 多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 status 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
 | **commandcode** | `COMMAND_CODE_API_KEY` / `accounts[].apiKey`（`user_...`，commandcode.ai/studio） | `GET api.commandcode.ai/alpha/billing/credits`（`windowLimits.fiveHour/weekly` + `credits.monthlyCredits`）+ 可选 `/alpha/usage/summary` | 5-hour + Weekly + Monthly credits | 纯 API-key 多账号，同 opencode-go 订阅模式 |
 
 浏览器授权（cursor / grok）一律委托官方 CLI 完成，leeway 只读落盘文件。每账号一个私有 HOME / `auth.json`，与官方 CLI / keychain 解耦，切号只换 `--account`。
@@ -100,7 +101,7 @@ type Provider interface {
 
 | 级别 | 方案 | 成本 | 适用 |
 |---|---|---|---|
-| **L0** | 手动粘贴 Cookie header：`cookie set --provider grok --manual 'xxx=yyy; …'` | 零代码 | 兜底，永远保留 |
+| **L0** | 手动粘贴 Cookie header：`leeway login grok --manual 'xxx=yyy; …'` | 零代码 | 兜底，永远保留 |
 | **L1** | 读 provider 自己桌面端存储：Kimi 桌面端 `~/Library/Application Support/kimi-desktop/Cookies`（Chromium 库，直接只读 SQLite 取 `kimi-auth`，**绕开浏览器和钥匙串**） | ~50 行 | kimi |
 | **L2** | Chrome/Edge SQLite + macOS 钥匙串解密 | ~150 行，stdlib 可完成 | grok / opencode-go / kimi |
 
@@ -110,7 +111,7 @@ L2 步骤（macOS）：
 3. 解密 `encrypted_value`：`v10` 前缀 = PBKDF2-SHA1（salt "saltysalt"、1003 迭代、16 字节）+ AES-128-CBC（IV = 16 个空格、PKCS7）；老格式 = 同一 CBC 方案无 v10 前缀。注意 macOS 上 v10 包装的是 CBC 而非 Windows/Linux 的 AES-256-GCM（chrome.go 有注释提醒该坑）；user_version ≥ 24 的库还要剥离 SHA-256(host_key) 前缀
 4. 拼 `name=value; …` header 存入 config（0600）
 
-注意：多 profile 扫描（`Default`/`Profile 1`…）；WAL 模式要 immutable/只读打开（Kimi 代码已验证该坑）；cookie 会过期 → `--force` 重导 + fetch 失败报"cookie 过期"。Linux 上 L2 走 libsecret/KWallet，先标记 macOS 优先，Linux 用 L0/L1。
+注意：多 profile 扫描（`Default`/`Profile 1`…）；WAL 模式要 immutable/只读打开（Kimi 代码已验证该坑）；cookie 会过期 → `--force` 重导 + fetch 失败报"cookie 过期"。L2 只做 macOS。Linux 用 `login --manual`（或 Kimi 桌面端 cookie / 官方 CLI）。
 
 ## 7. 多账户机制（opencode-go）
 
@@ -120,25 +121,23 @@ L2 步骤（macOS）：
 - **账户 = 一次浏览器登录会话（一组 cookie）+ 可选 workspaceID**
 - **订阅 = 一个命名 API key**（`accounts[].apiKey`），走网关 `GET /zen/go/v1/usage` 按订阅直接查 5h/weekly/monthly，无需 cookie
 - 服务器窗口按账户各一份
-- `cookie import --provider opencode-go` 扫描全部 Chrome profile，每个登录态 = 一个账户候选
+- `leeway login opencode-go --cookie` 扫描全部 Chrome profile，每个登录态 = 一个账户候选
 - 多账户并发 ≤3；`--account work` 可过滤
-- 快速切换：`leeway use --provider opencode-go --account <订阅>` 把 key 写入 DSH 凭据（`keyTarget`，可配置）
-
-cursor / grok 的多账号见 §5：每账号一份私有 HOME / `auth.json`，与官方 CLI / keychain 解耦。
+- 快速切换：`leeway use opencode-go <订阅>` 把 key 写入 DSH 凭据（`keyTarget`，可配置）
+- cursor / grok 的本地切号：`leeway use cursor|grok NAME`。cursor 写 Cursor IDE `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`）；grok 合并进 `~/.grok/auth.json`。探测和登录仍用隔离目录。
 
 ## 8. CLI 设计（纯 CLI，无交互，agent 友好）
 
 ```
-leeway usage [--provider X] [--account Y] [--json] [--watch 30s] [--no-delta]  # 查额度
-leeway history [--last N] [--provider X] [--account Y] [--json]   # 近 N 次点阵
-leeway auth login|logout|status --provider X [--account Y]        # 登录 / 清私有会话 / 订阅台账
-leeway providers [--json]                             # 各家怎么登录
-leeway cookie set|import|list|clear --provider X     # grok/kimi cookie 备选
-leeway config path | set-api-key | keys
-leeway use --provider X --account NAME                # 把 key 写给 DSH（不是切 leeway 看哪号）
-leeway doctor                                         # 缺什么凭据
-leeway help COMMAND                                   # usage / auth / cookie / config / use
+leeway usage [PROVIDER [ACCOUNT]] [--json] [--watch N] [--last N]  # 查额度；--last 是点阵
+leeway login  PROVIDER [ACCOUNT]                                  # cursor/grok/codex/kimi → 官方 CLI；其余粘贴 key
+leeway logout PROVIDER [ACCOUNT]
+leeway status [--json]
+leeway use    PROVIDER ACCOUNT                                    # cursor → IDE + ~/.cursor/auth.json；grok → ~/.grok/auth.json；其余 → DSH
+leeway help [COMMAND]
 ```
+
+PROVIDER / ACCOUNT 也可写成 `--provider` / `--account`。叶子 flag 只挂在用得到它们的命令上。
 
 **agent 契约**：stdout 只输出数据、日志走 stderr；退出码 `0` 全部成功 / `1` 部分失败 / `2` 配置错误；无 TTY 自动降级纯文本。
 
@@ -185,15 +184,15 @@ DeepSeek
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | **M0** | 骨架：model、Provider 接口、registry、`usage --json` 空跑 | 合法 JSON schema |
-| **M1** | deepseek（env key + set-api-key 管线）+ `doctor` + config | 真实余额可见 |
-| **M2** | auth 框架：L0 手动 cookie + L1 kimi 桌面端 + L2 Chrome 导入器 | `cookie import` 一条命令拿到 grok header |
+| **M1** | deepseek（env key + `login --key`）+ `status` | 真实余额可见 |
+| **M2** | auth 框架：L0 手动 cookie + L1 kimi 桌面端 + L2 Chrome 导入器 | `login --cookie` 一条命令拿到 grok header |
 | **M3** | kimi / grok / opencode-go（含多账户 + SQLite 只读） | 三家真实数据 + watch |
 | **M4** | codex（复用 CLI 会话） | 多档窗口 + 过期提示 |
 | **M5** | 打磨：超时、退出码、agent 集成文档、README | Hermes 侧一次调用可用 |
 
 ## 11. 风险与注意
 
-- macOS 钥匙串/TCC：L2 首次弹授权（可接受）；doctor 区分"未配置"与"已配置但失败"
+- macOS 钥匙串/TCC：L2 首次弹授权（可接受）；status 区分"未配置"与"已配置但失败"
 - cookie 过期（grok 会话短）：`import --force` + 明确报错
 - WAL 模式 SQLite：cookie 库只读打开 + immutable 回退
 - 反爬限流：chatgpt.com / grok.com / opencode.ai 保守默认间隔 + TTL

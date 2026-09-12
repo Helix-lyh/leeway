@@ -25,12 +25,31 @@ func TestLoadKimiCodeCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	tok, err := localCLIToken(context.Background(), now)
+	tok, err := localCLIToken(context.Background(), now, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tok != "eyJhbGciOiJIUzI1NiJ9.test-token" {
 		t.Fatalf("unexpected token %q", tok)
+	}
+}
+
+func TestLoadKimiCodeCredentialAuthFile(t *testing.T) {
+	t.Setenv("KIMI_CODE_HOME", t.TempDir())
+	isolated := filepath.Join(t.TempDir(), "kimi-work", "credentials", "kimi-code.json")
+	if err := os.MkdirAll(filepath.Dir(isolated), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"access_token":"from-isolated","refresh_token":"rt","expires_at":4102444800}`
+	if err := os.WriteFile(isolated, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := localCLIToken(context.Background(), time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC), isolated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok != "from-isolated" {
+		t.Fatalf("token = %q, want isolated file", tok)
 	}
 }
 
@@ -50,14 +69,14 @@ func TestLoadKimiCodeCredentialExpired(t *testing.T) {
 	// attempt fails fast instead of hitting the real auth.kimi.com.
 	t.Setenv("KIMI_CODE_OAUTH_HOST", "http://127.0.0.1:1")
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	if _, err := localCLIToken(context.Background(), now); err == nil {
+	if _, err := localCLIToken(context.Background(), now, ""); err == nil {
 		t.Fatal("expected expiry error")
 	}
 }
 
 func TestLoadKimiCodeCredentialMissing(t *testing.T) {
 	t.Setenv("KIMI_CODE_HOME", t.TempDir())
-	if _, err := localCLIToken(context.Background(), time.Now()); err == nil {
+	if _, err := localCLIToken(context.Background(), time.Now(), ""); err == nil {
 		t.Fatal("expected missing-file error")
 	}
 }
@@ -98,7 +117,7 @@ func TestKimiAutoRefresh(t *testing.T) {
 	t.Setenv("KIMI_CODE_OAUTH_HOST", srv.URL)
 
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	tok, err := localCLIToken(context.Background(), now)
+	tok, err := localCLIToken(context.Background(), now, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +154,7 @@ func TestKimiRefreshFailureHint(t *testing.T) {
 	t.Setenv("KIMI_CODE_OAUTH_HOST", srv.URL)
 
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
-	if _, err := localCLIToken(context.Background(), now); err == nil || !strings.Contains(err.Error(), "kimi login") {
+	if _, err := localCLIToken(context.Background(), now, ""); err == nil || !strings.Contains(err.Error(), "leeway login kimi") {
 		t.Fatalf("err = %v, want re-login hint", err)
 	}
 }

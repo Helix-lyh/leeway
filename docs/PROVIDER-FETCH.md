@@ -25,7 +25,7 @@ cmd/leeway/main.go
 
 ## 1. 统一凭据解析层(fetch + auth)
 
-每个 provider 用 `AuthSpec` **声明式**描述自己需要什么凭据(`provider.go:35`),编排层、doctor、cookie 命令都从它推导行为,新 provider 不用新写解析代码。
+每个 provider 用 `AuthSpec` **声明式**描述自己需要什么凭据(`provider.go:35`),编排层、`status`、`login --cookie` 都从它推导行为,新 provider 不用新写解析代码。
 
 ```go
 type AuthSpec struct {
@@ -33,7 +33,7 @@ type AuthSpec struct {
     EnvAuthToken     []string // JWT/会话 token 的 env 名
     UsesCookies      bool     // 用 Cookie header 探测
     CookieDomains    []string // 例如 ["grok.com"]
-    CookieFallbacks  []string // 额外回退源,doctor 会提示
+    CookieFallbacks  []string // 额外回退源,status / login 提示会用到
     UsesCodexCLI     bool     // 复用 ~/.codex/auth.json
     UsesKeychain     bool     // cursor:编排层先放行,provider 自己解析私有 auth.json / keychain
     LocalAuthFiles   []string // 本地 CLI 会话文件(provider 自己解析)
@@ -73,13 +73,13 @@ type AuthSpec struct {
 
 | 级别 | 方案 | 适用 | 代码 |
 |---|---|---|---|
-| **L0** | 手动粘贴 Cookie header(`cookie set --provider X --manual 'a=b; c=d'`) | 永远可用,兜底 | config 的 `ManualCookieHeader` |
+| **L0** | 手动粘贴 Cookie header(`leeway login grok --manual 'a=b; c=d'`) | 永远可用,兜底 | config 的 `ManualCookieHeader` |
 | **L1** | 读 provider 自带桌面端存储(Kimi 桌面端 cookie 库) | kimi | `auth/kimi_desktop.go` |
 | **L2** | Chrome/Edge SQLite + macOS 钥匙串解密 | grok / kimi / opencode-go | `auth/chrome.go` |
 
 ### 2.1 L0 手动 header
 
-存在 config(`providers.<id>.manualCookieHeader`,或账户级 `accounts[].manualCookieHeader`),不落 cookie 缓存。`cookie clear` 只清导入缓存,**手动 header 需手动删 config**。
+存在 config(`providers.<id>.manualCookieHeader`,或账户级 `accounts[].manualCookieHeader`),不落 cookie 缓存。`logout` 会清导入缓存,**手动 header 需改 config**。
 
 ### 2.2 L1 Kimi 桌面端(`auth/kimi_desktop.go`)
 
@@ -130,7 +130,7 @@ iv  = 16 × 0x20(空格)
 
 - 文件:`~/.cache/leeway/cookies.json`(0600)。
 - 缓存键:`"providerID"` 或 `"providerID@Profile"`(`cacheKey`),让一个 provider 可以共存多个浏览器会话。
-- 新鲜度:12h(`ImportTTL`);`cookie import --force` 无视 TTL 强刷。
+- 新鲜度:12h(`ImportTTL`);`login --cookie --force` 无视 TTL 强刷。
 - 缓存损坏 ≠ 未导入:`cacheUnreadableError` 会明确说"删掉文件重导",避免用户以为要重新登录。
 
 ### 2.5 header 解析优先级(`auth.go:169 ResolveCookieHeader`)
@@ -142,7 +142,7 @@ iv  = 16 × 0x20(空格)
   → 账户绑定的 profile 导入缓存 (accounts[].Profile)
   → provider 级手动 header (providers.<id>.manualCookieHeader)
   → provider 级导入缓存
-  → 报错 "run: leeway cookie import / cookie set --manual"
+  → 报错 "run: leeway login grok --manual / leeway login kimi --cookie"
 ```
 
 另外 `ExtractCookieHeader`(`auth.go:269`)能从用户从 DevTools 粘来的 **curl 片段**(`-H 'Cookie: ...'`、`--cookie`、`-b`)里抽出干净 header,kimi / opencode-go 共用同一套正则,修引号一次到位。
@@ -155,7 +155,7 @@ iv  = 16 × 0x20(空格)
 
 | 项 | 值 |
 |---|---|
-| 认证 | `DEEPSEEK_API_KEY` / `DEEPSEEK_KEY`(env)或 `config set-api-key`;**可选**平台 token `DEEPSEEK_PLATFORM_TOKEN` / `DEEPSEEK_USER_TOKEN` |
+| 认证 | `DEEPSEEK_API_KEY` / `DEEPSEEK_KEY`(env)或 `leeway login deepseek`;**可选**平台 token `DEEPSEEK_PLATFORM_TOKEN` / `DEEPSEEK_USER_TOKEN` |
 | 主端点 | `GET https://api.deepseek.com/user/balance`(`Authorization: Bearer <apiKey>`) |
 | 增强端点 | `GET platform.deepseek.com/api/v0/usage/amount` + `/usage/cost`,`?month=&year=`(UTC),两者**并发且都必需** |
 | 窗口 | primary `Balance`(原始金额 + 币种)+ 有 token 时每个 `day-YYYY-MM-DD` 窗口(当日 token 数) |
@@ -172,7 +172,7 @@ iv  = 16 × 0x20(空格)
 
 | 项 | 值 |
 |---|---|
-| 认证(按优先级) | ① API key(`KIMI_CODE_API_KEY`/config)→ Code API;② **CLI 会话**(`~/.kimi-code/credentials/kimi-code.json`,自动刷新)→ Code API;③ Web JWT(`kimi-auth` cookie 或 `KIMI_AUTH_TOKEN`)→ Web API;④ CLI 会话存在但过期 → 提示 `kimi login` |
+| 认证(按优先级) | ① API key(`KIMI_CODE_API_KEY`/config)→ Code API;② **CLI 会话**(`~/.kimi-code/credentials/kimi-code.json`,自动刷新)→ Code API;③ Web JWT(`kimi-auth` cookie 或 `KIMI_AUTH_TOKEN`)→ Web API;④ CLI 会话存在但过期 → 提示 `leeway login kimi` |
 | Web 端点 | `POST www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`(`{"scope":["FEATURE_CODING"]}`);并发 best-effort `POST .../MembershipService/GetSubscriptionStats` |
 | Code API | `GET api.kimi.com/coding/v1/usages`(`Bearer <apiKey>`,base 可被 `KIMI_CODE_BASE_URL` 覆盖) |
 | 窗口 | primary `Weekly`(7d)+ secondary `5-hour`(限速,API 窗口时长优先)+ 附加 `Monthly`(订阅池 FEATURE_OMNI)+ `Code 7-day` |
@@ -218,14 +218,14 @@ iv  = 16 × 0x20(空格)
 - `parseUsageResponse`(**lossy**,`parser.go:63`):顶层严格,嵌套值坏掉只丢自己、不连累兄弟。`used_percent/reset_at/limit_window_seconds` 三者必须都有才认一个窗口。
 - `flexFloat`/`flexInt`(`parser.go:199`)容忍 API 把数字发成 Int/String。
 - 兜底:没有 primary/secondary 窗口时,只有 credits 存在快照才存活(`provider.go:75`)。
-- 401/403 → `kindUnauthorized`,提示重跑 `codex login`。
+- 401/403 → `kindUnauthorized`,提示重跑 `leeway login codex`。
 
 ### 3.5 cursor —— 委托官方 CLI 登录 + dashboard 内部 RPC
 
 | 项 | 值 |
 |---|---|
 | 认证 | ① env `CURSOR_ACCESS_TOKEN`;② `accounts[].apiKey`;③ 私有 HOME 下官方 `cursor-agent` 写出的 `.cursor/auth.json`(0600);④ **仅当无私有 auth.json** 才兜底 macOS keychain(`service=cursor-access-token`,`account=cursor-user`) |
-| 登录 | `leeway auth login --provider cursor [--account NAME]`:设 `HOME=<sessions>/cursor[-acct]` + `AGENT_CLI_CREDENTIAL_STORE=file`,exec 官方 `cursor-agent login`,读回 auth.json 校验 JWT 到期。不自实现浏览器 PKCE / poll |
+| 登录 | `leeway login cursor [NAME]`:设 `HOME=<sessions>/cursor[-acct]` + `AGENT_CLI_CREDENTIAL_STORE=file`,exec 官方 `cursor-agent login`,读回 auth.json 校验 JWT 到期。不自实现浏览器 PKCE / poll |
 | 端点 | `POST https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`(`Authorization: Bearer`,body `{}`) |
 | 窗口 | primary `Monthly`(API bucket `apiPercentUsed`,billing cycle end 作 `resetsAt`)+ JSON 附加 `Total` / `Auto` + 现金条 `Credits` |
 | 实现 | `provider/cursor/{provider,fetcher}.go`;私有 HOME:`auth/cursorfile.go` |
@@ -234,7 +234,7 @@ iv  = 16 × 0x20(空格)
 - 无公开 usage API;dashboard 自己打的 Connect RPC,leeway 复用同一端点。cookie 的 `usage-summary` 路线对 bearer 返回 401,不用。
 - 响应**没有 `remaining` 字段**。现金条 `Used` = `limit − includedSpend`(本周期还可花的 included 额度),`Limit` = `planUsage.limit`。
 - 私有 auth.json 存在时**绝不回退 keychain**:keychain 跟踪的是官方 CLI 自己的账号,回退会静默混号。
-- token 是 60 天 session JWT,无 refresh 端点;过期报错提示重跑 `leeway auth login`。`auth logout --provider cursor` 只删私有 HOME,不碰 keychain。
+- token 是 60 天 session JWT,无 refresh 端点;过期报错提示重跑 `leeway login cursor`。`leeway logout cursor` 只删私有 HOME,不碰 keychain。
 - 401/403 → token rejected,提示重登或设 `CURSOR_ACCESS_TOKEN`。
 - 登录后 `POST .../GetMe` 取邮箱(session JWT 无 email claim)。`--account` 是 tag;省略则用邮箱当账号名。`--account` 匹配 name 或 email。
 
@@ -242,7 +242,7 @@ iv  = 16 × 0x20(空格)
 
 | 项 | 值 |
 |---|---|
-| 认证 | **双路径**:① 订阅 API key(`OPENCODE_GO_API_KEY` env / `config set-api-key [--account NAME]`,多订阅 = 多命名 key);② 每账户 cookie(`auth`/`__Host-auth`)+ 可选 `workspaceID`;`SupportsAccounts` |
+| 认证 | **双路径**:① 订阅 API key(`OPENCODE_GO_API_KEY` env / `leeway login opencode-go [NAME]`,多订阅 = 多命名 key);② 每账户 cookie(`auth`/`__Host-auth`)+ 可选 `workspaceID`;`SupportsAccounts` |
 | 订阅端点 | `GET https://opencode.ai/zen/go/v1/usage`(OpenAI 兼容网关,`Authorization: Bearer <key>`),返回 `{usage:{rolling,weekly,monthly}}`,每订阅独立,无需 cookie |
 | 服务器 | `https://opencode.ai/_server` RPC(带 `X-Server-Id` / `X-Server-Instance: server-fn:<uuid>`),含 workspace 枚举与 Zen billing |
 | 页面 | `GET /workspace/<ws>/go`(用量页,解析 HTML 里的用量字段) |
@@ -274,7 +274,7 @@ iv  = 16 × 0x20(空格)
 
 要点:
 - 形状跟 CodexBar / pi-commandcode-provider,无官方 schema。401/403 = key 无效。
-- 多账号完全同 opencode-go 订阅 key:`config set-api-key --account` / `auth login --provider commandcode`。
+- 多账号完全同 opencode-go 订阅 key:`leeway login commandcode [ACCOUNT]`。
 
 ---
 
@@ -286,8 +286,8 @@ kimi / grok / codex 复用各自 CLI 登录态。grok 与 kimi **会自动刷新
 |---|---|---|---|
 | grok | 私有 `GROK_HOME/auth.json`(leeway 登录)或 `~/.grok/auth.json`(`GROK_HOME` 覆盖) | OIDC `refresh_token` → `{issuer}/oauth2/token` | 原子 temp+rename,0600(`grok/localsession.go`) |
 | kimi | `~/.kimi-code/credentials/kimi-code.json`(`KIMI_CODE_HOME` 覆盖) | OAuth refresh → `auth.kimi.com/api/oauth/token`;`client_id` 从 refresh_token JWT 里解 | 原子写回,保留未知字段(`kimi/localsession.go`) |
-| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(`LEEWAY_SESSIONS` 覆盖) | **不刷新**,60d JWT 过期提示 `leeway auth login --provider cursor` | 官方 `cursor-agent login` 写入,leeway 只读 |
-| codex | `~/.codex/auth.json`(`CODEX_HOME` 覆盖) | **不刷新**,过期提示重跑 `codex login` | — |
+| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(`LEEWAY_SESSIONS` 覆盖) | **不刷新**,60d JWT 过期提示 `leeway login cursor` | 官方 `cursor-agent login` 写入,leeway 只读 |
+| codex | `~/.codex/auth.json`(`CODEX_HOME` 覆盖) | **不刷新**,过期提示重跑 `leeway login codex` | — |
 
 两个注意点:
 - grok/kimi 的刷新请求都带 `ctx`,受编排层 15s 超时约束,避免挂死的 OIDC 服务器阻塞整个探测。
@@ -300,19 +300,19 @@ kimi / grok / codex 复用各自 CLI 登录态。grok 与 kimi **会自动刷新
 - **账户 = 一次浏览器登录会话(一组 cookie)+ 可选 workspaceID**(`config.go AccountConfig`:name / manualCookieHeader / workspaceID / profile)。
 - **订阅 = 一个命名 API key**(`accounts[].apiKey`),走网关 `/usage` 端点;与 cookie 账户共存于同一 `accounts[]`。
 - 每个账户的 cookie 来源:账户级 `manualCookieHeader` → 账户绑定的 Chrome `profile` 导入缓存(`opencode-go@Profile 1`)→ provider 级(`fetch.go:286 resolveAccountCookie`)。
-- `cookie import --provider opencode-go --account work` 会把导入的会话直接绑成一个账户。
+- `leeway login opencode-go work --cookie --profile "Profile 1"` 会把导入的会话直接绑成一个账户。
 - 服务器窗口按账户各一份。
 - `--account NAME` 过滤;没配置的账户名直接报 `error`。
-- **快速切换**:`leeway use --provider opencode-go --account <订阅名>` 把该订阅 key 写入 `keyTarget`
-  (默认 DSH `~/.dsh/.credentials.yaml` 的 `OPENCODE_GO_API_KEY`);`leeway config keys` 列出命名订阅(脱敏,对照目标文件标 active)。
+- **快速切换**:`leeway use opencode-go <订阅名>` 把该订阅 key 写入 `keyTarget`
+  (默认 DSH `~/.dsh/.credentials.yaml` 的 `OPENCODE_GO_API_KEY`);`leeway status` 列出已保存的号。
 - 订阅走纯 API-key 查询:注册命名 key 不会保留 cookie `default` 账户;要查 cookie 会话,显式配一个 cookie 账户。
 
-cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官方 CLI / keychain 解耦,切号只换 `--account`。
+cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官方 CLI / keychain 解耦。查额度换 `--account`;让本机 Cursor IDE / grok CLI 用那个号,跑 `leeway use`。
 
 | provider | 每账号凭据 | 登录 | 切号 |
 |---|---|---|---|
-| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway auth login --provider cursor [--account A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME) | 换 `--account` |
-| grok | 私有 `GROK_HOME` 的 `auth.json`,绑 `accounts[].authFile` | `leeway auth login --provider grok [--account A]` 跑官方 `grok login --device-auth` | 换 `--account` |
+| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway login cursor [A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME) | 查额度 `leeway usage cursor A`；本地 IDE 用 `leeway use cursor A` 写入 `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor）。macOS:`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`；Linux:`~/.config/Cursor/...`（Flatpak 回退已在 switcher 里） |
+| grok | 私有 `GROK_HOME` 的 `auth.json`,绑 `accounts[].authFile` | `leeway login grok [A]` 跑官方 `grok login --device-auth` | 查额度 `leeway usage grok A`；本地 CLI 用 `leeway use grok A` 合并进 `~/.grok/auth.json`（macOS / Linux 同一路径） |
 
 ---
 
@@ -321,15 +321,15 @@ cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官�
 | 现象 | 原因 | 定位 |
 |---|---|---|
 | `not_configured` + "set DEEPSEEK_API_KEY..." | 完全没凭据 | `fetch.go:298` |
-| "missing Codex session — run: codex login" | `~/.codex/auth.json` 缺失/无 token | `fetch/codex_auth.go` |
-| "missing cookies — run: leeway cookie import" | cookie provider 无 header | `auth.go:192` |
+| "missing Codex session — run: leeway login codex" | `~/.codex/auth.json` 缺失/无 token | `fetch.go missingCredentialHint` |
+| "missing cookies — run: leeway login grok --manual (or: leeway login kimi --cookie)" | cookie provider 无 header | `fetch.go missingCredentialHint` |
 | "found N cookies but none could be decrypted" | 钥匙串 key 过期或授权被拒 | `chrome.go:544` |
 | "cookie host-key hash mismatch" | 库 version ≥ 24,明文 hash 校验失败 | `chrome.go:187` |
 | "grok session refresh failed (HTTP xxx)" | OIDC 刷新失败 | `grok/localsession.go:141` |
-| "kimi CLI session expired — run: kimi login" | kimi-code.json 存在但刷新失败 | `kimi/localsession.go:160` |
+| "kimi CLI session expired — run: leeway login kimi" | kimi-code.json 存在但刷新失败 | `kimi/localsession.go:160` |
 | `kindUnauthorized`(codex) | wham/usage 返回 401/403 | `codex/fetcher.go:82` |
 | "Missing workspace id."(opencode-go) | cookie 有效但服务器拿不到 workspace | `opencodego/fetcher.go:97` |
-| "Cursor session … expired — re-run: leeway auth login" | 私有 auth.json 的 JWT 过期 | `cursor/fetcher.go` |
+| "Cursor session … expired — re-run: leeway login cursor" | 私有 auth.json 的 JWT 过期 | `cursor/fetcher.go` |
 | "Cursor token rejected (HTTP 401)" | bearer 被 dashboard RPC 拒绝 | `cursor/fetcher.go` |
 | "invalid Command Code API key (HTTP 401)" | Bearer `user_...` 被拒 | `commandcode/fetcher.go` |
 
@@ -339,7 +339,7 @@ cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官�
 
 ```
 internal/auth/             cookie 缓存 + L0/L1/L2 导入器(chrome / kimi_desktop);cursor 私有 HOME
-internal/cli/auth.go       `auth login/logout/status`:cursor/grok 委托官方 CLI
+internal/cli/auth.go       `login/logout/status`:cursor/grok 委托官方 CLI
 internal/fetch/            编排:凭据解析、并行探测、快照缓存;codex_auth 读 auth.json
 internal/config/           0600 config.json(manual header、accounts、apiKeys)
 internal/provider/         AuthSpec + 注册表
