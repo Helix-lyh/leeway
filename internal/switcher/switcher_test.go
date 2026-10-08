@@ -1,10 +1,13 @@
 package switcher
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -75,7 +78,7 @@ func TestSnapshotCursorIfNeeded(t *testing.T) {
 		StateDB:  filepath.Join(dir, "state.vscdb"),
 		AuthJSON: filepath.Join(dir, "auth.json"),
 	}
-	if err := ApplyCursor(targets, auth.CursorAuth{AccessToken: "tok-old"}, "old@example.com"); err != nil {
+	if err := ApplyCursor(targets, auth.CursorAuth{AccessToken: "tok-old", RefreshToken: "rt-old"}, "old@example.com"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,8 +231,8 @@ func TestPickCursorStateDB(t *testing.T) {
 	if err := os.WriteFile(b, []byte("b"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pickCursorStateDB([]string{filepath.Join(dir, "gone.db")}); err == nil {
-		t.Fatal("missing db should error")
+	if got, err := pickCursorStateDB([]string{filepath.Join(dir, "gone.db")}); err != nil || got != "" {
+		t.Fatalf("no db = %q (%v), want empty (the IDE is optional)", got, err)
 	}
 	got, err := pickCursorStateDB([]string{a, filepath.Join(dir, "gone.db")})
 	if err != nil || got != a {
@@ -248,5 +251,162 @@ func TestDisplayPath(t *testing.T) {
 	got := DisplayPath(filepath.Join(home, ".grok", "auth.json"))
 	if got != "~/.grok/auth.json" {
 		t.Fatalf("DisplayPath = %q", got)
+	}
+}
+
+func TestApplyCursorWithoutIDE(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", dir)
+	authJSON := filepath.Join(dir, "auth.json")
+	ca := auth.CursorAuth{AccessToken: "tok-agent", RefreshToken: "rt-agent"}
+	if err := ApplyCursor(CursorTargets{AuthJSON: authJSON}, ca, "agent@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(authJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got auth.CursorAuth
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.AccessToken != "tok-agent" {
+		t.Fatalf("auth.json = %+v", got)
+	}
+	if err := ApplyCursor(CursorTargets{}, ca, "agent@example.com"); err == nil {
+		t.Fatal("a machine with no Cursor store at all should error")
+	}
+}
+
+// keychainService is a throwaway keychain item so tests never touch the
+// machine's own cursor-agent login.
+func keychainService(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("security"); err != nil {
+		t.Skip("no security binary")
+	}
+	svc := "leeway-test-" + strings.NewReplacer("/", "-", " ", "-").Replace(t.Name())
+	del := func() {
+		exec.Command("security", "delete-generic-password", "-a", auth.CursorKeychainAccount, "-s", svc).Run()
+	}
+	t.Cleanup(del)
+	del()
+	// A locked or absent keychain (SSH, CI, a machine that has not been
+	// unlocked yet) is an environment without a keychain, not a broken write
+	// path: probe with security itself so a failure here skips instead of
+	// hiding a real bug in SetCursorKeychainToken.
+	if err := exec.Command("security", "add-generic-password",
+		"-a", auth.CursorKeychainAccount, "-s", svc, "-w", "probe").Run(); err != nil {
+		t.Skip("keychain unavailable")
+	}
+	return svc
+}
+
+// A Cursor token is a JWT well past 128 bytes, and security's interactive
+// prompt cuts the value there without saying so. The whole token has to land,
+// or the official client ends up with a login that cannot work.
+func TestSetCursorKeychainTokenKeepsLongToken(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("keychain is macOS only")
+	}
+	svc := keychainService(t)
+	tok := strings.Repeat("J", 1200)
+	if err := auth.SetCursorKeychainToken(context.Background(), svc, tok); err != nil {
+		t.Fatal(err)
+	}
+	got, err := auth.CursorKeychainTokenFor(context.Background(), svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != tok {
+		t.Fatalf("keychain kept %d of %d bytes", len(got), len(tok))
+	}
+}
+
+func TestApplyCursorWritesKeychain(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("keychain is macOS only")
+	}
+	dir := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", dir)
+	svc := keychainService(t)
+	ca := auth.CursorAuth{AccessToken: "tok-keychain", RefreshToken: "rt"}
+	if err := ApplyCursor(CursorTargets{Keychain: svc}, ca, "kc@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := auth.CursorKeychainTokenFor(context.Background(), svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "tok-keychain" {
+		t.Fatalf("keychain token = %q", got)
+	}
+}
+
+// The keychain item holds the access token alone, and a token without its
+// refresh token cannot be written back into a client: switching away from a
+// cursor-agent-only login has to be reported as "not kept", not as a snapshot
+// the user could return to.
+func TestSnapshotCursorReportsKeychainOnlyLoginAsUnsaved(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("keychain is macOS only")
+	}
+	dir := t.TempDir()
+	t.Setenv("LEEWAY_SESSIONS", dir)
+	svc := keychainService(t)
+	if err := auth.SetCursorKeychainToken(context.Background(), svc, "tok-agent"); err != nil {
+		t.Fatal(err)
+	}
+	saved, unsaved, err := SnapshotCursorIfNeeded(CursorTargets{Keychain: svc}, "tok-new")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != "" || !unsaved {
+		t.Fatalf("saved=%q unsaved=%v", saved, unsaved)
+	}
+}
+
+// The keychain is the one target that reaches outside leeway's own files, so
+// naming a file target has to keep it out of the write: this is what keeps
+// `go test ./...` from touching the developer's real cursor-agent login.
+func TestOfficialCursorTargetsKeychainDecision(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LEEWAY_CURSOR_STATE_DB", filepath.Join(t.TempDir(), "state.vscdb"))
+	t.Setenv("LEEWAY_CURSOR_AUTH_JSON", filepath.Join(t.TempDir(), "auth.json"))
+	got, err := OfficialCursorTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Keychain != "" {
+		t.Errorf("a file target must keep the real keychain out: %+v", got)
+	}
+	t.Setenv("LEEWAY_CURSOR_KEYCHAIN", "leeway-test-svc")
+	if got, err = OfficialCursorTargets(); err != nil || got.Keychain != "leeway-test-svc" {
+		t.Errorf("naming a keychain item = %+v err=%v", got, err)
+	}
+	t.Setenv("LEEWAY_CURSOR_KEYCHAIN", "0")
+	if got, err = OfficialCursorTargets(); err != nil || got.Keychain != "" {
+		t.Errorf("LEEWAY_CURSOR_KEYCHAIN=0 = %+v err=%v", got, err)
+	}
+}
+
+// A machine without Cursor must not get one invented for it: `use` has to
+// report that there is nothing to switch, not write a fresh auth.json.
+func TestOfficialCursorTargetsSkipsAMachineWithoutCursor(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("LEEWAY_CURSOR_KEYCHAIN", "0")
+	got, err := OfficialCursorTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.AuthJSON != "" {
+		t.Errorf("invented an auth.json: %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".cursor")); !os.IsNotExist(err) {
+		t.Errorf(".cursor was created on a machine without Cursor: %v", err)
+	}
+	if err := ApplyCursor(got, auth.CursorAuth{AccessToken: "t", RefreshToken: "r"}, ""); err == nil {
+		t.Error("switching on a machine without Cursor should fail")
 	}
 }

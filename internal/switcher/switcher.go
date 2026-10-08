@@ -7,6 +7,7 @@ package switcher
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -22,7 +23,7 @@ import (
 	"leeway/internal/auth"
 )
 
-var errUnsupportedOS = errors.New("cursor/grok switch supports macOS and Linux only")
+var errUnsupportedOS = errors.New("给本机官方客户端切号只支持 macOS 和 Linux")
 
 // Result is what `leeway use` prints: where the session was written, no secrets.
 type Result struct {
@@ -31,20 +32,41 @@ type Result struct {
 	Email    string   `json:"email,omitempty"`
 	Targets  []string `json:"targets"`
 	SavedAs  string   `json:"savedPreviousAs,omitempty"`
+	// Unsaved is true when the login that was there before could not be kept as
+	// a leeway account, so switching away from it loses it for good.
+	Unsaved bool `json:"previousUnsaved,omitempty"`
 }
 
-// CursorTargets are the official Cursor files we write. Tests inject temp paths.
+// CursorTargets are the official Cursor stores we write. Tests inject temp
+// paths. Keychain is the macOS keychain service the official cursor-agent
+// reads; it is empty when there is no such item.
 type CursorTargets struct {
 	StateDB  string
 	AuthJSON string
+	Keychain string
 }
 
-// OfficialCursorTargets resolves the Cursor IDE db and CLI auth.json for this OS.
-// LEEWAY_CURSOR_STATE_DB / LEEWAY_CURSOR_AUTH_JSON override the paths (tests).
+// OfficialCursorTargets resolves the Cursor IDE db, the cursor-agent keychain
+// item and the CLI auth.json for this OS. A machine runs only the agent, only
+// the IDE, or both, so every target is optional: what is not there is skipped,
+// and a machine with none of them has nothing to switch.
+//
+// LEEWAY_CURSOR_STATE_DB / LEEWAY_CURSOR_AUTH_JSON redirect the file stores and
+// LEEWAY_CURSOR_KEYCHAIN the keychain item (0 disables it). Naming either file
+// override keeps the real keychain out of the write; each file store is
+// redirected on its own, so a run that names only one still resolves the other
+// to the machine's own path.
 func OfficialCursorTargets() (CursorTargets, error) {
 	t := CursorTargets{
 		StateDB:  os.Getenv("LEEWAY_CURSOR_STATE_DB"),
 		AuthJSON: os.Getenv("LEEWAY_CURSOR_AUTH_JSON"),
+	}
+	if v, ok := os.LookupEnv("LEEWAY_CURSOR_KEYCHAIN"); ok {
+		if v != "0" {
+			t.Keychain = v
+		}
+	} else if t.StateDB == "" && t.AuthJSON == "" {
+		t.Keychain = defaultCursorKeychain()
 	}
 	if t.StateDB != "" && t.AuthJSON != "" {
 		return t, nil
@@ -57,7 +79,13 @@ func OfficialCursorTargets() (CursorTargets, error) {
 		return CursorTargets{}, err
 	}
 	if t.AuthJSON == "" {
-		t.AuthJSON = filepath.Join(home, ".cursor", "auth.json")
+		// Only an auth.json that is already there: writing one would invent a
+		// Cursor install on a machine that has none, and `use` has to fail
+		// loudly when there is nothing to switch.
+		p := filepath.Join(home, ".cursor", "auth.json")
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			t.AuthJSON = p
+		}
 	}
 	if t.StateDB == "" {
 		p, err := cursorStateDB(home)
@@ -67,6 +95,16 @@ func OfficialCursorTargets() (CursorTargets, error) {
 		t.StateDB = p
 	}
 	return t, nil
+}
+
+// defaultCursorKeychain is the keychain item the official cursor-agent keeps
+// its token in. An item that is not there means the agent is not using the
+// keychain (never installed, or its file store is in use), so nothing to write.
+func defaultCursorKeychain() string {
+	if runtime.GOOS != "darwin" || !auth.CursorKeychainItemExists(context.Background(), auth.CursorKeychainService) {
+		return ""
+	}
+	return auth.CursorKeychainService
 }
 
 func cursorStateDB(home string) (string, error) {
@@ -100,11 +138,11 @@ func pickCursorStateDB(candidates []string) (string, error) {
 	}
 	switch len(found) {
 	case 0:
-		return "", fmt.Errorf("Cursor state.vscdb not found (looked in %s) — open Cursor once, then retry", strings.Join(candidates, ", "))
+		return "", nil
 	case 1:
 		return found[0], nil
 	default:
-		return "", fmt.Errorf("found %d Cursor state.vscdb files (%s) — set LEEWAY_CURSOR_STATE_DB to the one to write", len(found), strings.Join(found, ", "))
+		return "", fmt.Errorf("找到 %d 个 Cursor state.vscdb（%s）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个", len(found), strings.Join(found, ", "))
 	}
 }
 
@@ -123,13 +161,26 @@ func OfficialGrokAuthFile() (string, error) {
 	return filepath.Join(home, ".grok", "auth.json"), nil
 }
 
-// ApplyCursor writes tokens into the IDE sqlite and ~/.cursor/auth.json.
+// ApplyCursor writes tokens into every official store the machine has: the
+// cursor-agent keychain item, the IDE sqlite and ~/.cursor/auth.json.
 func ApplyCursor(t CursorTargets, ca auth.CursorAuth, email string) error {
 	if ca.AccessToken == "" {
-		return errors.New("cursor session has no access token")
+		return errors.New("cursor 会话里没有 access token")
 	}
-	if err := writeCursorStateDB(t.StateDB, ca, email); err != nil {
-		return err
+	if t.StateDB == "" && t.AuthJSON == "" && t.Keychain == "" {
+		return errors.New("这台机器上没找到可写的 Cursor 凭据位置（IDE 的 state.vscdb、cursor-agent 的 keychain、~/.cursor/auth.json 都没有）")
+	}
+	// The keychain write is the one that can be refused (macOS prompts), so it
+	// goes first: a refusal then leaves the other stores untouched.
+	if t.Keychain != "" {
+		if err := auth.SetCursorKeychainToken(context.Background(), t.Keychain, ca.AccessToken); err != nil {
+			return err
+		}
+	}
+	if t.StateDB != "" {
+		if err := writeCursorStateDB(t.StateDB, ca, email); err != nil {
+			return err
+		}
 	}
 	if t.AuthJSON == "" {
 		return nil
@@ -143,7 +194,7 @@ func ApplyCursor(t CursorTargets, ca auth.CursorAuth, email string) error {
 
 func writeCursorStateDB(path string, ca auth.CursorAuth, email string) error {
 	if path == "" {
-		return errors.New("cursor state.vscdb path is empty")
+		return errors.New("cursor state.vscdb 的路径是空的")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -154,7 +205,7 @@ func writeCursorStateDB(path string, ca auth.CursorAuth, email string) error {
 	u.RawQuery = q.Encode()
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
-		return fmt.Errorf("open Cursor state.vscdb: %w", err)
+		return fmt.Errorf("打开 Cursor state.vscdb：%w", err)
 	}
 	defer db.Close()
 
@@ -190,7 +241,7 @@ func writeCursorStateDB(path string, ca auth.CursorAuth, email string) error {
 		return fmt.Errorf("write cursor.email: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit Cursor state.vscdb: %w", err)
+		return fmt.Errorf("写入 Cursor state.vscdb：%w", err)
 	}
 	return nil
 }
@@ -230,18 +281,47 @@ func vscdbGet(db *sql.DB, key string) string {
 	return strings.TrimSpace(value)
 }
 
-// SnapshotCursorIfNeeded copies the current official Cursor session into a
-// leeway private HOME when that token is not already stored. saved is the
-// new account name; unsaved is true when a different official token was
-// seen but could not be kept.
+// SnapshotCursorIfNeeded copies the logins the switch is about to overwrite
+// (the IDE db and the cursor-agent keychain item) into leeway private HOMEs
+// when they are not stored yet. saved is the new account name; unsaved is true
+// when a different official token was seen but could not be kept.
 func SnapshotCursorIfNeeded(t CursorTargets, incomingToken string) (saved string, unsaved bool, err error) {
-	token, email, err := ReadCursorStateToken(t.StateDB)
+	dbToken, dbEmail, err := ReadCursorStateToken(t.StateDB)
 	if err != nil {
 		return "", false, err
 	}
+	candidates := []string{dbToken}
+	emails := []string{dbEmail}
+	if t.Keychain != "" {
+		kt, kerr := auth.CursorKeychainTokenFor(context.Background(), t.Keychain)
+		switch {
+		case kerr == nil:
+			candidates = append(candidates, kt)
+			emails = append(emails, "")
+		case auth.IsKeychainItemMissing(kerr):
+			// No item, nothing to keep.
+		default:
+			// The current login could not be read, so it cannot be kept:
+			// writing over it now would lose the machine's own session.
+			return "", false, fmt.Errorf("读本机 cursor keychain 失败，已放弃切换（否则会丢当前登录）：%v", kerr)
+		}
+	}
+	for i, token := range candidates {
+		s, u, err := snapshotCursorToken(t, token, emails[i], incomingToken)
+		if err != nil {
+			return saved, unsaved, err
+		}
+		if s != "" && saved == "" {
+			saved = s
+		}
+		unsaved = unsaved || u
+	}
+	return saved, unsaved, nil
+}
+
+func snapshotCursorToken(t CursorTargets, token, email, incomingToken string) (saved string, unsaved bool, err error) {
 	if token == "" && fileExists(t.AuthJSON) {
-		raw, rerr := os.ReadFile(t.AuthJSON)
-		if rerr == nil {
+		if raw, rerr := os.ReadFile(t.AuthJSON); rerr == nil {
 			var ca auth.CursorAuth
 			if json.Unmarshal(raw, &ca) == nil {
 				token = ca.AccessToken
@@ -273,6 +353,13 @@ func SnapshotCursorIfNeeded(t CursorTargets, incomingToken string) (saved string
 		if json.Unmarshal(raw, &file) == nil && file.AccessToken == token {
 			ca = file
 		}
+	}
+	if ca.RefreshToken == "" {
+		// The keychain and the IDE db hold the access token alone, and a token
+		// without its refresh token cannot be written back into a client. Say
+		// the login was not kept rather than promise a snapshot that cannot be
+		// restored.
+		return "", true, nil
 	}
 	if err := auth.WriteCursorAuth(name, ca); err != nil {
 		return "", false, err
@@ -338,7 +425,7 @@ func mergeGrokAuth(dst, src []byte) ([]byte, error) {
 		}
 	}
 	if len(oidc) == 0 {
-		return nil, errors.New("grok session has no xAI login")
+		return nil, errors.New("grok 会话里没有 xAI 登录信息")
 	}
 	for k := range dest {
 		if strings.HasPrefix(k, "https://auth.x.ai::") {
@@ -357,7 +444,7 @@ func grokRegistry(raw []byte) (map[string]json.RawMessage, error) {
 		return nil, err
 	}
 	if m == nil {
-		return nil, errors.New("grok auth.json is not an object")
+		return nil, errors.New("grok auth.json 不是 JSON 对象")
 	}
 	return m, nil
 }
@@ -388,6 +475,22 @@ func writeFile0600(path string, data []byte) error {
 func fileExists(path string) bool {
 	fi, err := os.Stat(path)
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// DisplayTargets names the stores a Cursor switch wrote, skipping the ones
+// this machine does not have.
+func DisplayTargets(t CursorTargets) []string {
+	var out []string
+	if t.Keychain != "" {
+		out = append(out, "keychain "+t.Keychain)
+	}
+	if t.StateDB != "" {
+		out = append(out, DisplayPath(t.StateDB))
+	}
+	if t.AuthJSON != "" {
+		out = append(out, DisplayPath(t.AuthJSON))
+	}
+	return out
 }
 
 // DisplayPath shortens a home-rooted path to ~/… for stdout.
