@@ -2,10 +2,9 @@
 //
 // A new provider is added by implementing Provider, registering it in init()
 // (see the packages in internal/provider/<name>), and declaring its auth
-// requirements in AuthSpec. Doctor and the fetch orchestrator use AuthSpec
-// for the shared credential checks; some providers still resolve extra
-// sources (private auth.json, GROK_HOME / KIMI_CODE_HOME, keychain) inside
-// Fetch.
+// requirements in AuthSpec. Credential checks and the window read AuthSpec,
+// while some providers resolve extra sources (private auth.json, GROK_HOME /
+// KIMI_CODE_HOME, keychain) inside Fetch.
 package provider
 
 import (
@@ -33,8 +32,8 @@ type WindowSpec struct {
 	Kind          WindowKind
 }
 
-// AuthSpec declaratively describes how a provider authenticates. Doctor and
-// credential resolution use it to decide "not_configured" vs "error".
+// AuthSpec declaratively describes how a provider authenticates. Credential
+// resolution and the window use it to decide "not_configured" vs "error".
 type AuthSpec struct {
 	EnvAPIKey        []string // env var names checked in order (e.g. ["DEEPSEEK_API_KEY"])
 	EnvAuthToken     []string // env var names for JWT/session tokens
@@ -44,6 +43,7 @@ type AuthSpec struct {
 	UsesCodexCLI     bool     // reuse ~/.codex/auth.json session
 	UsesKeychain     bool     // provider resolves its token from the macOS keychain itself (cursor)
 	LocalAuthFiles   []string // provider-owned CLI session files (e.g. "~/.grok/auth.json"), resolved by the provider itself
+	OfficialCLI      bool     // an official CLI (`leeway login` runs it) signs in: cursor/grok/codex/kimi
 	LoginHint        string   // command to restore the session, e.g. "run: grok login"
 	SupportsAccounts bool     // per-account fetch loop (opencode-go)
 }

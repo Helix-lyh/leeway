@@ -68,6 +68,7 @@ func (*cursorProvider) DisplayName() string { return "Cursor" }
 func (*cursorProvider) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
 		EnvAuthToken:     []string{"CURSOR_ACCESS_TOKEN"},
+		OfficialCLI:      true, // `leeway login cursor` runs cursor-agent
 		UsesKeychain:     true, // interactive sign-in token lives in the macOS keychain
 		SupportsAccounts: true, // per-account token via account.apiKey
 	}

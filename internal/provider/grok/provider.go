@@ -35,6 +35,7 @@ func (*grokProvider) ID() string          { return "grok" }
 func (*grokProvider) DisplayName() string { return "Grok" }
 func (*grokProvider) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
+		OfficialCLI:      true, // `leeway login grok` runs the official grok CLI
 		UsesCookies:      true,
 		CookieDomains:    []string{"grok.com"},
 		LocalAuthFiles:   []string{"~/.grok/auth.json"},

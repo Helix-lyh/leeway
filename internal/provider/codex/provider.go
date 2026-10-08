@@ -29,7 +29,7 @@ func (codexProvider) DisplayName() string { return "Codex" }
 // AuthSpec declares that credentials come from the Codex CLI session
 // (~/.codex/auth.json).
 func (codexProvider) AuthSpec() provider.AuthSpec {
-	return provider.AuthSpec{UsesCodexCLI: true}
+	return provider.AuthSpec{OfficialCLI: true, UsesCodexCLI: true}
 }
 
 // DeclaredWindows mirrors CodexProviderDescriptor's metadata lanes:

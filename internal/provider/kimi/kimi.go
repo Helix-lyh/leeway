@@ -86,6 +86,7 @@ func (kimiProvider) DisplayName() string { return "Kimi Code" }
 func (kimiProvider) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
 		EnvAPIKey:       []string{"KIMI_CODE_API_KEY"},
+		OfficialCLI:     true,                                           // `leeway login kimi` runs the official kimi CLI
 		EnvAuthToken:    []string{"KIMI_AUTH_TOKEN", "kimi_auth_token"}, // KimiSettingsReader.authToken
 		LocalAuthFiles:  []string{"~/.kimi-code/credentials/kimi-code.json"},
 		LoginHint:       "run: leeway login kimi",
