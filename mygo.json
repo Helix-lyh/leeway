@@ -1,0 +1,8 @@
+{
+  "name": "leeway",
+  "identifier": "dev.helixliu.leeway",
+  "version": "0.1.0",
+  "main": "./cmd/leeway-gui",
+  "out": "build",
+  "copyright": "Copyright (c) 2026 helixliu. MIT licensed."
+}

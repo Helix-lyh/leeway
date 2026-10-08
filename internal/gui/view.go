@@ -1,0 +1,631 @@
+package gui
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/glass"
+	"github.com/egoist/mygo/ui"
+
+	"leeway/internal/history"
+	"leeway/internal/model"
+	"leeway/internal/provider"
+)
+
+// Version is the release the window reports; the bundle's Info.plist wins
+// once the app is installed.
+const Version = "0.1.0"
+
+// window sizes; the windows remember their own bounds under these keys.
+const (
+	mainWidth     = 1040
+	mainHeight    = 700
+	settingsWidth = 660
+	settingsHght  = 600
+)
+
+// Focus brings the main window forward, as a second launch asks.
+func (a *App) Focus() {
+	if w := a.win; w != nil && !w.IsDestroyed() {
+		w.Show()
+		w.Focus()
+	}
+}
+
+// appearanceCanvas is the window fill before the first frame paints.
+const appearanceCanvas = "light-dark(#f2f2f6, #0d0d11)"
+
+// Open creates the main window. Call it from mygo.App.WhenReady.
+func (a *App) Open() {
+	a.applyAppearance()
+	win := mygo.NewWindow(mygo.WindowOptions{
+		Title:           "leeway",
+		Width:           mainWidth,
+		Height:          mainHeight,
+		MinWidth:        780,
+		MinHeight:       500,
+		TitleBarStyle:   mygo.TitleBarHidden,
+		BackgroundColor: appearanceCanvas,
+		StateKey:        "main",
+		Content:         ui.View(a.view),
+	})
+	win.SetMinimumSize(780, 500)
+	a.Start(win)
+}
+
+// OpenSettings shows the settings window, or brings it forward.
+func (a *App) OpenSettings() {
+	if w := a.settingsWin; w != nil && !w.IsDestroyed() {
+		w.Show()
+		w.Focus()
+		return
+	}
+	a.settingsArrival.at = time.Now()
+	w := mygo.NewWindow(mygo.WindowOptions{
+		Title:           "leeway 设置",
+		Width:           settingsWidth,
+		Height:          settingsHght,
+		MinWidth:        560,
+		MinHeight:       460,
+		TitleBarStyle:   mygo.TitleBarHidden,
+		BackgroundColor: appearanceCanvas,
+		StateKey:        "settings",
+		Content:         ui.View(a.settingsView),
+	})
+	w.OnClosed(func() { a.settingsWin = nil })
+	a.settingsWin = w
+}
+
+// applyAppearance asks MyGo to follow the appearance the settings chose.
+func (a *App) applyAppearance() {
+	switch a.settings.Theme {
+	case "light":
+		mygo.Theme.SetSource(mygo.ThemeLight)
+	case "dark":
+		mygo.Theme.SetSource(mygo.ThemeDark)
+	default:
+		mygo.Theme.SetSource(mygo.ThemeSystem)
+	}
+}
+
+// Menu is the application menu. Call it before mygo.App.Run.
+func (a *App) Menu() *mygo.Menu {
+	return mygo.NewMenu([]*mygo.MenuItem{
+		{Role: mygo.RoleAppMenu},
+		{Label: "文件", Submenu: []*mygo.MenuItem{
+			{Label: "刷新", Accelerator: "CmdOrCtrl+R", Click: func(*mygo.MenuItem, *mygo.Window) { a.Refresh(true) }},
+			{Label: "复制 JSON", Accelerator: "CmdOrCtrl+Shift+C", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.Clipboard.WriteText(a.CopyJSON()) }},
+			mygo.Separator(),
+			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.OpenSettings() }},
+			mygo.Separator(),
+			{Role: mygo.RoleClose},
+		}},
+		{Role: mygo.RoleEditMenu},
+		{Role: mygo.RoleWindowMenu},
+	})
+}
+
+// --- the main window -------------------------------------------------------
+
+func (a *App) view(c *ui.Context) {
+	for _, text := range a.spoken {
+		c.Announce(text)
+	}
+	a.spoken = a.spoken[:0]
+	a.arrival.index = 0
+	p := a.theme(c)
+	if a.toast != "" {
+		// Toast announces itself to assistive technology.
+		c.Toast(a.toast)
+		a.toast = ""
+	}
+	a.burnToast(c)
+	if a.Due() {
+		a.Refresh(false)
+	}
+	ui.Column(c).
+		Fill().
+		LinearGradient(ui.LinearGradient{From: p.canvasTop, To: p.canvas, Angle: 180, Oklab: true}).
+		Children(func() {
+			a.titleBar(c, p)
+			// The row below the titlebar is given its height outright: a
+			// scroll inside it clamps against its own box, and a percentage
+			// height would hand it the window's instead, which leaves the end
+			// of a long page unreachable.
+			_, winH := c.Size()
+			ui.Row(c).Height(winH - a.titleBarHeight(c)).Children(func() {
+				ui.Sidebar(c, &a.page, func() { a.sidebarItems(c, p) }).
+					Width(236).
+					FillHeight().
+					Padding(12, 10).
+					Material(glass.Glass{})
+				ui.Scroll(c).
+					Grow(1).
+					FillHeight().
+					Padding(26, 32, 40, 32).
+					Children(func() {
+						ui.Column(c).
+							FillWidth().
+							Gap(22).
+							Transition(pageMotion).
+							Children(func() { a.pageView(c, p) })
+					})
+			})
+		})
+
+	a.promptSheet(c, p)
+	a.confirmSheet(c, p)
+}
+
+// pageMotion eases a page in when the sidebar switches to another. The page
+// only fades: the cards inside it are what rises, so the two do not fight.
+var pageMotion = ui.ElementTransition{
+	Enter: &ui.Motion{Opacity: 1},
+	Exit:  &ui.Motion{Opacity: 0},
+}
+
+// titleBar is the window's own title bar: the wordmark and the state of the
+// last probe on the left, the refresh controls on the right, on glass.
+// titleBarMin is the room the titlebar keeps for its own controls when the
+// desktop does not ask for more.
+const titleBarMin = 54
+
+// titleBarHeight is how tall the titlebar is: its own content, or the room the
+// desktop asks for its traffic lights.
+func (a *App) titleBarHeight(c *ui.Context) float32 {
+	if h := c.TitleBar().Height; h > titleBarMin {
+		return h
+	}
+	return titleBarMin
+}
+
+func (a *App) titleBar(c *ui.Context, p palette) {
+	tb := c.TitleBar()
+	height := a.titleBarHeight(c)
+	left := float32(18)
+	if tb.Left > 0 {
+		left = tb.Left + 12
+	}
+	ui.Row(c).
+		FillWidth().
+		Height(height).
+		Padding(0, 14, 0, left).
+		Gap(12).
+		AlignItems(ui.Center).
+		DragWindow().
+		Material(glass.Glass{}).
+		Children(func() {
+			ui.Icon(c, iconApp).FontSize(15).TextColor(p.accent)
+			ui.Text(c, "leeway").
+				FontSize(15).
+				FontWeight(700).
+				LetterSpacing(-0.2)
+			ui.Box(c).Width(1).Height(18).Background(p.t.TextMuted.Alpha(0.28))
+			a.titleState(c, p)
+			ui.Spacer(c)
+			if !a.lastAt.IsZero() && !a.fetching {
+				muted(c, p, "更新于 "+agoText(a.lastAt, a.now()))
+			}
+			a.titleActions(c, p)
+		})
+}
+
+// titleState is what the probes found: a dot and a count per state.
+func (a *App) titleState(c *ui.Context, p palette) {
+	ok, bad, missing := a.overview()
+	type entry struct {
+		n     int
+		text  string
+		color ui.Color
+	}
+	entries := []entry{
+		{ok, "正常", p.toneColor(toneOK)},
+		{bad, "失败", p.toneColor(toneCritical)},
+		{missing, "未配置", p.t.TextMuted.Alpha(0.5)},
+	}
+	busy := a.fetching || a.fetchErr != ""
+	if a.fetching {
+		entries = []entry{{0, "探测中…", p.t.TextMuted}}
+	} else if a.fetchErr != "" {
+		entries = []entry{{0, "探测失败", p.toneColor(toneCritical)}}
+	}
+	shown := 0
+	ui.Row(c).Gap(14).AlignItems(ui.Center).Role(ui.RoleStatus).Children(func() {
+		for _, e := range entries {
+			if e.n == 0 && !busy {
+				continue
+			}
+			shown++
+			entry := e
+			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+				dot(c, entry.color)
+				spans := []ui.Span{{Text: entry.text, Color: p.t.TextMuted}}
+				if entry.n > 0 {
+					spans = append([]ui.Span{{Text: fmt.Sprintf("%d ", entry.n), Weight: 600, Color: p.t.Text}}, spans...)
+				}
+				ui.RichText(c, spans...).FontSize(sizeSmall).SingleLine()
+			})
+		}
+		if shown == 0 {
+			muted(c, p, "没有启用的 provider")
+		}
+	})
+}
+
+// titleActions is the refresh control and the settings button.
+func (a *App) titleActions(c *ui.Context, p palette) {
+	if a.fetching {
+		ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(6, 8).Children(func() {
+			ui.Spinner(c).Size(14, 14)
+		})
+	} else if ui.Button(c, "").Label("刷新").Padding(6, 9).Radius(8).Children(func() {
+		ui.Icon(c, iconRefresh).FontSize(14)
+	}).Tooltip("刷新（⌘R）").Clicked() {
+		a.Refresh(true)
+	}
+	ui.MenuButton(c, refreshLabel(a.settings.IntervalSec), func(m *ui.Menu) {
+		for _, opt := range refreshOptions {
+			if m.Item(opt.label).Checked(a.settings.IntervalSec == opt.sec).Chosen() {
+				a.settings.IntervalSec = opt.sec
+				a.SaveSettings()
+			}
+		}
+	}).FontSize(sizeSmall).Tooltip("自动刷新")
+	if ui.Button(c, "").Label("设置").Padding(6, 9).Radius(8).Children(func() {
+		ui.Icon(c, iconSettings).FontSize(14)
+	}).Tooltip("设置（⌘,）").Clicked() {
+		a.OpenSettings()
+	}
+}
+
+var refreshOptions = []struct {
+	sec   int
+	label string
+}{
+	{0, "手动刷新"},
+	{30, "每 30 秒"},
+	{60, "每分钟"},
+	{300, "每 5 分钟"},
+	{900, "每 15 分钟"},
+}
+
+func refreshLabel(sec int) string {
+	for _, o := range refreshOptions {
+		if o.sec == sec {
+			return o.label
+		}
+	}
+	return "自动刷新"
+}
+
+// sidebarItems lists the pages: the dashboard, one item per provider, and
+// the pages about the data itself.
+func (a *App) sidebarItems(c *ui.Context, p palette) {
+	ui.SidebarSection(c, "监控", nil, func() {
+		ui.SidebarItem(c, "overview", iconOverview, "总览")
+		// Only the subscriptions this machine actually has: a provider nobody
+		// has set up is a row to read once in the first-run guide, not a page
+		// to keep walking past.
+		listed := 0
+		for _, v := range a.providers() {
+			view := v
+			if !view.Enabled || !view.hasSubscription() {
+				continue
+			}
+			listed++
+			item := ui.SidebarItem(c, "provider:"+view.ID, nil, view.DisplayName)
+			item.Children(func() {
+				// Every provider listed here has at least one subscription, so
+				// the count is always worth showing: a row without a number
+				// reads as "unknown", not as "one".
+				if n := len(view.Accounts); n > 0 {
+					ui.Badge(c, fmt.Sprintf("%d", n))
+				}
+				// A dot means leeway has something to say: green is fine, red
+				// is not.
+				dot(c, p.statusColor(view.Status))
+			})
+		}
+		if listed == 0 {
+			muted(c, p, "配置过的 provider 会出现在这里")
+		}
+	})
+	ui.SidebarSection(c, "数据", nil, func() {
+		ui.SidebarItem(c, "history", iconHistory, "历史")
+		ui.SidebarItem(c, "about", iconAbout, "关于")
+	})
+}
+
+// statusColor colors a provider's dot in the sidebar and its badge in a card.
+func (p palette) statusColor(status string) ui.Color {
+	if status == "disabled" {
+		return p.t.Border
+	}
+	if status == "not_configured" {
+		return p.t.TextMuted.Alpha(0.45)
+	}
+	return p.toneColor(statusTone(status))
+}
+
+// pageView routes to the page the sidebar selected.
+func (a *App) pageView(c *ui.Context, p palette) {
+	switch {
+	case a.page == "history":
+		a.historyPage(c, p)
+	case a.page == "about":
+		a.aboutPage(c, p)
+	case strings.HasPrefix(a.page, "provider:"):
+		a.providerPage(c, p, strings.TrimPrefix(a.page, "provider:"))
+	default:
+		a.overviewPage(c, p)
+	}
+}
+
+// pageHead is the title, subtitle and actions every page starts with.
+func pageHead(c *ui.Context, p palette, name, subtitle string, actions func()) *ui.Element {
+	return pageHeadMarked(c, p, "", "", name, subtitle, actions)
+}
+
+// pageHeadMarked is a page head with a provider's mark in front of its name.
+func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string, actions func()) *ui.Element {
+	return ui.Column(c).FillWidth().Gap(14).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(16).Children(func() {
+			if id != "" {
+				mark(c, p, id, name, 46, status)
+			}
+			ui.Column(c).Grow(1).Gap(6).Children(func() {
+				title(c, p, name)
+				if subtitle != "" {
+					muted(c, p, subtitle)
+				}
+			})
+			if actions != nil {
+				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(actions)
+			}
+		})
+		hairline(c, p)
+	})
+}
+
+// tinyButton is a compact action inside a card.
+func tinyButton(c *ui.Context, label string) *ui.Element {
+	return ui.Button(c, label).Padding(5, 9).Radius(7).FontSize(sizeSmall)
+}
+
+// errorLine shows why a probe failed, without shouting.
+func errorLine(c *ui.Context, p palette, text string) *ui.Element {
+	return ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Start).Children(func() {
+		ui.Icon(c, iconAlert).FontSize(13).TextColor(p.toneColor(toneCritical)).Padding(1, 0, 0, 0)
+		ui.Text(c, text).FontSize(sizeSmall).TextColor(p.toneColor(toneCritical)).Grow(1)
+	})
+}
+
+// notConfiguredLine explains an account with no numbers yet: what is missing,
+// or that a credential is already there and only a probe is.
+func notConfiguredLine(c *ui.Context, p palette, id string, av accountView) {
+	if av.Cred != "" {
+		unconfiguredLine(c, p, credSentence(av.Cred))
+		return
+	}
+	unconfiguredLine(c, p, providerHint(id))
+}
+
+// unconfiguredLine shows what to do about a provider with no credentials.
+func unconfiguredLine(c *ui.Context, p palette, hint string) *ui.Element {
+	return muted(c, p, hint)
+}
+
+// windowFraction is how full a window is, and whether a bar means anything.
+func windowFraction(w model.RateWindow) (float64, bool) {
+	if w.UsedPercent != nil {
+		pct := *w.UsedPercent
+		if pct < 0 {
+			pct = 0
+		}
+		return pct / 100, true
+	}
+	if w.Limit != nil && *w.Limit > 0 && w.Used != nil {
+		return *w.Used / *w.Limit, true
+	}
+	return 0, false
+}
+
+// deltaText says how a window changed since the last probe, from the fetch's
+// own comparison when it has one, from the recorded history otherwise.
+func deltaText(points []history.Point, w model.RateWindow) string {
+	if d := w.Delta; d != nil {
+		switch {
+		case d.UsedPercent != nil && *d.UsedPercent != 0:
+			return fmt.Sprintf("较上次 %+.0f%%", *d.UsedPercent)
+		case d.Used != nil && *d.Used != 0:
+			return fmt.Sprintf("较上次 %+.2f", *d.Used)
+		}
+		return ""
+	}
+	if len(points) < 2 {
+		return ""
+	}
+	last, prev := points[len(points)-1], points[len(points)-2]
+	if last.Reset {
+		// A reset is not a change of usage, and the number it makes (-42%)
+		// is the one thing it does not mean. The reset note says it, with
+		// the values on both sides.
+		return ""
+	}
+	switch {
+	case last.UsedPercent != nil && prev.UsedPercent != nil:
+		if d := *last.UsedPercent - *prev.UsedPercent; d != 0 {
+			return fmt.Sprintf("较上次 %+.0f%%", d)
+		}
+	case last.Used != nil && prev.Used != nil:
+		if d := *last.Used - *prev.Used; d != 0 {
+			return fmt.Sprintf("较上次 %+.2f", d)
+		}
+	}
+	return ""
+}
+
+// accountActions is the menu of what can be done with one account. Switching
+// the machine's own client only appears when that provider has one to switch.
+func accountActions(c *ui.Context, a *App, p palette, providerID, account string) *ui.Element {
+	ready := accountSwitchReady(a, providerID, account)
+	session := accountUsesSession(a, providerID, account)
+	return ui.ButtonBase(c).Label("账号操作").Padding(5, 8).Radius(7).Cursor(ui.CursorPointer).
+		Children(func() { ui.Icon(c, iconMore).FontSize(15).TextColor(p.t.TextMuted) }).
+		Menu(func(m *ui.Menu) {
+			if canSwitchTo(providerID, ready) {
+				if m.Item("让本机用它").Chosen() {
+					a.askUse(providerID, account)
+				}
+				m.Separator()
+			}
+			if m.Item("复制当前 JSON").Chosen() {
+				mygo.Clipboard.WriteText(a.CopyJSON())
+				a.toast = "已复制 JSON"
+			}
+			m.Separator()
+			if m.Item(removeAccountLabel(session)).Chosen() {
+				a.askLogout(providerID, account)
+			}
+		})
+}
+
+// removeAccountLabel names what removal actually removes: a session from
+// leeway's own ledger, or just the stored key.
+func removeAccountLabel(session bool) string {
+	if session {
+		return "退出登录"
+	}
+	return "删除 API key"
+}
+
+// loginActions opens the sheet that gives a provider credentials.
+func loginActions(c *ui.Context, a *App, providerID, account string) *ui.Element {
+	return ui.MenuButton(c, loginButtonLabel(providerID), func(m *ui.Menu) {
+		for _, method := range loginMethods(providerID) {
+			if m.Item(method.label).Chosen() {
+				method.open(a, providerID, account)
+			}
+		}
+	}).Padding(5, 10).Radius(7).FontSize(sizeSmall)
+}
+
+type loginMethod struct {
+	label string
+	open  func(a *App, providerID, account string)
+}
+
+// loginMethods lists what leeway can do for a provider, derived from the
+// provider's own AuthSpec so the window never offers a credential kind the
+// provider does not read.
+func loginMethods(providerID string) []loginMethod {
+	apiKey := loginMethod{"粘贴 API key…", func(a *App, id, acc string) { a.openAPIKey(id, acc) }}
+	cookie := loginMethod{"从浏览器导入 cookie…", func(a *App, id, acc string) { a.openCookieImport(id, acc) }}
+	manual := loginMethod{"粘贴 cookie header…", func(a *App, id, acc string) { a.openManualCookie(id, acc) }}
+	file := loginMethod{"导入会话文件…", func(a *App, id, acc string) { a.openSessionFile(id, acc) }}
+	cli := loginMethod{"用官方 CLI 登录…", func(a *App, id, acc string) { a.openCLI(id, acc) }}
+
+	spec, ok := providerSpec(providerID)
+	if !ok {
+		return []loginMethod{apiKey}
+	}
+	var out []loginMethod
+	if spec.OfficialCLI {
+		out = append(out, cli)
+	}
+	if len(spec.EnvAPIKey) > 0 || len(spec.EnvAuthToken) > 0 {
+		out = append(out, apiKey)
+	}
+	if spec.UsesCookies {
+		out = append(out, cookie, manual)
+	}
+	// `leeway login <id> --file` takes a session file for exactly the four
+	// with an official CLI (saveAccountAuthFile); cursor imports its auth.json
+	// through the same path even though it declares no LocalAuthFiles.
+	if spec.OfficialCLI || spec.UsesCodexCLI || len(spec.LocalAuthFiles) > 0 {
+		out = append(out, file)
+	}
+	if len(out) == 0 {
+		out = append(out, apiKey)
+	}
+	return out
+}
+
+// loginButtonLabel says what the button really does: sign in through the
+// official CLI, or fill in the key that queries quota.
+func loginButtonLabel(providerID string) string {
+	spec, ok := providerSpec(providerID)
+	if ok && (spec.OfficialCLI || spec.UsesCodexCLI) {
+		return "登录"
+	}
+	return "配置 key"
+}
+
+// providerSpec is the provider's declared credential kinds.
+func providerSpec(providerID string) (provider.AuthSpec, bool) {
+	p, ok := provider.Get(providerID)
+	if !ok {
+		return provider.AuthSpec{}, false
+	}
+	return p.AuthSpec(), true
+}
+
+// canSwitchTo reports whether `让本机用它` can do anything for a provider at
+// all: only the three with an official local client. Codex deliberately never
+// writes ~/.codex, and key-only providers have no client of their own.
+func canSwitchTo(providerID string, ready bool) bool {
+	switch providerID {
+	case "cursor", "grok", "kimi":
+		return ready
+	}
+	return false
+}
+
+// accountUsesSession is true when removing this account also removes a login
+// rather than only a stored key: the providers that log in through an official
+// CLI keep an isolated session, and any account with a cookie has one cached.
+func accountUsesSession(a *App, providerID, account string) bool {
+	spec, ok := providerSpec(providerID)
+	if !ok {
+		return false
+	}
+	if spec.OfficialCLI || spec.UsesCodexCLI {
+		return true
+	}
+	if !spec.UsesCookies || a.cfg == nil {
+		return false
+	}
+	if acc, ok := a.cfg.Account(providerID, account); ok {
+		return acc.CookieSource != "" || acc.ManualCookieHeader != ""
+	}
+	pc := a.cfg.Provider(providerID)
+	return pc.CookieSource != "" || pc.ManualCookieHeader != ""
+}
+
+// providerHint is the sentence under a provider's name when it has no
+// credentials yet.
+func providerHint(id string) string {
+	switch id {
+	case "deepseek", "opencode-go", "commandcode":
+		return "还没有 API key。填上之后 leeway 用它探测用量。"
+	case "cursor":
+		return "还没有 cursor 私有会话。先用官方 cursor-agent 登录。"
+	case "grok":
+		return "还没有 grok 会话。用官方 grok 登录，或导入 ~/.grok/auth.json。"
+	case "codex":
+		return "还没有 codex 会话。用官方 codex 登录，或导入 ~/.codex/auth.json。"
+	case "kimi":
+		return "还没有 kimi 凭据。官方 kimi 登录、API key 或浏览器 cookie 都可以。"
+	}
+	return "还没有凭据。"
+}
+
+// sinceStart renders how long the last probe took.
+func sinceStart(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("用时 %.1f 秒", d.Seconds())
+}

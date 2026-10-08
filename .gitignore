@@ -5,6 +5,8 @@
 
 # Build artifacts
 /dist/
+/build/
+.mygo/
 
 # Local config & caches (never commit credentials)
 /config.json
