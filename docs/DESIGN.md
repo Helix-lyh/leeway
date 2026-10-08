@@ -1,7 +1,8 @@
-# leeway（余量·裕度）— CodexBar 纯 CLI 复刻（设计文档）
+# leeway（余量·裕度）— CodexBar 复刻（设计文档）
 
 > 复刻 [steipete/CodexBar](https://github.com/steipete/CodexBar) 的核心（AI 编程 provider 额度/余额/重置探测），
-> 砍掉 macOS 菜单栏 UI 与周边，做成纯 CLI：简单输出必要信息、JSON 优先，方便集成到 Hermes 等 agent。
+> 砍掉 macOS 菜单栏 UI 与周边（菜单栏仍未做，但不再是禁止项）：CLI 简单输出必要信息、JSON 优先，方便集成到 Hermes 等 agent；
+> 另有一个原生窗口界面（`internal/gui`，MyGo 的 `ui` 包）复用同一条探测与配置路径，见 [GUI.md](GUI.md)。
 > 支持 provider：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**（预留扩展位）。
 > 认证全做：API key、本地文件、CLI 会话复用、委托官方 CLI 登录（cursor / grok）、浏览器 cookie 导入（L0/L1/L2）。
 > 许可证 MIT，上游版权见 [NOTICE](../NOTICE)，感谢与参考见 [ACKNOWLEDGMENTS.md](ACKNOWLEDGMENTS.md)。
@@ -10,17 +11,18 @@
 
 | 保留（复刻） | 简化 | 砍掉 |
 |---|---|---|
-| Provider 探测体系（descriptor + fetch strategy 思想） | 数据模型（只留 RateWindow/Snapshot，砍 ProviderDetailSection 等扩展结构） | 菜单栏 UI、SwiftUI、Widget、Sparkle 更新、iCloud 同步、Hooks、用户插件、图标渲染、不自建 Keychain（0600 文件替代）；cursor 无私有 auth.json 时仍可读官方 keychain |
-| 多窗口语义（primary/secondary/tertiary + reset 时间） | 自适应刷新（固定 TTL + watch 间隔） | 通知、confetti、统计分享 |
-| 认证适配（env key / cookie / CLI 会话复用） | 呈现层（一张表 + JSON） | 成本历史图表、历史 pace 预测 |
-| 多账户机制（OpenCode Go 多 session token） | — | — |
+| Provider 探测体系（descriptor + fetch strategy 思想） | 数据模型（只留 RateWindow/Snapshot，砍 ProviderDetailSection 等扩展结构） | 菜单栏 UI、SwiftUI、Widget、Sparkle 更新、iCloud 同步、Hooks、用户插件、图标渲染、不自建 Keychain（0600 文件替代）；cursor 无私有 auth.json 时仍可读官方 keychain。**边界已变更**：窗口界面已实现（见 [GUI.md](GUI.md)），菜单栏仍未做但不再是禁止项 |
+| 多窗口语义（primary/secondary/tertiary + reset 时间） | 自适应刷新（固定 TTL + watch 间隔） | confetti、统计分享 |
+| 认证适配（env key / cookie / CLI 会话复用） | 呈现层（一张表 + JSON + 窗口） | 成本历史图表、历史 pace 预测（**边界已变更**：窗口历史页已有走势与用满预测，见 [GUI.md](GUI.md)） |
+| 多账户机制（OpenCode Go 多 session token） | 窗口界面（总览 / provider / 历史 / 设置，见 [GUI.md](GUI.md)） | — |
 
 ## 2. 技术选型
 
 **Go**：单静态二进制、启动毫秒级、goroutine 并行探测、stdlib 覆盖 HTTP/JSON。
 
 ```
-依赖: modernc.org/sqlite（纯 Go 无 CGO）；gopkg.in/yaml.v3（`leeway use` 打补丁凭据文件）；golang.org/x/term（TTY）
+依赖: modernc.org/sqlite（纯 Go 无 CGO）；gopkg.in/yaml.v3（`leeway use` 打补丁凭据文件）；golang.org/x/term（TTY）；
+      github.com/egoist/mygo（窗口界面：原生 ui 包，纯 Go 无 CGO）
 ```
 
 > 备选：Python 开发最快（browser_cookie3 现成）但分发/启动差；Rust 更费工。Go 是平衡点。
@@ -29,9 +31,12 @@
 
 ```
 leeway/
-  README.md LICENSE NOTICE AGENTS.md CLAUDE.md
-  docs/                     # 设计、探测实现、调研、感谢
-  cmd/leeway/main.go        # 入口，装配 registry
+  README.md LICENSE NOTICE AGENTS.md CLAUDE.md mygo.json
+  docs/                     # 设计、探测实现、窗口、调研、感谢
+  resources/icon.png        # 窗口产物图标（MyGo 构建器转 .icns）
+  cmd/leeway/main.go        # CLI 入口，装配 registry
+  cmd/leeway-gui/main.go    # 窗口入口，装配同一 registry
+  internal/gui/             # 窗口：页面、设置、登录表单、配色与点阵
   internal/model/           # RateWindow / Snapshot / JSON 契约
   internal/provider/        # Provider 接口 + Registry
     deepseek/  kimi/  grok/  codex/  cursor/  opencodego/  commandcode/
@@ -124,16 +129,16 @@ L2 步骤（macOS）：
 - `leeway login opencode-go --cookie` 扫描全部 Chrome profile，每个登录态 = 一个账户候选
 - 多账户并发 ≤3；`--account work` 可过滤
 - 快速切换：`leeway use opencode-go <订阅>` 把 key 写入 DSH 凭据（`keyTarget`，可配置）
-- cursor / grok 的本地切号：`leeway use cursor|grok NAME`。cursor 写 Cursor IDE `state.vscdb` + `~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`）；grok 只回写文件里已有 `auth_mode`/`user_id` 的官方 `auth.json`（`login grok --file` 快照，不从 JWT 编造字段）。探测和登录仍用隔离目录。
+- cursor / grok 的本地切号：`leeway use cursor|grok NAME`。cursor 写入本机所有已有的官方凭据位置——cursor-agent 的 macOS keychain 项、Cursor IDE `state.vscdb`、`~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`；缺的跳过，三处可用 `LEEWAY_CURSOR_KEYCHAIN` / `LEEWAY_CURSOR_STATE_DB` / `LEEWAY_CURSOR_AUTH_JSON` 覆盖）；grok 只回写文件里已有 `auth_mode`/`user_id` 的官方 `auth.json`（`login grok --file` 快照，不从 JWT 编造字段）。探测和登录仍用隔离目录。
 
-## 8. CLI 设计（纯 CLI，无交互，agent 友好）
+## 8. CLI 设计（无交互，agent 友好）
 
 ```
 leeway usage [PROVIDER [ACCOUNT]] [--json] [--watch N] [--last N]  # 查额度；--last 是点阵
 leeway login  PROVIDER [ACCOUNT]                                  # cursor/grok/codex/kimi → 官方 CLI；其余粘贴 key
 leeway logout PROVIDER [ACCOUNT]
 leeway status [--json]
-leeway use    PROVIDER ACCOUNT                                    # cursor → IDE；grok → 完整 ~/.grok/auth.json；kimi 会话 → ~/.kimi-code；其余 → DSH
+leeway use    PROVIDER ACCOUNT                                    # cursor → 本机所有已有官方凭据位置（keychain / IDE state.vscdb / ~/.cursor/auth.json）；grok → 完整 ~/.grok/auth.json；kimi 会话 → ~/.kimi-code；其余 → DSH
 leeway help [COMMAND]
 ```
 
@@ -178,6 +183,15 @@ DeepSeek
 - `~/.config/leeway/config.json`（0600）：provider 开关、cookieSource、accounts[]、apiKeys
 - 凭据解析优先级：**env var → config 文件**（agent 场景 env 优先）
 - 缓存 `~/.cache/leeway/snapshots.json`：TTL 60s；`--watch N` 每 N 秒刷新
+- 窗口偏好 `~/.config/leeway/gui.json`（0600）：刷新间隔、超时、主题、历史点数、上次页面。
+  与 `config.json` 分开，因为 CLI 的 `Save()` 只认自己的字段，会抹掉不认识的键。
+
+## 9.1 窗口界面
+
+`cmd/leeway-gui` 是第二个入口：`mygo.App` 起窗口，`internal/gui` 用 `internal/{fetch,history,config,auth,switcher,credwrite}`
+的导出 API 做同样的事——探测走 `fetch.FetchAll`（手动刷新 `UseCache:false`，自动刷新读 60s 缓存），
+历史走 `history.LoadLastSeenBefore` + `Record` + `Collect`，登录/退出/use 走和 CLI 同一批底层函数。
+窗口只重排呈现，不另写探测或配置逻辑；页面、设置与自检方式见 [GUI.md](GUI.md)。
 
 ## 10. 里程碑
 
@@ -189,6 +203,7 @@ DeepSeek
 | **M3** | kimi / grok / opencode-go（含多账户 + SQLite 只读） | 三家真实数据 + watch |
 | **M4** | codex（复用 CLI 会话） | 多档窗口 + 过期提示 |
 | **M5** | 打磨：超时、退出码、agent 集成文档、README | Hermes 侧一次调用可用 |
+| **M6** | 窗口界面：总览 / provider / 历史 / 设置 / 登录表单，MyGo 打包 `.app` + `.dmg` | 窗口能查、能登录、能退出登录，产物可启动 |
 
 ## 11. 风险与注意
 

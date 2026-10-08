@@ -8,13 +8,17 @@
 | 范围 | `leeway usage` 的本地历史记录 + 相对上次观测的增量；以及 UI 形态取舍 |
 | 非范围 | 不改生产代码；本文只设计 |
 
+> **边界变更（2026-10）**：本文写于 2026-09-09，当时「不做 GUI / 菜单栏 / 常驻」是产品边界。
+> 窗口界面此后已实现（见 [GUI.md](GUI.md)），菜单栏与常驻也不再是禁止项；当前实现仍只有窗口进程，关窗即退出。
+> 下文按当时记录保留，涉及该边界的判断均已过时。
+
 ---
 
 ## Overview
 
 `leeway usage` 今天只展示**这一次探测**的官方窗口。60s 的 `snapshots.json` 是防抖缓存，不是历史：换一次 `--provider` 都不会读写它，`--watch` 只清屏重绘。用户已经能在一张分组表里看到 Cursor / DeepSeek / Grok / OpenCode Go 的多账号窗口，但无法回答「和上次相比烧了多少」。
 
-本设计加一条**很小、agent 友好**的本地增量：每次真正探测成功的 `usage` 把无密钥摘要追加到 `~/.cache/leeway/history.jsonl`；下一次按 `(provider id, account name, window id)` 对齐，在表格同一行和 JSON 的可选 `delta` 里给出百分点或金额差。窗口重置（本窗 `ResetsAt` 前跳；无 `ResetsAt` 的**非余额**窗，且同账户**百分比**兄弟已前跳、本窗数值下降；孤儿百分比 ≥50pp / 花费窗回落到 ~0）标记为 `reset`。余额 / 剩余（`Used` 无 `Limit`，且 id 不是 `day-*`）永不因兄弟跳变或数值回落而被标成 `reset`。产品边界不变：纯 CLI，stdout 只出数据，不引入 TUI / WebUI / 菜单栏，也不恢复 CodexBar 的成本曲线和 pace 预测。
+本设计加一条**很小、agent 友好**的本地增量：每次真正探测成功的 `usage` 把无密钥摘要追加到 `~/.cache/leeway/history.jsonl`；下一次按 `(provider id, account name, window id)` 对齐，在表格同一行和 JSON 的可选 `delta` 里给出百分点或金额差。窗口重置（本窗 `ResetsAt` 前跳；无 `ResetsAt` 的**非余额**窗，且同账户**百分比**兄弟已前跳、本窗数值下降；孤儿百分比 ≥50pp / 花费窗回落到 ~0）标记为 `reset`。余额 / 剩余（`Used` 无 `Limit`，且 id 不是 `day-*`）永不因兄弟跳变或数值回落而被标成 `reset`。产品边界不变：纯 CLI，stdout 只出数据，不引入 TUI / WebUI / 菜单栏，也不恢复 CodexBar 的成本曲线和 pace 预测。（已过时：GUI 已实现、菜单栏与常驻不再是禁止项，pace 预测与走势也已进窗口，见文首说明。）
 
 ---
 
@@ -63,7 +67,7 @@ cmd/leeway/main.go
 
 ### Non-Goals
 
-- **不**做 GUI、菜单栏、常驻进程、本地 HTTP 服务、bubbletea TUI（见 Key Decisions；若将来要改产品边界，见 Open Questions，默认仍是否）。
+- **不**做 GUI、菜单栏、常驻进程、本地 HTTP 服务、bubbletea TUI（见 Key Decisions；若将来要改产品边界，见 Open Questions，默认仍是否）。（已过时：GUI 已实现、菜单栏与常驻不再是禁止项，见文首说明；本地 HTTP 服务仍未做。）
 - **不**恢复 CodexBar 成本曲线、sparkline、pace / 耗尽预测、告警。
 - **不**把 `snapshots.json` 扩成时序库，也不用 sqlite 做用量仓。
 - **不**做独立的 `history` 子命令或 `usage --since` 回放。点阵是 `usage --last`。
@@ -518,9 +522,9 @@ type Cost struct {
 
 ### C. UI 建议（结论：继续打磨当前 stdout 表）
 
-**建议：v1 只打磨 `internal/render` 的表 + 可选 JSON `delta`。不上 TUI，不上 WebUI，不上原生/菜单栏。**
+**建议：v1 只打磨 `internal/render` 的表 + 可选 JSON `delta`。不上 TUI，不上 WebUI，不上原生/菜单栏。**（已过时：窗口界面已实现，见 [GUI.md](GUI.md) 与文首说明。）
 
-这不是四选一菜单，是产品边界已经选过一次（`DESIGN.md` §1、`AGENTS.md` 硬约束），本次需求也没有推翻它。
+这不是四选一菜单，是产品边界已经选过一次（`DESIGN.md` §1、`AGENTS.md` 硬约束），本次需求也没有推翻它。（其中 AGENTS.md 的硬约束 2026-10 已解除，见文首说明。）
 
 #### 对照
 
@@ -529,7 +533,7 @@ type Cost struct {
 | **1. 现有 stdout 表** | 用户缺的是同行增量，不是导航。分组、原生窗口、盲文条、金额、倒计时已经在 `RenderTable`。`--watch` 已覆盖「活的刷新」（`cli.go:121`，无按键） | 改 `accountLine` / `windowBody` 周边；零新依赖 | **采用** |
 | 2. 交互 TUI（bubbletea / lipgloss） | 能滚动、折叠账号，但 stdout 不再是「一份数据」；agent 还是要 `--json`。刷新已有 `--watch` | 新依赖、交互循环、和「无 TTY 降级纯文本」分叉、启动变慢 | **拒绝** |
 | 3. 本地 WebUI | 图表、历史条。等于把 DESIGN.md 砍掉的东西从菜单栏搬进浏览器 | 本机 HTTP、CORS/绑定、常驻或每次拉起浏览器，扩大攻击面 | **拒绝**（改产品边界） |
-| 4. 原生 UI（菜单栏 / SwiftUI） | 这就是 CodexBar。leeway 的存在理由是把它砍掉 | 平台绑定、分发、和纯 CLI 目标相反 | **拒绝** |
+| 4. 原生 UI（菜单栏 / SwiftUI） | 这就是 CodexBar。leeway 的存在理由是把它砍掉 | 平台绑定、分发、和纯 CLI 目标相反 | **拒绝**（已过时：窗口已实现，见文首说明；菜单栏仍未做但不再是禁止项） |
 
 竞品（`COMPETITORS.md`）里 OpenUsage.ai / CrossUsage / ai-usagebar 走菜单栏或托盘；OpenUsage.sh 走 daemon + 终端仪表盘。leeway 的位置写得很清楚：官方余量 CLI，不是本机账单观察器。历史增量不构成换壳的理由。
 
@@ -678,7 +682,7 @@ func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
 
 ### 5. TUI / WebUI / 菜单栏
 
-见 §C。相对「同行加一个 ↑2」，壳层成本不成比例，且违反现行产品边界。
+见 §C。相对「同行加一个 ↑2」，壳层成本不成比例，且违反当时的产品边界（已过时：窗口界面已实现，见文首说明）。
 
 ---
 
@@ -768,6 +772,7 @@ func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
 
 6. **TUI / WebUI / 菜单栏是否改产品边界？**  
    默认：**否**。本设计按纯 CLI 打磨表。若要做第二前端，应另开文档，而不是夹在 delta 里。
+   （已过时：第二前端（原生窗口）已实现，见 [GUI.md](GUI.md) 与文首说明。）
 
 ---
 
@@ -788,7 +793,7 @@ func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
 
 ## Key Decisions
 
-1. **纯 CLI，打磨现有表。** 拒绝 TUI / WebUI / 原生菜单栏。需求是「和上次比」，不是新壳；`--watch` 已能刷新。改边界放到 Open Question 且默认否。
+1. **纯 CLI，打磨现有表。** 拒绝 TUI / WebUI / 原生菜单栏。需求是「和上次比」，不是新壳；`--watch` 已能刷新。改边界放到 Open Question 且默认否。（已过时：窗口界面已实现，见文首说明。）
 
 2. **历史 = `LEEWAY_CACHE/history.jsonl`，不是 sqlite，也不是 `snapshots.json`。** 防抖缓存与跨 run 历史职责不同；JSONL 可 grep、上限 200 行。
 

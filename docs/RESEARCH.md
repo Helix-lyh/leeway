@@ -155,7 +155,7 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 
 | 工具 | 语言/形态 | 定位 | 与 leeway 差异 |
 |---|---|---|---|
-| **CodexBar**（steipete） | Swift，菜单栏 + CLI | 29+ provider 用量仪表盘 | leeway 的参照物（砍掉 UI 做纯 CLI/JSON） |
+| **CodexBar**（steipete） | Swift，菜单栏 + CLI | 29+ provider 用量仪表盘 | leeway 的参照物（砍掉 UI 做纯 CLI/JSON）。**边界已变更**：窗口界面已实现，见 [GUI.md](GUI.md)；菜单栏仍未做但不再是禁止项 |
 | **ccusage**（ryoppippi） | Rust | 本地 JSONL 成本分析（"已花多少"） | 互补：leeway 答"还剩多少" |
 | **AgentSubscriptionUsage** | Rust，CLI | 统一多 provider 查询 | cursor 用 `~/.config/cursor/auth.json` → 同款 api2 RPC |
 | **cclimits** | Python | statusline 用 one-liner | 带缓存，轻量 |
