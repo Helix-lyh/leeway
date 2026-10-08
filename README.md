@@ -2,19 +2,27 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-6e5aff?style=flat-square)](LICENSE)
 
-查 AI 编程额度还剩多少：用量、余额、何时重置。纯 CLI，JSON 优先，stdout 只出数据。
+查 AI 编程额度还剩多少：用量、余额、何时重置。CLI 优先（JSON 优先，stdout 只出数据），也带一个原生窗口界面。
 
 支持：**deepseek / kimi / grok / codex / cursor / opencode-go / commandcode**。
 
-复刻 [CodexBar](https://github.com/steipete/CodexBar) 的探测核心，没有菜单栏或后台服务。
+复刻 [CodexBar](https://github.com/steipete/CodexBar) 的探测核心。当前只有窗口进程：关掉就退出，没有菜单栏常驻或后台服务。
 
 ## 安装
 
 ```sh
-go install ./cmd/leeway
-# 或
+go install ./cmd/leeway              # CLI
 go build -o leeway ./cmd/leeway
 ```
+
+GUI 走 [MyGo](https://github.com/egoist/mygo)（纯 Go、无 cgo），要出 `.app` / `.dmg` 得用它的构建器：
+
+```sh
+go run github.com/egoist/mygo/cmd/mygo@v0.2.16 build      # build/darwin-arm64/leeway.app + leeway 0.1.0.dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.2.16 build -skip-dmg
+```
+
+窗口和 CLI 是同一个探测核心、同一份配置：GUI 只多一个 `~/.config/leeway/gui.json`。
 
 ## 用法
 
@@ -45,33 +53,60 @@ leeway logout cursor work
 `leeway use` 把某个号变成本机正在用的那个，不是切 leeway 自己查哪号：
 
 ```sh
-leeway use cursor work               # 写入 Cursor IDE + ~/.cursor/auth.json（先退出 Cursor）
+leeway use cursor work               # 写本机所有 Cursor 凭据位置（见下）
 leeway use grok home                 # 回写完整官方 ~/.grok/auth.json（瘦设备码文件会拒绝）
 leeway use kimi work                 # 有会话则写 ~/.kimi-code；只有 key 则写 DSH
 leeway use opencode-go work          # 把 key 写给 DSH
 ```
 
-macOS / Linux。Cursor 必须先退出。`leeway use cursor` 写 `state.vscdb`：
+macOS / Linux。Cursor 必须先退出（`cursor-agent` 不算，它和 IDE 是两个进程）。`leeway use cursor`
+把会话写进本机**所有**已有的官方凭据位置，缺哪个跳哪个，一个都没有才报错：
 
-- macOS: `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`
-- Linux: `~/.config/Cursor/...`（Flatpak 回退已在 switcher 里）
+- `cursor-agent` 的 keychain 项（macOS `cursor-access-token`）——只用 agent 的机器就靠这个生效
+- Cursor IDE 的 `state.vscdb`：macOS `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`，
+  Linux `~/.config/Cursor/...`（Flatpak 回退已在 switcher 里）
+- `~/.cursor/auth.json`（`AGENT_CLI_CREDENTIAL_STORE=file` 时 agent 读的那份）
+
+`LEEWAY_CURSOR_KEYCHAIN=0` 关掉 keychain 写入（其它值指定 keychain 服务名）；`LEEWAY_CURSOR_STATE_DB` /
+`LEEWAY_CURSOR_AUTH_JSON` 各自把对应文件写到别处，指定任一个就不再碰真 keychain；三处都没有时直接失败，不再新建 auth.json。
+
+切换前会先把本机当前登录快照成 leeway 账号，所以切错了能切回来。第一次改动 keychain 项时，
+macOS 可能弹一次授权框（那是系统在问要不要让 `security` 写这条记录）。
 
 Grok 官方文件两边都是 `~/.grok/auth.json`。每个号先用官方 grok 登录一次，再 `leeway login grok NAME --file ~/.grok/auth.json` 快照；之后 `use` 只换文件。Codex 只查额度，不写 `~/.codex`。
 
+## 窗口界面
+
+```sh
+open build/darwin-arm64/leeway.app        # 或直接跑 ./leeway-gui
+```
+
+- **总览**：每个 provider 一张卡，绿/黄/红点 + 进度条 + 重置倒计时；卡片跟着窗口宽度折行
+- **provider 页**：账号、凭据来源、每个窗口的条与花费、缓存/配置/会话文件位置；`登录` / `账号操作` / `操作` 在这里做。
+  一家有多个订阅时换成额度矩阵：列是账号（名字、邮箱、套餐、状态），行是窗口，同一行横向比，一屏看完；
+  列间画竖线，窗口名当行头，预测句写在各自账号那一列
+- **历史**：近 N 次探测的点阵；**关于**：版本与构建信息
+- 标题栏：状态汇总、`刷新`、自动刷新间隔、设置；`⌘R` 刷新，`⌘⇧C` 复制当前 JSON，`⌘,` 打开设置，`⌘W` 关窗
+- 设置：自动刷新间隔、探测超时（等价 `LEEWAY_TIMEOUT`）、主题、开机自启、失败通知、每个 provider 的启用开关、历史点数、缓存清理
+- 登录/退出登录走和 CLI 一样的三条路：官方 CLI、粘贴 API key、浏览器 cookie 或手工 cookie 头/会话文件
+
+GUI 从不显示密钥内容，只说明凭据来自哪儿（环境变量 / 配置里的 API key / 已导入的 cookie / 会话文件）。
+
 ## 各家怎么登录
 
-| Provider | 登录 |
-|---|---|
-| cursor | `leeway login cursor` |
-| grok | `leeway login grok` |
-| opencode-go / commandcode / deepseek | `leeway login …`（粘贴 API key） |
-| codex / kimi | `leeway login codex` / `leeway login kimi` |
-| grok / kimi 备选 | `leeway login grok --manual` / `leeway login kimi --cookie` |
+窗口里的按钮和菜单按 provider 声明的凭据类型长（`AuthSpec`），所以分成两类：
+
+| 登录方式 | Provider | 命令 |
+|---|---|---|
+| 官方 CLI 登录（窗口按钮写「登录」） | cursor / grok / codex / kimi | `leeway login cursor` / `grok` / `codex` / `kimi` |
+| 只用 API key（窗口按钮写「配置 key」） | deepseek / opencode-go / commandcode | `leeway login …`（粘贴 API key） |
+| grok / kimi 备选 | — | `leeway login grok --manual` / `leeway login kimi --cookie` |
 
 ## 配置
 
 - 配置：`~/.config/leeway/config.json`（0600，`LEEWAY_CONFIG` 可覆盖）
 - 缓存：`~/.cache/leeway/`（`LEEWAY_CACHE`）
+- 窗口设置：`~/.config/leeway/gui.json`（0600，CLI 不读也不写）
 - 凭据：**环境变量 → 配置文件**。cookie 只在你显式导入或 `--manual` 时写入缓存。
 
 ```json
@@ -101,6 +136,7 @@ Grok 官方文件两边都是 `~/.grok/auth.json`。每个号先用官方 grok �
 | | |
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | 架构与数据模型 |
+| [docs/GUI.md](docs/GUI.md) | 窗口界面：入口、页面、设置、构建 |
 | [docs/PROVIDER-FETCH.md](docs/PROVIDER-FETCH.md) | 各家端点与凭据 |
 | [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) | 感谢与参考 |
 | [docs/](docs/) | 调研与竞品对照 |

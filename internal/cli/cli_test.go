@@ -12,6 +12,7 @@ import (
 	"leeway/internal/auth"
 	"leeway/internal/config"
 	"leeway/internal/model"
+	"leeway/internal/switcher"
 
 	// Provider registration side effects (each stub registers itself in init),
 	// mirroring cmd/leeway/main.go.
@@ -277,9 +278,15 @@ func TestRunUseDispatch(t *testing.T) {
 
 func TestRunUseWritesTarget(t *testing.T) {
 	isolateEnv(t)
-	// Register a named subscription key.
-	if got := runLogin([]string{"opencode-go", "work", "--key", "sk-work123"}); got != 0 {
+	// Register a named subscription key, and who it belongs to: a key alone
+	// does not tell four accounts on one provider apart.
+	if got := runLogin([]string{"opencode-go", "work", "--key", "sk-work123", "--email", "work@example.com"}); got != 0 {
 		t.Fatalf("login = %d, want 0", got)
+	}
+	if cfg, err := config.Load(); err != nil {
+		t.Fatalf("config: %v", err)
+	} else if acc, ok := cfg.Account("opencode-go", "work"); !ok || acc.Email != "work@example.com" {
+		t.Fatalf("the account did not keep the email given at login: %+v", acc)
 	}
 	if got := Run([]string{"use", "--provider", "opencode-go", "--account", "work"}); got != 0 {
 		t.Fatalf("use = %d, want 0", got)
@@ -343,6 +350,19 @@ func TestAuthStatusListsKimiAccount(t *testing.T) {
 	}
 	if !strings.Contains(out, "kimi") || !strings.Contains(out, "work") {
 		t.Fatalf("status missing kimi account:\n%s", out)
+	}
+}
+
+func TestStatusShowsTheEmailRecordedAtLogin(t *testing.T) {
+	isolateEnv(t)
+	if got := runLogin([]string{"opencode-go", "work", "--key", "sk-work123", "--email", "work@example.com"}); got != 0 {
+		t.Fatalf("login = %d, want 0", got)
+	}
+	out, _ := captureStdout(t, func() int {
+		return runStatus(nil)
+	})
+	if !strings.Contains(out, "work@example.com") {
+		t.Fatalf("status does not show the email recorded at login:\n%s", out)
 	}
 }
 
@@ -417,6 +437,12 @@ func TestUseCursorWritesOfficialFiles(t *testing.T) {
 	authJSON := filepath.Join(t.TempDir(), "auth.json")
 	t.Setenv("LEEWAY_CURSOR_STATE_DB", stateDB)
 	t.Setenv("LEEWAY_CURSOR_AUTH_JSON", authJSON)
+	t.Setenv("LEEWAY_CURSOR_KEYCHAIN", "0")
+
+	targets := switcher.DisplayTargets(switcher.CursorTargets{StateDB: stateDB, AuthJSON: authJSON})
+	if len(targets) != 2 || targets[0] != switcher.DisplayPath(stateDB) || targets[1] != switcher.DisplayPath(authJSON) {
+		t.Fatalf("DisplayTargets = %v, want both file stores in order", targets)
+	}
 
 	p, err := auth.CursorAuthFile("work")
 	if err != nil {
@@ -447,6 +473,11 @@ func TestUseCursorWritesOfficialFiles(t *testing.T) {
 	}
 	if !strings.Contains(out, `switched cursor to account "work"`) {
 		t.Fatalf("stdout = %q", out)
+	}
+	for _, want := range targets {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stdout does not report the write to %q:\n%s", want, out)
+		}
 	}
 	raw, err := os.ReadFile(authJSON)
 	if err != nil {

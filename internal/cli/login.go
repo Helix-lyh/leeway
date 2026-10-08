@@ -13,6 +13,7 @@ import (
 
 	"leeway/internal/auth"
 	"leeway/internal/config"
+	"leeway/internal/provider"
 )
 
 func runLogin(args []string) int {
@@ -23,6 +24,7 @@ func runLogin(args []string) int {
 		manual     string
 		authFile   string
 		key        string
+		email      string
 		browser    string
 		profile    string
 		force      bool
@@ -36,6 +38,7 @@ func runLogin(args []string) int {
 	fs.StringVar(&manual, "manual", "", "Cookie header，例如 a=b; c=d")
 	fs.StringVar(&authFile, "file", "", "会话文件路径")
 	fs.StringVar(&key, "key", "", "API key（省略则交互输入，不回显）")
+	fs.StringVar(&email, "email", "", "账号邮箱，用来区分同一 provider 的多个账号")
 	fs.StringVar(&browser, "browser", "", "chrome | edge | kimi-desktop（默认 chrome）")
 	fs.StringVar(&profile, "profile", "", "Chrome profile")
 	fs.BoolVar(&force, "force", false, "忽略缓存，强制重导")
@@ -68,8 +71,8 @@ func runLogin(args []string) int {
 		return saveAccountAuthFile(providerID, account, authFile)
 	}
 
-	if key != "" || isAPIKeyProvider(providerID) {
-		return loginAPIKey(providerID, account, noBrowser, key)
+	if key != "" || !officialCLILogin(providerID) {
+		return loginAPIKey(providerID, account, email, noBrowser, key)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -118,13 +121,11 @@ func knownProvider(id string) bool {
 	return false
 }
 
-func isAPIKeyProvider(id string) bool {
-	switch id {
-	case "deepseek", "opencode-go", "commandcode":
-		return true
-	default:
-		return false
-	}
+// officialCLILogin is the provider's own answer to "is logging in a matter of
+// running its CLI": the same AuthSpec the window reads.
+func officialCLILogin(id string) bool {
+	p, ok := provider.Get(id)
+	return ok && p.AuthSpec().OfficialCLI
 }
 
 func isolatedSessionHome(providerID, account string) (string, error) {
@@ -226,7 +227,7 @@ func loginKimi(ctx context.Context, account string, noBrowser bool) int {
 	bin, err := exec.LookPath("kimi")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "没找到 kimi CLI，改为粘贴 API key")
-		return loginAPIKey("kimi", account, noBrowser, "")
+		return loginAPIKey("kimi", account, "", noBrowser, "")
 	}
 
 	name := account

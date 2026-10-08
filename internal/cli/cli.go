@@ -331,21 +331,21 @@ func runUse(args []string) int {
 
 	acc, ok := cfg.Account(providerID, account)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "account %q not found for provider %q\n", account, providerID)
+		fmt.Fprintf(os.Stderr, "%s 没有账号 %q\n", providerID, account)
 		return 2
 	}
 	if acc.APIKey == "" {
-		fmt.Fprintf(os.Stderr, "account %q of %q has no API key — leeway login %s %s --key\n",
-			account, providerID, providerID, account)
+		fmt.Fprintf(os.Stderr, "%s 账号 %q 没有 API key — leeway login %s %s --key\n",
+			providerID, account, providerID, account)
 		return 2
 	}
 	target := cfg.KeyTarget(providerID)
 	if target.File == "" || target.Key == "" {
-		fmt.Fprintln(os.Stderr, "key target is not configured (file and key required)")
+		fmt.Fprintln(os.Stderr, "没有配置 key 写入目标（需要文件和字段名）")
 		return 2
 	}
 	if err := credwrite.Patch(target.File, target.Key, acc.APIKey); err != nil {
-		fmt.Fprintln(os.Stderr, "write target:", err)
+		fmt.Fprintln(os.Stderr, "写入目标失败：", err)
 		return 1
 	}
 	return printUseResult(switcher.Result{
@@ -359,7 +359,7 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 	name, email := resolveCursorAccount(cfg, account)
 	ca, ok, err := auth.LoadCursorAuth(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cursor auth:", err)
+		fmt.Fprintln(os.Stderr, "读取 cursor 会话失败：", err)
 		return 1
 	}
 	if !ok || ca.AccessToken == "" || ca.RefreshToken == "" {
@@ -376,12 +376,12 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 	}
 	targets, err := switcher.OfficialCursorTargets()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cursor targets:", err)
+		fmt.Fprintf(os.Stderr, "找不到 Cursor 的会话库：%v\n", err)
 		return 1
 	}
 	saved, unsaved, err := switcher.SnapshotCursorIfNeeded(targets, ca.AccessToken)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "save current cursor session:", err)
+		fmt.Fprintln(os.Stderr, "保存当前 Cursor 登录失败：", err)
 		return 1
 	}
 	if saved != "" {
@@ -390,7 +390,7 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 		fmt.Fprintln(os.Stderr, "当前 Cursor 登录不在 leeway 台账里，切走之后只剩目标号")
 	}
 	if err := switcher.ApplyCursor(targets, ca, email); err != nil {
-		fmt.Fprintln(os.Stderr, "write cursor session:", err)
+		fmt.Fprintln(os.Stderr, "写入 Cursor 会话失败：", err)
 		return 1
 	}
 	if !jsonOut {
@@ -400,7 +400,7 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 		Provider: "cursor",
 		Account:  name,
 		Email:    email,
-		Targets:  []string{switcher.DisplayPath(targets.StateDB), switcher.DisplayPath(targets.AuthJSON)},
+		Targets:  switcher.DisplayTargets(targets),
 		SavedAs:  saved,
 	}, jsonOut)
 }
@@ -421,11 +421,11 @@ func useGrok(cfg *config.Config, account string, jsonOut bool) int {
 	}
 	dst, err := switcher.OfficialGrokAuthFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "grok target:", err)
+		fmt.Fprintln(os.Stderr, "找不到 grok 的会话文件：", err)
 		return 1
 	}
 	if err := switcher.ApplyGrok(dst, src); err != nil {
-		fmt.Fprintln(os.Stderr, "write grok session:", err)
+		fmt.Fprintln(os.Stderr, "写入 grok 会话失败：", err)
 		return 1
 	}
 	email := grokAuthEmail(src)
@@ -627,7 +627,7 @@ func snapshotGrokAuthFile(account, src string) int {
 	incoming := dst + ".incoming"
 	if err := os.WriteFile(incoming, raw, 0o600); err != nil {
 		os.Remove(incoming)
-		fmt.Fprintln(os.Stderr, "write grok session:", err)
+		fmt.Fprintln(os.Stderr, "写入 grok 会话失败：", err)
 		return 1
 	}
 	if !grok.HasOfficialShape(incoming) {
@@ -637,7 +637,7 @@ func snapshotGrokAuthFile(account, src string) int {
 	}
 	if err := os.Rename(incoming, dst); err != nil {
 		os.Remove(incoming)
-		fmt.Fprintln(os.Stderr, "write grok session:", err)
+		fmt.Fprintln(os.Stderr, "写入 grok 会话失败：", err)
 		return 1
 	}
 	return bindIsolatedAuthFile("grok", name, dst)

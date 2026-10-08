@@ -46,12 +46,15 @@ const loginHelp = `leeway login — 给一家登录或写入凭据
   leeway login opencode-go work
   leeway login commandcode goat
   leeway login deepseek --key sk-...
+  leeway login opencode-go work --email you@example.com --key oc_sk-...
   leeway login grok --cookie
   leeway login grok --manual "a=b; c=d"
   leeway login grok home --file ~/.grok/auth.json
 
-cursor / grok 走官方 CLI 浏览器登录（PATH 里要有 cursor-agent / grok）。
+cursor / grok / codex / kimi 走官方 CLI 登录（PATH 里要有 cursor-agent / grok / codex / kimi）。
 opencode-go / commandcode / deepseek 打开申请页，粘贴 API key（不回显）。
+--email 记下账号归属：同一家挂多个订阅时，界面和 status 靠它区分。
+--email 只对粘贴 key 的家生效；cursor / grok / codex / kimi 的邮箱从官方会话里读。
 cursor 不写 ACCOUNT 时用邮箱当账号名。
 --file 把官方会话快照进隔离目录（grok / kimi / cursor / codex），不绑正在用的官方文件。
 grok 的 --file 必须是文件里已有 auth_mode / user_id 的完整 auth.json（不要靠设备码 JWT 冒充）。每个号网页授权一次，之后 use 只换文件。
@@ -86,7 +89,11 @@ const useHelp = `leeway use — 把某个号变成本机正在用的那个
   leeway use opencode-go work
   leeway use cursor work --json
 
-cursor：写入 Cursor IDE（state.vscdb）和 ~/.cursor/auth.json。Cursor 在跑就先退出。
+cursor：往本机所有官方 Cursor 凭据位置写：cursor-agent 的 keychain 项 cursor-access-token（macOS）、
+  Cursor IDE 的 state.vscdb、~/.cursor/auth.json；哪一个不存在就跳过，一个都没找到才报错（不再新建 auth.json）。
+  用的哪几个会打在 targets 里。Cursor 在跑就先退出（cursor-agent 不算）。
+  LEEWAY_CURSOR_KEYCHAIN=0 关掉 keychain 写入（其它值是 keychain 服务名）；LEEWAY_CURSOR_STATE_DB /
+  LEEWAY_CURSOR_AUTH_JSON 各自把对应文件写到别处，指定任一个就不再碰真 keychain。
 grok：把完整官方会话合并进 ~/.grok/auth.json（瘦设备码文件会拒绝，以免逼 grok 重新网页登录）。
 kimi：有隔离会话则写官方 kimi-code.json（尊重 KIMI_CODE_HOME）；只有 key 的号写 DSH。
 codex：不写官方 ~/.codex（避免 refresh 把官方会话作废）。

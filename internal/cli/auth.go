@@ -194,7 +194,7 @@ func grokHome(account string) (string, error) {
 // loginAPIKey covers providers whose only credential is an API key: open the
 // key page, then read the pasted value without echoing it, so the key never
 // lands in shell history or the scrollback.
-func loginAPIKey(providerID, account string, noBrowser bool, key string) int {
+func loginAPIKey(providerID, account, email string, noBrowser bool, key string) int {
 	key = strings.TrimSpace(key)
 	if key == "" {
 		page := keyPage[providerID]
@@ -228,6 +228,15 @@ func loginAPIKey(providerID, account string, noBrowser bool, key string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "save key:", err)
 		return 1
+	}
+	// A key alone does not say whose subscription it is. With several accounts
+	// on one provider that is the difference between four rows and four
+	// readable rows, so an email given here is recorded on the account.
+	if email != "" {
+		if err := cfg.SetAccountEmail(providerID, account, email); err != nil {
+			fmt.Fprintln(os.Stderr, "保存邮箱失败：", err)
+			return 1
+		}
 	}
 
 	fmt.Fprintf(os.Stderr, "已保存 %s 的 key（%s）\n", providerID, maskKey(key))
@@ -324,15 +333,20 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 		}
 		return authRow{id, label, authFile, "not logged in", "leeway login grok" + suffixFlag(account)}
 	default:
+		// The email is what tells several subscriptions of one provider apart.
+		label := account
+		if a, ok := cfg.Account(id, account); ok {
+			label = accountStatusName(a.Name, a.Email)
+		}
 		if a, ok := cfg.Account(id, account); ok && a.AuthFile != "" {
 			p := a.AuthFile
 			if path, err := provider.LocalSessionPath(a.AuthFile); err == nil {
 				p = path
 			}
 			if fileExists(p) {
-				return authRow{id, account, "authFile (private)", "ok", "—"}
+				return authRow{id, label, "authFile (private)", "ok", "—"}
 			}
-			return authRow{id, account, a.AuthFile, "not logged in", "leeway login " + id + suffixFlag(account)}
+			return authRow{id, label, a.AuthFile, "not logged in", "leeway login " + id + suffixFlag(account)}
 		}
 		key := ""
 		if a, ok := cfg.Account(id, account); ok && a.APIKey != "" {
@@ -341,26 +355,26 @@ func authStatusRow(cfg *config.Config, id, account string) authRow {
 			key = cfg.APIKey(id)
 		}
 		if key != "" {
-			return authRow{id, account, "apiKey (config)", "ok", "—"}
+			return authRow{id, label, "apiKey (config)", "ok", "—"}
 		}
 		if p, ok := provider.Get(id); ok {
 			spec := p.AuthSpec()
 			if spec.UsesCookies {
 				if h, err := auth.ResolveCookieHeader(id, cfg.Provider(id), account); err == nil && h != "" {
-					return authRow{id, account, "cookies", "ok", "—"}
+					return authRow{id, label, "cookies", "ok", "—"}
 				}
 			}
 			if spec.UsesCodexCLI && fetch.HasCodexAuth() {
-				return authRow{id, account, "codex auth.json", "ok", "—"}
+				return authRow{id, label, "codex auth.json", "ok", "—"}
 			}
 			for _, f := range spec.LocalAuthFiles {
 				path, err := provider.LocalSessionPath(f)
 				if err == nil && fileExists(path) {
-					return authRow{id, account, "local session", "ok", "—"}
+					return authRow{id, label, "local session", "ok", "—"}
 				}
 			}
 		}
-		return authRow{id, account, "—", "not configured", "leeway login " + id + suffixFlag(account)}
+		return authRow{id, label, "—", "not configured", "leeway login " + id + suffixFlag(account)}
 	}
 }
 
