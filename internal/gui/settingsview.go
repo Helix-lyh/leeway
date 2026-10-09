@@ -4,6 +4,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
+	"log"
 )
 
 // formRow is a settings row: the label above its control, as docs/GUI.md asks
@@ -140,6 +141,7 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 			on := mygo.App.IsReady() && mygo.App.OpenAtLogin()
 			if ui.Switch(c, &on).Label(name).Changed() && mygo.App.IsReady() {
 				if err := mygo.App.SetOpenAtLogin(on); err != nil {
+					log.Printf("gui: open at login: %v", err)
 					a.toast, _ = failureText("开机自启设置失败", err.Error())
 				}
 			}

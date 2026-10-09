@@ -2019,3 +2019,46 @@ func TestTheAttentionRowKeepsAMachinesPathOffTheRow(t *testing.T) {
 		t.Errorf("the row lost the app's own sentence; texts=%v", tester.Texts())
 	}
 }
+
+// The matrix is the densest page, and at the window's enforced minimum width
+// (780) a column is about 57 px wide. The name is the column's identity, so it
+// keeps a floor there instead of collapsing: measured 0x0 without the floor
+// (every column, seven accounts) and 20x18.8 with it. The floor must not cost
+// the column its control, so this pins that too.
+func TestTheColumnNameSurvivesTheNarrowestMatrix(t *testing.T) {
+	a := testApp(t)
+	idx := -1
+	for i := range a.out.Providers {
+		if a.out.Providers[i].ID == "kimi" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatal("the fixture no longer reports kimi")
+	}
+	first := a.out.Providers[idx].Accounts[0]
+	a.out.Providers[idx].Accounts = nil
+	for i := 0; i < 7; i++ {
+		cp := first
+		cp.Name = fmt.Sprintf("acct-%d", i)
+		cp.Snapshot = nil
+		a.out.Providers[idx].Accounts = append(a.out.Providers[idx].Accounts, cp)
+	}
+	a.reloadConfig()
+	a.navigate("provider:kimi")
+	tester := ui.NewTester(a.view, 780, 700)
+	tester.Frame()
+	for i := 0; i < 7; i++ {
+		name := fmt.Sprintf("acct-%d", i)
+		r, ok := tester.Find(name)
+		if !ok {
+			t.Fatalf("%s is not on the page at all", name)
+		}
+		if r.W < 12 || r.H < 6 {
+			t.Errorf("%s is squeezed to %v at the minimum width", name, r)
+		}
+		if r, ok := tester.Find("账号操作"); !ok || r.W < 12 {
+			t.Errorf("the column lost its menu control: %v %v", r, ok)
+		}
+	}
+}
