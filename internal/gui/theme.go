@@ -458,7 +458,7 @@ func pill(c *ui.Context, p palette, text string, t tone) ui.Element {
 // toneInk is the tone as a label: a capsule sets it on a tint of the tone
 // itself, which costs contrast the tone does not pay on a plain card, so in
 // the light theme it is darkened until the label clears 4.5:1 there too.
-// The dark tones already clear it (the weakest is 4.76:1).
+// The dark tones already clear it (the weakest is the critical pill at 4.71:1).
 func (p palette) toneInk(t tone) ui.Color {
 	c := p.toneColor(t)
 	if p.dark {

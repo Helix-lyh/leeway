@@ -66,6 +66,7 @@ func TestThePaletteStaysLegible(t *testing.T) {
 // reads the pixels: for every label the window publishes, the strongest ink in
 // its box has to clear 4.5:1 against that box's own surface.
 func TestTheInkAPageDrawsClearsItsSurface(t *testing.T) {
+	seen := map[string][]string{}
 	for _, state := range []struct {
 		name  string
 		setup func(*App)
@@ -80,7 +81,46 @@ func TestTheInkAPageDrawsClearsItsSurface(t *testing.T) {
 		a := testApp(t)
 		state.setup(a)
 		checkInk(t, state.name, a)
+		seen[state.name] = labels(a)
 	}
+	// A state that quietly renders another state's page guards nothing: the
+	// third state's setup was once navigate("provider") — not a page id — and
+	// it fell through to the overview while still being reported as the
+	// provider's page.
+	for _, pair := range [][2]string{{"the answer", "a probe that failed"}, {"the answer", "a provider's own page"}, {"a probe that failed", "a provider's own page"}} {
+		if len(seen[pair[0]]) == 0 || len(seen[pair[1]]) == 0 {
+			continue
+		}
+		if sameLabels(seen[pair[0]], seen[pair[1]]) {
+			t.Errorf("%q and %q publish the same labels — one of them is not the page it claims", pair[0], pair[1])
+		}
+	}
+}
+
+// labels is the set of texts the view publishes in its settled frame.
+func labels(a *App) []string {
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	return tester.Texts()
+}
+
+func sameLabels(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := map[string]int{}
+	for _, s := range a {
+		set[s]++
+	}
+	for _, s := range b {
+		set[s]--
+	}
+	for _, n := range set {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func checkInk(t *testing.T, state string, a *App) {
@@ -273,7 +313,7 @@ func TestTheStructuralLinesCarryTheirOwnContrast(t *testing.T) {
 			// a graphic: at 0.45 alpha of the muted it measured 1.87:1.
 			{"the not-configured dot", p.statusColor("not_configured"), p.canvas},
 			// The level a percentage chart turns warn and critical at is drawn
-			// as a line over its own band: the 1.1:1 wash cannot carry it, so
+			// as a line over its own band: a 1.18:1 wash cannot carry it, so
 			// the line does. At 0.55 alpha it measured 2.12:1.
 			{"the warn level on its band", p.toneColor(toneWarn).Alpha(chartBandRule), over(p.toneColor(toneWarn).Alpha(chartBandWarn), card)},
 			{"the critical level on its band", p.toneColor(toneCritical).Alpha(chartBandRule), over(p.toneColor(toneCritical).Alpha(chartBandCritical), card)},

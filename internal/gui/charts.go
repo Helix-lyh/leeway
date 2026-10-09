@@ -211,9 +211,10 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 			} {
 				top, bottom := y(band.to), y(band.from)
 				pt.Fill(ui.Rect{X: plot.X, Y: top, W: plot.W, H: bottom - top}, band.color, 0)
-				// The wash is a zone, not a boundary: 1.1:1 of tint says
-				// nothing on its own, so the level itself is drawn as a line
-				// the caption can point at ("图上的横线").
+				// The wash is a zone, not a boundary: a tint of 1.18:1
+				// (warn) or 1.33:1 (critical) says nothing on its own, so the
+				// level itself is drawn as a line the caption can point at
+				// ("图上的横线").
 				pt.Fill(ui.Rect{X: plot.X, Y: y(band.from), W: plot.W, H: 1}, band.rule, 0)
 			}
 		}
@@ -222,10 +223,11 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 		for i := 0; i <= chartGridSteps; i++ {
 			if axis.bands && i > 0 {
 				// A percentage chart's scale is its bands. The 50% step would
-				// land on the warn rule — one border drawn twice — and a step
-				// inside the critical band is ink laid inside a tint, saying
-				// nothing the rule at its edge does not already say. Only the
-				// baseline is left, and the caption still says 0–100%.
+				// land on the warn rule — one border drawn twice — and the
+				// 100% step is the top edge of the critical band, so a step
+				// there is ink laid inside a tint, saying nothing the band's
+				// own edge does not already say. Only the baseline is left,
+				// and the caption still says 0–100%.
 				continue
 			}
 			gy := plot.Y + plot.H*float32(chartGridSteps-i)/chartGridSteps
