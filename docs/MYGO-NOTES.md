@@ -351,9 +351,14 @@ w2, h2 := c.MeasureText(60, ui.Span{Text: "hello world", Size: 13})
 
 **快照可复现性有个尾巴**：本仓库把"现在"钉在 `pinned`（`internal/gui/gui_test.go:48`，
 `a.clock` 见 `internal/gui/app.go:58`–`60`），所以同一份代码两次跑出的快照基本一致。
-但实测 32 张里有 1 张（`provider-many-burn.png`）两次运行差 13745 个像素、**最大通道差 2/255**，
-集中在底部一条还在跑颜色过渡的带（y 628..698）。这正是 `internal/gui/gui_test.go:1266`–`1268`
-注释里说的"颜色过渡会漂一个最低位"。所以：**别用逐字节相等断言快照**，用 `meanDifference` 这种带阈值的比较。
+实测两张不是逐字节可复现，而且它们坏得不一样：
+- `provider-many-burn.png` 两次运行差 13745 个像素，**最大通道差 2/255**，集中在底部一条还在跑
+  颜色过渡的带（y 628..698）——"颜色过渡会漂一个最低位"。
+- 同一张图在**另一对运行**里（冻结帧 vs 重跑）差到 **最大通道差 13/255、11739 个像素**，同一段
+  y 626–699：`snapshotStill` 抓的是 toast 淡入的中途帧，相位不同就差得多。
+- `overview-probing*.png` 差 288/289 个像素、最大通道差 94（转圈的相位）。
+所以：**别用逐字节相等断言快照**，用 `meanDifference` 这种带阈值的比较；也别把"最大 2/255"
+当成上限——它是其中一对运行的结果。
 
 ### 2.5 纯 Go、无 cgo、不需要显示器
 
@@ -600,6 +605,7 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 | 16 ✅ | 本项目设计系统 | 都在 `internal/gui/theme.go` | `card()`=`shell()`（托盘 + 内层卡）、`hairline()`、`dot()`、`chromeRule()`；列间竖线用 `Dividers`；颜色全走 `palette`（`ui.RGBA`/`Hex`/`Oklch`），`t.Dark` 分深浅 | 本仓库 `internal/gui/theme.go` 的 `card()`/`shell()`/`hairline()`/`dot()`/`paletteOf()` |
 | 17 ✏️ | 图标用官方素材 + `//go:embed` | 来源对，**API 写错了**：`ui.Icon(c, …)` 收的是 `*ui.SVG`（内联 Lucide 路径），不是 PNG 字节；嵌入的 PNG 走 `ui.DecodeBitmap` → `*ui.Bitmap` → `ui.Image(c, b)` | 界面图标：`ui.MustParseSVG` + `ui.Icon(c, svg).FontSize(n).TextColor(c)`；provider 图标：`//go:embed icons/*.png` + `ui.DecodeBitmap` + `ui.Image(c, bmp).Size(s,s)` | mygo `ui/svg.go:51`–`88`、`ui/bitmap.go:38`–`50`、`ui/api_gen.go:1080`–`1092`；本仓库 `internal/gui/icons.go:10`–`12`、`:56`–`66`、`internal/gui/theme.go` 的 `icon()`、`internal/gui/icons/SOURCES.md` |
 | 18 ✅ | 列分隔线要比 hairline 重一档 | 实测力度：`border` 浅 7% 黑 / 深 10% 白，`divider` 浅 18% 黑 / 深 26% 白 | 竖线用 `p.divider`，卡片内细分隔用 `p.border` | 本仓库 `internal/gui/theme.go` 的 `paletteOf()`（`border`/`divider` 两档） |
+| 19b ✏️ | `ui.Toast` 的淡入不受 `ReduceMotion` 管 | 实测：`SetPreferences(ReduceMotion:true)` 下数据变化帧与静止帧逐像素相同（0 差异），但 toast 的淡入照样在跑（开/关 RM 都是 181/10737 px 差异）——它是库自己起的过渡，窗口关不掉 | 要严格「ReduceMotion 下没有动」就得不用 toast 的入场，或等库把偏好接进去；本窗口的选择是留着 toast（它是失败的唯一反馈通道），并把这条写在这里 | mygo `ui/toast.go`；实测 `overview-stale.png` 与 RM 帧对比 |
 | 19 ✏️ | 动效与主题 API 的写法 | 过渡是 `ui.ElementTransition`，**一个元素一条过渡，后挂的赢**；值动画 `Animate` 首帧直接返回目标；**`mygo/plugins/glass` 与淡入无关**，它是背景模糊材质。手写入场需要帧内读时间 + `c.AnimationFrame()` 续帧 + 尊重 `ReduceMotion`——**本仓库已整段删除**（第一帧必须是答案） | 被包元素自带过渡会覆盖外层 opacity；`Margin` 用上边距；过渡预设放一处（`pageMotion`/`stateMotion`/`panelMotion`）；颜色是**构建期**读的，`SetTheme` 不是作用域（见 §3 末） | mygo `ui/api_gen.go:247`、`ui/transition.go:17`–`71`、`ui/api_gen.go` 的 `Element.Animate` 与 `Panel` 文档、`ui/context.go` 的 `SetTheme`、`plugins/glass/glass.go:29`；本仓库 `internal/gui/theme.go` 的 `panelMotion`/`pageMotion`/`stateMotion`、`internal/gui/view.go` 的页面切换 |
 | 20 ✅ | `mygo build` 出 `.app` + `.dmg` | 产物在 `<out>/<goos>-<goarch>/`，dmg 名是 `<Name> <Version>.dmg` | `go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build`；配置 `out`/`name`/`version` | mygo `cmd/mygo/build.go:22`–`52`、`:130`–`141`、`:213`–`:236`、`cmd/mygo/dmg.go:17`–`19`、`cmd/mygo/config.go:19`–`46`；本仓库 `mygo.json` |
 | 21 ✅ | 装完要删掉开发目录里的 `.app` | Spotlight 按 bundle id 索引；`.metadata_never_index`/`.noindex` 放在**子目录**无效（只在卷根生效） | 删掉 `build/darwin-arm64/leeway.app`，或把 `build/` 加进 Spotlight 隐私 | 实测：有标记的目录照样被 `mdfind` 找到（对照组也能找到）；本仓库 `build/darwin-arm64/` 只剩 dmg、`.gitignore:8` |

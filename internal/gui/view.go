@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
@@ -338,6 +339,9 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 			}
 			listed++
 			item := ui.SidebarItem(c, "provider:"+view.ID, nil, view.DisplayName)
+			// The dot's shape and colour are the mark; the word rides on the
+			// row so a keyboard or screen-reader user reads the state too.
+			item = item.Tooltip(view.DisplayName + " · " + statusLabel(view.Status, view.firstCred()))
 			item.Children(func() {
 				// Every provider listed here has at least one subscription, so
 				// the count is always worth showing: a row without a number
@@ -346,8 +350,8 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 					ui.Badge(c, fmt.Sprintf("%d", n))
 				}
 				// A dot means leeway has something to say: green is fine, red
-				// is not.
-				dot(c, p.statusColor(view.Status))
+				// is not, and a ring means it has not answered yet.
+				statusDot(c, p, view.Status)
 			})
 		}
 		if listed == 0 {
@@ -438,7 +442,7 @@ func failureText(sentence, message string) (string, string) {
 	// One that leads with our words and trails a machine's — "写 Cursor
 	// keychain 失败：exit status 51" — is split at that last colon, so the
 	// sentence stays ours and the tail goes to the tooltip.
-	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) {
+	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) && looksLikeAMachine(message[i+len("："):]) {
 		return joinNonEmpty([]string{sentence, message[:i]}, " · "), strings.TrimSpace(message[i+len("："):])
 	}
 	if !hasCJK(message) || looksLikeAMachine(message) {
@@ -447,13 +451,42 @@ func failureText(sentence, message string) (string, string) {
 	return joinNonEmpty([]string{sentence, message}, " · "), ""
 }
 
-// looksLikeAMachine reports whether a message carries a machine's own
-// formatting rather than a person's words: a path, or the "…: no such file or
-// directory" shape an OS error has. Language alone does not tell them apart —
-// macOS localises its errors, so "打开 … 被拒绝" is a machine's message in
-// Chinese — but its paths and its punctuation give it away.
+// looksLikeAMachine reports whether a message is a machine's rather than a
+// person's: the "…: no such file or directory" shape an OS error has, a bare
+// exit status, or a path standing on its own. Language alone cannot tell them
+// apart — macOS localises its errors, so "打开 /Users/张三/x 被拒绝" is a
+// machine's message in Chinese — but the punctuation and the paths give it
+// away. A path *inside* one of our sentences is not one of these: "先安装
+// https://cursor.com/cli" and "先导入 ~/.grok/auth.json" are ours, and they
+// stay on screen.
 func looksLikeAMachine(message string) bool {
-	return strings.ContainsAny(message, `/:\\`) || strings.Contains(message, "exit status")
+	if strings.Contains(message, ": ") || strings.Contains(message, "exit status") {
+		return true
+	}
+	// A quoted path is how an OS names a file it could not open, and it is
+	// quoted in Chinese too: 无法打开"/Users/张三/auth.json"：没有那个文件或目录.
+	if strings.Contains(message, `"/`) || strings.Contains(message, `"~`) ||
+		strings.Contains(message, "“/") || strings.Contains(message, "“~") {
+		return true
+	}
+	// Sentence punctuation is the other tell: a person wrote this, whatever
+	// paths are quoted inside it. Our own "找到 3 个 Cursor state.vscdb
+	// （/a, /b）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个" must stay on screen.
+	if strings.ContainsAny(message, "，。（）、；：？！——…") {
+		return false
+	}
+	if strings.HasPrefix(message, "/") || strings.HasPrefix(message, "~") {
+		return true
+	}
+	for i := 1; i+1 < len(message); i++ {
+		if message[i] != '/' || (message[i-1] != ' ' && message[i-1] != '"' && message[i-1] != '\'') {
+			continue
+		}
+		if unicode.IsLetter(rune(message[i+1])) {
+			return true
+		}
+	}
+	return false
 }
 
 // errorLine is a failure the window is reporting. The sentence is the app's

@@ -652,7 +652,14 @@ func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
 					a.Enable(v.ID, true)
 				}
 			case v.Status == "error":
-				if btnSmall(ui.Button(c, "刷新")).Clicked() {
+				retry := btnSmall(ui.Button(c, "刷新"))
+				// The line beside this carries the same text as a tooltip, but
+				// it is not focusable — a keyboard or screen-reader user only
+				// reaches the detail through the control that fixes it.
+				if d := providerError(v); d != "" && d != attentionReason(v) {
+					retry = retry.Tooltip(attentionReason(v) + " · " + d)
+				}
+				if retry.Clicked() {
 					a.Refresh(true)
 				}
 				loginActions(c, a, v.ID, defaultAccount(v))
@@ -668,9 +675,10 @@ func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
 func attentionLine(c *ui.Context, p palette, v providerView) ui.Element {
 	reason := attentionReason(v)
 	detail := providerError(v)
-	// The same rule as errorLine: our own words (Chinese) are shown, a
-	// library's error text goes on the tooltip.
-	if !hasCJK(detail) || detail == reason {
+	// The same rule as failureText: our own words (Chinese) are shown, a
+	// machine's go on the tooltip. This had its own copy of the rule — plain
+	// hasCJK — and so leaked an OS error whose path happened to be Chinese.
+	if !hasCJK(detail) || looksLikeAMachine(detail) || detail == reason {
 		return ui.Text(c, reason).
 			FontSize(sizeBody).
 			TextColor(p.t.TextMuted).

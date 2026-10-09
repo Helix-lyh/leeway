@@ -84,8 +84,8 @@ func paletteOf(t *ui.Theme) palette {
 		p.money = ui.Oklch(0.52, 0.09, 255)
 		p.accent = ui.Oklch(0.55, 0.20, 285)
 		// MyGo's own muted grey is 4.33:1 on this window's canvas, just under
-		// the 4.5:1 ordinary text needs; this one is 4.72:1 there and 5.17:1
-		// on a card. The dark theme's is 6.75:1 and stays.
+		// the 4.5:1 ordinary text needs; this one is 4.72:1 there and 5.10:1
+		// on a card. The dark theme's is 6.12:1 and stays.
 		t.TextMuted = ui.Hex("#6b6b74")
 	}
 	// The rules on a chart are read, not decoration: the caption counts them
@@ -440,6 +440,16 @@ func hairline(c *ui.Context, p palette) ui.Element {
 // dot shows a small level indicator.
 func dot(c *ui.Context, color ui.Color) ui.Element {
 	return ui.Box(c).Size(8, 8).Radius(4).Background(color)
+}
+
+// statusDot is the sidebar's state mark. A colour on its own is not allowed to
+// carry a state, so a provider that has not answered yet gets a hollow ring:
+// the shape says "nothing to read yet", the colour says how bad it is.
+func statusDot(c *ui.Context, p palette, status string) ui.Element {
+	if status == "not_configured" {
+		return ui.Box(c).Size(8, 8).Radius(4).Border(1.5, p.statusColor(status))
+	}
+	return dot(c, p.statusColor(status))
 }
 
 // pill is a short status label in a tinted capsule.
