@@ -66,14 +66,14 @@ func SetCursorKeychainToken(ctx context.Context, service, token string) error {
 	// reads is the token.
 	cmd.Stdout, cmd.Stderr = io.Discard, io.Discard
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("写 Cursor keychain 失败：%v", err)
+		return fmt.Errorf("没能写进 Cursor 的 keychain：%v", err)
 	}
 	got, err := CursorKeychainTokenFor(ctx, service)
 	if err != nil {
-		return fmt.Errorf("写 Cursor keychain 后回读失败：%v", err)
+		return fmt.Errorf("写进 Cursor keychain 后读不回来：%v", err)
 	}
 	if got != token {
-		return fmt.Errorf("写 Cursor keychain 后回读不一致：写入 %d 字节，读回 %d 字节", len(token), len(got))
+		return fmt.Errorf("写进 Cursor keychain 的内容对不上：写入 %d 字节，读回 %d 字节。请重试", len(token), len(got))
 	}
 	return nil
 }

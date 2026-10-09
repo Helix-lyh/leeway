@@ -84,7 +84,7 @@ func (a *App) openCookieImport(providerID, account string) {
 	a.prompt.kind = promptCookieImport
 	a.prompt.provider = providerID
 	a.prompt.account = account
-	a.prompt.title = "导入 " + providerID + " 的浏览器 cookie"
+	a.prompt.title = "导入 " + providerID + " 的浏览器登录状态"
 	a.prompt.browser = "chrome"
 	if a.cfg != nil {
 		if acc, ok := a.cfg.Account(providerID, account); ok {
@@ -98,7 +98,7 @@ func (a *App) openManualCookie(providerID, account string) {
 	a.prompt.kind = promptManualCookie
 	a.prompt.provider = providerID
 	a.prompt.account = account
-	a.prompt.title = "粘贴 " + providerID + " 的 cookie header"
+	a.prompt.title = "粘贴 " + providerID + " 的登录状态"
 }
 
 func (a *App) openSessionFile(providerID, account string) {
@@ -106,7 +106,7 @@ func (a *App) openSessionFile(providerID, account string) {
 	a.prompt.kind = promptSessionFile
 	a.prompt.provider = providerID
 	a.prompt.account = account
-	a.prompt.title = "导入 " + providerID + " 的会话文件"
+	a.prompt.title = "导入 " + providerID + " 的登录文件"
 	a.prompt.path = defaultSessionPath(providerID)
 }
 
@@ -183,7 +183,7 @@ func (a *App) submitPrompt() {
 		key := strings.TrimSpace(p.key)
 		if key == "" && p.keepKey {
 			p.reset()
-			a.toast = "保持原来的 API key"
+			a.toast = "保持原来的 API 密钥"
 			return
 		}
 		providerID, account := p.provider, p.account
@@ -191,11 +191,11 @@ func (a *App) submitPrompt() {
 			err := loginAPIKey(providerID, account, key)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err, a.prompt.errDetail = failureText("保存 API key 失败", err.Error())
+					a.prompt.err, a.prompt.errDetail = failureText("保存 API 密钥失败", err.Error())
 					return
 				}
 				a.prompt.reset()
-				a.afterCredentialChange("已保存 " + providerID + " 的 API key")
+				a.afterCredentialChange("已保存 " + providerID + " 的 API 密钥")
 			})
 		}()
 	case promptCookieImport:
@@ -204,7 +204,7 @@ func (a *App) submitPrompt() {
 			msg, err := importCookies(providerID, account, browser, profile, true)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err, a.prompt.errDetail = failureText("导入 cookie 失败", err.Error())
+					a.prompt.err, a.prompt.errDetail = failureText("读取浏览器登录状态失败", err.Error())
 					return
 				}
 				a.prompt.reset()
@@ -217,11 +217,11 @@ func (a *App) submitPrompt() {
 			err := saveManualCookie(providerID, account, header)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err, a.prompt.errDetail = failureText("保存手动 cookie 失败", err.Error())
+					a.prompt.err, a.prompt.errDetail = failureText("保存手动填的登录状态失败", err.Error())
 					return
 				}
 				a.prompt.reset()
-				a.afterCredentialChange("已保存手动 cookie")
+				a.afterCredentialChange("已保存手动填的登录状态")
 			})
 		}()
 	case promptSessionFile:
@@ -230,7 +230,7 @@ func (a *App) submitPrompt() {
 			msg, err := importAuthFile(providerID, account, path)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err, a.prompt.errDetail = failureText("导入会话文件失败", err.Error())
+					a.prompt.err, a.prompt.errDetail = failureText("导入登录文件失败", err.Error())
 					return
 				}
 				a.prompt.reset()
@@ -257,7 +257,7 @@ func (a *App) submitPrompt() {
 // afterCredentialChange reports success, reloads the config and probes again.
 func (a *App) afterCredentialChange(msg string) {
 	if msg == "" {
-		msg = "已更新凭据"
+		msg = "已更新登录信息"
 	}
 	a.toast = msg
 	a.reloadConfig()
@@ -268,9 +268,9 @@ func (a *App) afterCredentialChange(msg string) {
 func (a *App) askUse(providerID, account string) {
 	a.confirm = confirm{
 		open:     true,
-		title:    fmt.Sprintf("让本机 %s 改用 %s？", providerID, displayAccount(account)),
-		message:  "leeway 会把该账号的会话写给本机官方客户端；本机当前登录会被快照成 leeway 账号。",
-		label:    "切换",
+		title:    fmt.Sprintf("让本机的 %s 改用 %s？", providerID, displayAccount(account)),
+		message:  "leeway 会把该账号的登录文件写给官方工具。官方工具当前的登录会被覆盖。",
+		label:    "启用",
 		kind:     "use",
 		provider: providerID,
 		account:  account,
@@ -281,11 +281,11 @@ func (a *App) askUse(providerID, account string) {
 // has no session to exit, so the wording says what it deletes.
 func (a *App) askLogout(providerID, account string) {
 	session := accountUsesSession(a, providerID, account)
-	title := fmt.Sprintf("退出 %s 账号 %s？", providerID, displayAccount(account))
-	message := "会删除该账号在 leeway 里保存的私有会话、cookie 与配置里的 key，不影响本机官方客户端里的登录（cursor/grok 还会清掉私有 HOME）。"
+	title := fmt.Sprintf("移除 %s 的账号 %s？", providerID, displayAccount(account))
+	message := "会删除 leeway 里保存的这个账号的登录文件、浏览器登录状态和 API 密钥。官方工具里的登录不受影响。"
 	if !session {
-		title = fmt.Sprintf("删除 %s 账号 %s 的 API key？", providerID, displayAccount(account))
-		message = "只删掉 leeway 里存的这个 key，本机其它地方不受影响。"
+		title = fmt.Sprintf("删除 %s 账号 %s 的 API 密钥？", providerID, displayAccount(account))
+		message = "只删 leeway 里存的这一份，别处不受影响。"
 	}
 	a.confirm = confirm{
 		open:     true,
@@ -314,9 +314,9 @@ func (a *App) runConfirm(c confirm) {
 func (a *App) askClearCache() {
 	a.confirm = confirm{
 		open:    true,
-		title:   "清除 cookie 缓存？",
-		message: "下一次探测会重新从浏览器读一次 cookie。config.json 里的密钥和账号不受影响。",
-		label:   "清除",
+		title:   "重新读取浏览器登录状态？",
+		message: "下一次查询会重新读一遍浏览器的登录状态。config.json 里的密钥和账号不受影响。",
+		label:   "重新读取",
 		kind:    "clear-cache",
 	}
 }

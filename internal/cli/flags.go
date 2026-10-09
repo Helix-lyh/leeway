@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	flagProvider = "一家（也可写在命令后面）"
-	flagAccount  = "一个账号：tag、邮箱或订阅名（也可写在命令后面）"
+	flagProvider = "服务商（也可写在命令后面）"
+	flagAccount  = "账号：标签、邮箱或订阅名（也可写在命令后面）"
 )
 
 // flagSet is a thin wrapper over flag.FlagSet that knows whether --json was
@@ -31,7 +31,7 @@ func newFlagSet(name string, jsonOut *bool) *flagSet {
 	fs.SetOutput(os.Stderr)
 	f := &flagSet{fs: fs, valued: map[string]bool{}}
 	if jsonOut != nil {
-		f.BoolVar(jsonOut, "json", false, "JSON 输出")
+		f.BoolVar(jsonOut, "json", false, "输出 JSON 数据")
 	}
 	return f
 }
@@ -72,7 +72,7 @@ func (f *flagSet) Parse(args []string) bool {
 		n++
 	}
 	if n < len(rest) {
-		fmt.Fprintf(os.Stderr, "unexpected argument %q\n", rest[n])
+		fmt.Fprintf(os.Stderr, "多出来的参数 %q\n", rest[n])
 		f.extraUnexpected = rest[n]
 		return false
 	}

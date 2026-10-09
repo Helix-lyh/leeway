@@ -14,10 +14,10 @@ func CheckCursorIDE() (block bool, reason string) {
 		return false, ""
 	}
 	if _, err := exec.LookPath("pgrep"); err != nil {
-		return true, "找不到 pgrep，无法确认 Cursor 是否在跑。先退出 Cursor，或把 pgrep 装上"
+		return true, "找不到 pgrep，没法确认 Cursor 是否在运行。先退出 Cursor，或装上 pgrep"
 	}
 	if CursorIDERunning() {
-		return true, "Cursor 正在运行。先退出再切号，避免写坏 state.vscdb"
+		return true, "Cursor 正在运行。先退出再切换账号，免得写坏 state.vscdb"
 	}
 	return false, ""
 }

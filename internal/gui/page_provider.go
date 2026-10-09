@@ -28,7 +28,7 @@ func (a *App) providerPage(c *ui.Context, p palette, id string) {
 	v := a.providerViewOf(id)
 	sub := statusLabel(v.Status, v.firstCred())
 	if v.Enabled && !a.lastAt.IsZero() {
-		sub += " · 更新于 " + agoText(a.lastAt, a.now())
+		sub += " · " + agoText(a.lastAt, a.now()) + "更新"
 	}
 	pageHeadMarked(c, p, v.ID, v.Status, v.DisplayName, sub, func() {
 		if btnLarge(ui.Button(c, "← 总览")).Clicked() {
@@ -37,10 +37,10 @@ func (a *App) providerPage(c *ui.Context, p palette, id string) {
 		if btnLarge(ui.PrimaryButton(c, "刷新")).Disabled(a.fetching).Clicked() {
 			a.Refresh(true)
 		}
-		btnLarge(ui.MenuButton(c, "操作", func(m *ui.Menu) {
-			if m.Item("复制当前 JSON").Chosen() {
+		btnLarge(ui.MenuButton(c, "更多", func(m *ui.Menu) {
+			if m.Item("复制数据").Chosen() {
 				mygo.Clipboard.WriteText(a.CopyJSON())
-				a.toast = "已复制 JSON"
+				a.toast = "已复制"
 			}
 			if m.Item("添加账号…").Chosen() {
 				a.openNewAccount(id)
@@ -58,13 +58,13 @@ func (a *App) providerPage(c *ui.Context, p palette, id string) {
 	})
 
 	if v.Error != "" && v.Status == "error" {
-		text, detail := failureText(joinNonEmpty([]string{"这一家这次没有答上来", staleNote(a)}, " · "), v.Error)
+		text, detail := failureText(joinNonEmpty([]string{"这次没有结果", staleNote(a)}, " · "), v.Error)
 		errorLine(c, p, text, detail)
 	}
 	if !v.Enabled {
 		card(c, p, func() {
-			unconfiguredLine(c, p, "这个 provider 已停用，不会参与探测。")
-			if btnLarge(ui.PrimaryButton(c, "启用")).Clicked() {
+			unconfiguredLine(c, p, "这个服务商已移除，不会被查询。")
+			if btnLarge(ui.PrimaryButton(c, "添加")).Clicked() {
 				a.Enable(id, true)
 			}
 		})
@@ -83,22 +83,22 @@ func (a *App) providerPage(c *ui.Context, p palette, id string) {
 	}
 
 	card(c, p, func() {
-		section(c, p, "凭据位置")
-		keyValue(c, p, "会话目录", sessionDirText())
+		section(c, p, "登录信息来源")
+		keyValue(c, p, "登录文件目录", sessionDirText())
 		if path, err := config.Path(); err == nil {
 			keyValue(c, p, "配置文件", path)
 		}
 		if len(v.Accounts) > 1 {
-			unconfiguredLine(c, p, "「让本机用它」只影响本机官方客户端读的那份会话，不改变 leeway 自己看哪个账号。")
+			unconfiguredLine(c, p, "「启用」只影响官方工具读的那份登录文件，不改变 leeway 自己看哪个账号。")
 		}
 	})
 }
 
 func enabledAction(enabled bool) string {
 	if enabled {
-		return "停用这个 provider"
+		return "移除这个服务商"
 	}
-	return "启用这个 provider"
+	return "添加这个服务商"
 }
 
 func sessionDirText() string {
@@ -143,15 +143,15 @@ func (a *App) providerAccount(c *ui.Context, p palette, v providerView, av accou
 		case av.Status == "not_configured":
 			notConfiguredLine(c, p, v.ID, av)
 			if av.Error != "" {
-				text, detail := failureText("这个账号这次没有答上来", av.Error)
+				text, detail := failureText("这个账号这次没有结果", av.Error)
 				errorLine(c, p, text, detail)
 			}
 		default:
 			if av.Error != "" {
-				text, detail := failureText("这个账号这次没有答上来", av.Error)
+				text, detail := failureText("这个账号这次没有结果", av.Error)
 				errorLine(c, p, text, detail)
 			}
-			unconfiguredLine(c, p, "凭据可能已失效：重新登录，或让 leeway 再解析一次。")
+			unconfiguredLine(c, p, "登录信息可能已失效：重新登录，或让 leeway 再读一次。")
 		}
 	})
 }
@@ -174,7 +174,7 @@ func (a *App) snapshotDetail(c *ui.Context, p palette, providerID string, av acc
 			line += fmt.Sprintf(" / %s", money(*snap.Cost.Limit, snap.Cost.Currency))
 		}
 		if d := snap.Cost.Delta; d != nil && d.Amount != nil && *d.Amount != 0 {
-			line += fmt.Sprintf("（较上次 %+.2f）", *d.Amount)
+			line += fmt.Sprintf("（比上次 %+.2f）", *d.Amount)
 		}
 		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space3).Children(func() {
 			ui.Text(c, periodText(snap.Cost.Period)).FontSize(sizeBody).FontWeight(600).SingleLine()
@@ -183,7 +183,7 @@ func (a *App) snapshotDetail(c *ui.Context, p palette, providerID string, av acc
 		})
 	}
 	if len(snap.Windows) == 0 && snap.Cost == nil {
-		unconfiguredLine(c, p, "provider 没有报告任何额度窗口。")
+		unconfiguredLine(c, p, "服务商没有提供额度信息。")
 	}
 }
 
@@ -193,7 +193,7 @@ func historyCaption(points []history.Point) string {
 		return ""
 	}
 	first, last := points[0].T, points[len(points)-1].T
-	parts := []string{fmt.Sprintf("近 %d 次探测：%s → %s", len(points),
+	parts := []string{fmt.Sprintf("近 %d 次查询：%s → %s", len(points),
 		first.Local().Format("01-02 15:04"), last.Local().Format("01-02 15:04"))}
 	if r := trendRange(points); r != "" {
 		parts = append(parts, r)

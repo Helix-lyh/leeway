@@ -14,7 +14,7 @@ import (
 func (a *App) startGuide(c *ui.Context, p palette) ui.Element {
 	return card(c, p, func() {
 		section(c, p, "开始使用")
-		ui.Text(c, "leeway 不替你登录，也不碰你的密码：它读你已有的凭据，问 provider 自己还剩多少额度。").
+		ui.Text(c, "leeway 不替你登录，也不碰你的密码。它只用你已有的登录信息，去问服务商还剩多少额度。").
 			FontSize(sizeChrome).
 			LineHeight(1.55).
 			MaxWidth(620)
@@ -25,7 +25,7 @@ func (a *App) startGuide(c *ui.Context, p palette) ui.Element {
 			}
 			a.startRow(c, p, v)
 		}
-		muted(c, p, "配好一个就能用：点「刷新」或按 ⌘R。命令行照旧：leeway usage")
+		muted(c, p, "配好一个就能用：点「刷新」或按 ⌘R。命令行同样可用：leeway usage")
 	})
 }
 
@@ -43,7 +43,7 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 	case cred != "":
 		line = credSentence(cred)
 	case !v.Enabled:
-		line = "已停用，不参与探测。"
+		line = "已移除，不会被查询。"
 	}
 	ui.Row(c).FillWidth().PaddingY(11).Gap(12).AlignItems(ui.Center).Children(func() {
 		mark(c, p, v.ID, v.DisplayName, 32, v.Status)
@@ -56,7 +56,7 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 					FontWeight(600).
 					SingleLine()
 				if cred != "" {
-					pill(c, p, "已找到凭据", toneOK)
+					pill(c, p, "已找到登录信息", toneOK)
 				}
 			})
 			muted(c, p, line)
@@ -64,11 +64,11 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			switch {
 			case !v.Enabled:
-				if btnSmall(ui.Button(c, "启用")).Clicked() {
+				if btnSmall(ui.Button(c, "添加")).Clicked() {
 					a.Enable(v.ID, true)
 				}
 			case cred != "":
-				if btnSmall(ui.Button(c, "刷新看看")).Clicked() {
+				if btnSmall(ui.Button(c, "刷新")).Clicked() {
 					a.Refresh(true)
 				}
 			default:

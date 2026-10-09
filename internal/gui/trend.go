@@ -135,7 +135,7 @@ func burnAlarmInColumn(c *ui.Context, p palette, who string, points []history.Po
 	if !ok {
 		return
 	}
-	text := fmt.Sprintf("约 %s后用满", spanText(b.in))
+	text := fmt.Sprintf("按这个速度，约 %s后用完", spanText(b.in))
 	if who != "" {
 		text = who + "：" + text
 	}
@@ -249,7 +249,7 @@ func burnLine(points []history.Point, w *model.RateWindow, withReset bool) (text
 	if !ok {
 		return "", toneNeutral
 	}
-	text = fmt.Sprintf("最近 %s每小时涨 %s，约 %s后用满",
+	text = fmt.Sprintf("最近 %s 每小时涨 %s，约 %s后用完",
 		spanText(b.span), rateText(b.rate), spanText(b.in))
 	if withReset {
 		text += "；重置还有 " + spanText(b.left)
@@ -276,7 +276,7 @@ func (a *App) burnWarning() (key, text string) {
 		}
 		worst = b
 		key = s.Provider + "/" + s.Account + "/" + s.Window
-		text = fmt.Sprintf("%s %s 按现在的速度 %s后用满",
+		text = fmt.Sprintf("%s %s 按现在的速度，%s后用完",
 			providerName(s.Provider), windowTitle(s.Provider, s.Window, w.Title), spanText(b.in))
 	}
 	return key, text

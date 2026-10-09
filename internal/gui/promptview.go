@@ -82,17 +82,17 @@ func (a *App) promptSheet(c *ui.Context, p palette) {
 func (a *App) promptHeader() string {
 	switch a.prompt.kind {
 	case promptAPIKey:
-		return "粘贴 API key"
+		return "粘贴 API 密钥"
 	case promptCookieImport:
-		return "从浏览器导入 cookie"
+		return "读取浏览器登录状态"
 	case promptManualCookie:
-		return "粘贴 cookie header"
+		return "粘贴登录状态"
 	case promptSessionFile:
-		return "导入会话文件"
+		return "导入登录文件"
 	case promptNewAccount:
 		return "添加账号"
 	case promptCLI:
-		return "用官方 CLI 登录"
+		return "用官方工具登录"
 	}
 	return "登录"
 }
@@ -133,11 +133,11 @@ func (a *App) cancelPrompt() {
 func (a *App) promptBody(c *ui.Context, p palette) {
 	switch a.prompt.kind {
 	case promptAPIKey:
-		hint := "key 会写进 ~/.config/leeway/config.json（0600），不打印、不上传。"
+		hint := "API 密钥会写进 ~/.config/leeway/config.json，不打印、不上传。"
 		if a.prompt.keepKey {
-			hint = "已经有一把 key：留空就是保持不变，填新的会覆盖。"
+			hint = "已经有一份密钥：留空保持不变，填新的会覆盖。"
 		}
-		formRow(c, p, "API key", hint, func() {
+		formRow(c, p, "API 密钥", hint, func() {
 			ui.Column(c).FillWidth().Gap(space2).Children(func() {
 				input := ui.TextInput(c, &a.prompt.key)
 				if !a.prompt.reveal {
@@ -147,7 +147,7 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 				if input.Submitted() {
 					a.submitPrompt()
 				}
-				ui.Checkbox(c, &a.prompt.reveal, "显示明文")
+				ui.Checkbox(c, &a.prompt.reveal, "显示出来")
 			})
 		})
 
@@ -156,15 +156,15 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 			formRow(c, p, "浏览器", "", func() {
 				ui.TextInput(c, &a.prompt.browser).Placeholder("chrome / safari / edge / arc / brave")
 			})
-			formRow(c, p, "Profile（可留空）",
-				"leeway 从浏览器的 cookie 库里读出这个 provider 的登录态，只存在你自己的缓存目录。", func() {
+			formRow(c, p, "浏览器配置（可留空）",
+				"leeway 从浏览器读出这个服务商的登录状态，只存在你自己的缓存目录。", func() {
 					ui.TextInput(c, &a.prompt.profile).Placeholder("Default / Profile 1")
 				})
 		})
 
 	case promptManualCookie:
-		formRow(c, p, "cookie header",
-			"适合浏览器导入不成功的场景：从开发者工具里复制 Cookie 请求头。这个框是明文，旁边有人或录屏时注意。",
+		formRow(c, p, "登录状态",
+			"浏览器读不到时用这个：从开发者工具复制 Cookie。这里显示的是明文，旁边有人或录屏时注意。",
 			func() {
 				ui.TextArea(c, &a.prompt.header).
 					Placeholder("name=value; name2=value2（curl -b 或 Cookie: 片段也行）").
@@ -172,8 +172,8 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 			})
 
 	case promptSessionFile:
-		formRow(c, p, "会话文件",
-			"leeway 把这份文件快照到自己的会话目录，之后切号不会动原文件。", func() {
+		formRow(c, p, "登录文件",
+			"leeway 把这份文件备份到自己的目录，之后切换账号不会动原文件。", func() {
 				ui.Row(c).FillWidth().Gap(space2).Children(func() {
 					ui.TextInput(c, &a.prompt.path).Grow(1)
 					if btnLarge(ui.Button(c, "选择…")).Clicked() {
@@ -184,7 +184,7 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 
 	case promptNewAccount:
 		formRow(c, p, "账号名",
-			"只是个标签，之后可以给它单独登录一份凭据，再用「让本机用它」切换。", func() {
+			"只是个标签。之后可以单独给它登录一份，再用「启用」切换。", func() {
 				input := ui.TextInput(c, &a.prompt.name).Placeholder("work / home / 邮箱")
 				input.AutoFocus()
 				if input.Submitted() {
@@ -200,7 +200,7 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 				ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 					if a.prompt.running {
 						ui.Spinner(c).Size(iconBody, iconBody)
-						muted(c, p, "等待官方 CLI 完成登录…")
+						muted(c, p, "等待官方工具完成登录…")
 					} else {
 						body(c, p, "登录完成").TextColor(p.toneColor(toneOK))
 					}
@@ -211,7 +211,7 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 				log = a.prompt.log.String()
 			}
 			if strings.TrimSpace(log) == "" {
-				log = "（官方 CLI 还没有输出）"
+				log = "（官方工具还没有输出）"
 			}
 			ui.Scroll(c).
 				FillWidth().
@@ -226,7 +226,7 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 						TextColor(p.t.TextMuted).
 						Selectable()
 				})
-			unconfiguredLine(c, p, "登录在 leeway 自己的 HOME 里进行，不会覆盖你本机官方客户端的登录。")
+			unconfiguredLine(c, p, "登录在 leeway 自己的目录里进行，不会覆盖官方工具的登录。")
 		})
 	}
 }
@@ -236,9 +236,9 @@ func (a *App) promptBody(c *ui.Context, p palette) {
 func (a *App) pickSessionFile() {
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:       "选择会话文件",
+			Title:       "选择登录文件",
 			DefaultPath: a.prompt.path,
-			Filters:     []mygo.FileFilter{{Name: "会话", Extensions: []string{"json"}}},
+			Filters:     []mygo.FileFilter{{Name: "登录文件", Extensions: []string{"json"}}},
 		})
 		if err != nil || len(paths) == 0 {
 			return

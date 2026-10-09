@@ -105,7 +105,7 @@ func chartScale(points []history.Point) string {
 	// The warn and critical bands differ from the card by 1.19:1 and 1.32:1 —
 	// a tint, not a boundary a reader can find by eye — so the words say where
 	// the band starts. The colour is the reminder; this is the fact.
-	return axis.text + "，" + percentText(percentWarnAt) + " 起告警、" + percentText(percentCriticalAt) + " 起紧张"
+	return axis.text + "，" + percentText(percentWarnAt) + " 提醒、" + percentText(percentCriticalAt) + " 警告"
 }
 
 // chartAxisFor reads a series' scale from the series itself. A percentage is a

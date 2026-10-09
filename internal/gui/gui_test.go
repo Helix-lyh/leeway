@@ -269,7 +269,7 @@ func TestWindowFractionAndDelta(t *testing.T) {
 		t.Fatal("a window with no numbers has no bar")
 	}
 	delta := 4.5
-	if got := deltaText(nil, model.RateWindow{Delta: &model.WindowDelta{UsedPercent: &delta}}); got != "较上次 +4%" && got != "较上次 +5%" {
+	if got := deltaText(nil, model.RateWindow{Delta: &model.WindowDelta{UsedPercent: &delta}}); got != "比上次 +4%" && got != "比上次 +5%" {
 		t.Fatalf("delta = %q", got)
 	}
 	if got := deltaText(nil, model.RateWindow{Delta: &model.WindowDelta{Reset: true}}); got != "" {
@@ -442,10 +442,10 @@ func TestConfiguredProviderSaysSoBeforeAProbe(t *testing.T) {
 	a.out = nil
 	a.navigate("provider:deepseek")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	if !tester.HasText("凭据来自 配置里的 API key") {
+	if !tester.HasText("登录信息来自 配置里的 API 密钥") {
 		t.Errorf("a configured provider must say where its credential is; texts=%v", tester.Texts())
 	}
-	if tester.HasText("还没有 API key") {
+	if tester.HasText("还没有 API 密钥") {
 		t.Error("the page still claims there is no key")
 	}
 }
@@ -459,7 +459,7 @@ func TestCardOpensTheProviderPage(t *testing.T) {
 	if a.page != "provider:deepseek" {
 		t.Fatalf("page = %q", a.page)
 	}
-	if !tester.HasText("凭据位置") {
+	if !tester.HasText("登录信息来源") {
 		t.Errorf("the provider page did not render; texts=%v", tester.Texts())
 	}
 	snapshot(t, tester, "provider")
@@ -573,7 +573,7 @@ func TestManyAccountsShowTheirOwnPrediction(t *testing.T) {
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "provider-many-burn")
 	for _, acc := range []string{"alpha", "work", "side", "delta"} {
-		if !tester.HasText(acc + "：约") {
+		if !tester.HasText(acc + "：按这个速度，约") {
 			t.Errorf("%s has no prediction of its own; texts=%v", acc, tester.Texts())
 		}
 	}
@@ -626,7 +626,7 @@ func TestProviderPageShowsAccountsAndWindows(t *testing.T) {
 	a := testApp(t)
 	a.navigate("provider:deepseek")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	for _, want := range []string{"DeepSeek", "default", "work@example.com", "Balance", "Weekly", "Pro", "配置 key", "刷新", "配置里的 API key"} {
+	for _, want := range []string{"DeepSeek", "default", "work@example.com", "Balance", "Weekly", "Pro", "设置密钥", "刷新", "配置里的 API 密钥"} {
 		if !tester.HasText(want) {
 			t.Errorf("the provider page does not show %q", want)
 		}
@@ -666,7 +666,7 @@ func TestSettingsWindowRendersItsTabs(t *testing.T) {
 	a := testApp(t)
 	tester := ui.NewTester(a.settingsView, settingsWidth, settingsHght)
 	snapshot(t, tester, "settings")
-	for _, want := range []string{"设置", "自动刷新", "Provider", "数据", "探测超时", "主题"} {
+	for _, want := range []string{"设置", "自动刷新", "服务商", "数据", "查询超时", "主题"} {
 		if !tester.HasText(want) {
 			t.Errorf("the settings window does not show %q; texts=%v", want, tester.Texts())
 		}
@@ -675,14 +675,14 @@ func TestSettingsWindowRendersItsTabs(t *testing.T) {
 		t.Fatalf("click 数据: %v", err)
 	}
 	snapshot(t, tester, "settings-data")
-	if !tester.HasText("清除 cookie 缓存") {
+	if !tester.HasText("重新读取浏览器登录状态") {
 		t.Errorf("the data tab did not open; texts=%v", tester.Texts())
 	}
-	if err := tester.Click("Provider"); err != nil {
+	if err := tester.Click("服务商"); err != nil {
 		t.Fatalf("click Provider: %v", err)
 	}
 	snapshot(t, tester, "settings-providers")
-	for _, want := range []string{"启用的 provider", "DeepSeek", "详情"} {
+	for _, want := range []string{"全部服务商", "DeepSeek", "详情"} {
 		if !tester.HasText(want) {
 			t.Errorf("the provider tab does not show %q", want)
 		}
@@ -721,7 +721,7 @@ func TestLoginSheetRendersAndKeepsTheTypedKey(t *testing.T) {
 	a.openAPIKey("deepseek", "work")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "login-key")
-	for _, want := range []string{"粘贴 API key", "保存", "取消"} {
+	for _, want := range []string{"粘贴 API 密钥", "保存", "取消"} {
 		if !tester.HasText(want) {
 			t.Errorf("the sheet does not show %q; texts=%v", want, tester.Texts())
 		}
@@ -733,7 +733,7 @@ func TestLoginSheetRendersAndKeepsTheTypedKey(t *testing.T) {
 	if a.prompt.reveal {
 		t.Fatal("the key starts masked")
 	}
-	if err := tester.Click("显示明文"); err != nil {
+	if err := tester.Click("显示出来"); err != nil {
 		t.Fatalf("click 显示明文: %v", err)
 	}
 	if !a.prompt.reveal {
@@ -751,7 +751,7 @@ func TestFirstRunTeachesInsteadOfBlaming(t *testing.T) {
 	// A row per provider, each with the action that provider needs first,
 	// and the machine's own state rather than a copy of the manual.
 	for _, want := range []string{
-		"开始使用", "粘贴 API key", "用官方 CLI 登录", "详情", "配好一个就能用：点「刷新」或按 ⌘R。命令行照旧：leeway usage",
+		"开始使用", "粘贴 API 密钥", "用官方工具登录", "详情", "配好一个就能用：点「刷新」或按 ⌘R。命令行同样可用：leeway usage",
 	} {
 		if !tester.HasText(want) {
 			t.Errorf("the first run does not show %q; texts=%v", want, tester.Texts())
@@ -768,12 +768,12 @@ func TestFirstRunTeachesInsteadOfBlaming(t *testing.T) {
 	dark.SetDark(true)
 	snapshot(t, dark, "overview-first-run-dark")
 	// A provider with no session on this machine must not claim one.
-	for _, unwanted := range []string{"凭据来自 Codex CLI 会话", "凭据来自 Cursor 本机登录"} {
+	for _, unwanted := range []string{"登录信息来自 Codex CLI 登录文件", "登录信息来自 Cursor 私有登录文件"} {
 		if tester.HasText(unwanted) {
 			t.Errorf("the first run claims %q without checking; texts=%v", unwanted, tester.Texts())
 		}
 	}
-	if !tester.HasText("还没有 codex 会话。用官方 codex 登录，或导入 ~/.codex/auth.json。") {
+	if !tester.HasText("还没有登录信息。用官方 codex 登录，或导入 ~/.codex/auth.json。") {
 		t.Errorf("the codex row does not say what is missing; texts=%v", tester.Texts())
 	}
 }
@@ -795,10 +795,10 @@ func TestFirstRunSeesTheSessionsThisMachineHas(t *testing.T) {
 	}
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "overview-first-run-ready")
-	if !tester.HasText("凭据来自 Codex CLI 会话；刷新一次就能看到用量。") {
+	if !tester.HasText("登录信息来自 Codex CLI 登录文件；刷新一次就能看到用量。") {
 		t.Errorf("a Codex session on this machine is not offered; texts=%v", tester.Texts())
 	}
-	if !tester.HasText("刷新看看") || !tester.HasText("已找到凭据") {
+	if !tester.HasText("刷新") || !tester.HasText("已找到登录信息") {
 		t.Errorf("the ready Codex row is not marked as found; texts=%v", tester.Texts())
 	}
 }
@@ -812,7 +812,7 @@ func TestTheFirstProbeShowsTheShapeOfTheAnswer(t *testing.T) {
 	a.fetching = true
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "overview-probing")
-	if !tester.HasText("正在探测…") {
+	if !tester.HasText("正在查询…") {
 		t.Errorf("the window does not say what it is doing; texts=%v", tester.Texts())
 	}
 	if tester.HasText("开始使用") {
@@ -824,7 +824,7 @@ func TestTheFirstProbeShowsTheShapeOfTheAnswer(t *testing.T) {
 	a.out = fakeOutput(a.now())
 	a.lastAt = a.out.GeneratedAt
 	landed := ui.NewTester(a.view, mainWidth, mainHeight)
-	if landed.HasText("正在探测…") {
+	if landed.HasText("正在查询…") {
 		t.Error("the skeleton outlived the probe")
 	}
 	if !landed.HasText("78%") {
@@ -859,11 +859,11 @@ func TestTheWindowThatRunsOutFirstIsNamedAloud(t *testing.T) {
 		pts = append(pts, history.Point{T: now.Add(time.Duration(i-5) * 24 * time.Minute), UsedPercent: &val})
 	}
 	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
-	const alarm = "最近 2 小时每小时涨 25%，约 1 小时 12 分后用满；重置还有 2 天 4 小时"
+	const alarm = "最近 2 小时 每小时涨 25%，约 1 小时 12 分后用完；重置还有 2 天 4 小时"
 	// The overview draws its own reset line above the bar, so its projection
 	// stops at when the window is full: the countdown is read once there, and
 	// on the history row — which has no reset label of its own — it is not.
-	const alarmOnOverview = "最近 2 小时每小时涨 25%，约 1 小时 12 分后用满"
+	const alarmOnOverview = "最近 2 小时 每小时涨 25%，约 1 小时 12 分后用完"
 
 	a.navigate("history")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
@@ -900,7 +900,7 @@ func TestTheBurnWarningIsToldOnce(t *testing.T) {
 	a.navigate("overview")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshotStill(t, tester, "overview-burn-spoken")
-	const warning = "DeepSeek Weekly 按现在的速度 1 小时 12 分后用满"
+	const warning = "DeepSeek Weekly 按现在的速度，1 小时 12 分后用完"
 	if got := tester.Announcements(); !containsText(got, warning) {
 		t.Errorf("the warning was not announced; got %v", got)
 	}
@@ -1051,7 +1051,7 @@ func TestASidebarWithNothingConfiguredSaysSo(t *testing.T) {
 	a := freshApp(t)
 	a.navigate("overview")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	r, ok := tester.Find("配置过的 provider 会出现在这里")
+	r, ok := tester.Find("配置好的服务商会显示在这里")
 	if !ok || r.X >= 240 {
 		t.Errorf("an empty sidebar does not explain itself; texts=%v", tester.Texts())
 	}
@@ -1118,7 +1118,7 @@ func TestAWindowThatResetsFirstIsNotAnAlarm(t *testing.T) {
 	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
 	a.navigate("overview")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	if saysText(tester, "用满") {
+	if saysText(tester, "用完") {
 		t.Errorf("a window that resets first is not out of quota; texts=%v", tester.Texts())
 	}
 	// The row still says what moved, which is the part that is true.
@@ -1160,14 +1160,14 @@ func TestOverviewDrawsTheTrendUnderTheBar(t *testing.T) {
 	snapshotStill(t, tester, "overview-trend")
 	// The chart scales itself to the series, so its caption has to say what
 	// the ends are worth.
-	for _, want := range []string{"近 11 次探测", "18% → 78%", "覆盖 3 小时 20 分", "较上次 +6%", "2 天 4 小时后重置"} {
+	for _, want := range []string{"近 11 次查询", "18% → 78%", "覆盖 3 小时 20 分", "比上次 +6%", "2 天 4 小时后重置"} {
 		if !tester.HasText(want) {
 			t.Errorf("the hero trend does not say %q; texts=%v", want, tester.Texts())
 		}
 	}
 	// The reset countdown stays in the row above, so the caption is not a
 	// second place to read the same thing.
-	if tester.HasText("2 天 4 小时后重置 · 较上次 +6%") {
+	if tester.HasText("2 天 4 小时后重置 · 比上次 +6%") {
 		t.Error("the delta should live in the caption, not twice on the card")
 	}
 	narrow := ui.NewTester(a.view, 780, 560)
@@ -1175,7 +1175,7 @@ func TestOverviewDrawsTheTrendUnderTheBar(t *testing.T) {
 	a.navigate("provider:deepseek")
 	detail := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, detail, "provider-trend")
-	if !detail.HasText("近 11 次探测：") || !detail.HasText("18% → 78%") {
+	if !detail.HasText("近 11 次查询：") || !detail.HasText("18% → 78%") {
 		t.Errorf("the provider page should caption the trend with its own times and range; texts=%v", detail.Texts())
 	}
 }
@@ -1245,13 +1245,13 @@ func TestHistoryGroupsSeriesUnderTheirProvider(t *testing.T) {
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "history-many")
 	// One tray per provider, and the tray says how many series it holds.
-	for _, want := range []string{"2 条序列", "1 条序列"} {
+	for _, want := range []string{"2 条记录", "1 条记录"} {
 		if !tester.HasText(want) {
 			t.Errorf("the history page does not say %q; texts=%v", want, tester.Texts())
 		}
 	}
 	// A reset is drawn as a tick on the chart, so the caption points at it.
-	if !tester.HasText("期间重置 1 次（图上的竖线）") {
+	if !tester.HasText("期间重置 1 次（竖线就是重置）") {
 		t.Errorf("a series with a reset should say so; texts=%v", tester.Texts())
 	}
 	dark := ui.NewTester(a.view, mainWidth, mainHeight)
@@ -1298,12 +1298,12 @@ func TestEmptyHistoryShowsTheShapeOfThePage(t *testing.T) {
 	a.navigate("history")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "history-empty")
-	for _, want := range []string{"还没有历史点", "去总览刷新"} {
+	for _, want := range []string{"还没有记录", "去总览页刷新"} {
 		if !tester.HasText(want) {
 			t.Errorf("the empty history does not show %q; texts=%v", want, tester.Texts())
 		}
 	}
-	if err := tester.Click("去总览刷新"); err != nil {
+	if err := tester.Click("去总览页刷新"); err != nil {
 		t.Fatalf("click 去总览刷新: %v", err)
 	}
 	if a.page != "overview" {
@@ -1316,7 +1316,7 @@ func TestConfirmSheetAsksBeforeLoggingOut(t *testing.T) {
 	a.askLogout("kimi", "work")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "confirm")
-	for _, want := range []string{"退出 kimi 账号 work？", "取消", "退出登录"} {
+	for _, want := range []string{"移除 kimi 的账号 work？", "取消", "移除账号"} {
 		if !tester.HasText(want) {
 			t.Errorf("the confirm sheet does not show %q; texts=%v", want, tester.Texts())
 		}
@@ -1334,15 +1334,15 @@ func TestLogoutConfirmForKeyOnlyProviderSaysKey(t *testing.T) {
 	a.askLogout("deepseek", "work")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	for _, want := range []string{
-		"删除 deepseek 账号 work 的 API key？",
-		"只删掉 leeway 里存的这个 key，本机其它地方不受影响。",
-		"删除 API key",
+		"删除 deepseek 账号 work 的 API 密钥？",
+		"只删 leeway 里存的这一份，别处不受影响。",
+		"删除密钥",
 	} {
 		if !saysText(tester, want) {
 			t.Errorf("the confirm sheet does not show %q; texts=%v", want, tester.Texts())
 		}
 	}
-	if saysText(tester, "退出登录") {
+	if saysText(tester, "移除账号") {
 		t.Error("a key-only provider is not a logout")
 	}
 }
@@ -1387,11 +1387,11 @@ func TestAFailedSheetKeepsTheLibrarysWordsOffTheSentence(t *testing.T) {
 	if _, err := importAuthFile("grok", "work", a.prompt.path); err == nil {
 		t.Fatalf("reading %s succeeded; the fixture is wrong", a.prompt.path)
 	} else {
-		a.prompt.err, a.prompt.errDetail = failureText("导入会话文件失败", err.Error())
+		a.prompt.err, a.prompt.errDetail = failureText("导入登录文件失败", err.Error())
 	}
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	tester.Frame()
-	if !tester.HasText("导入会话文件失败") {
+	if !tester.HasText("导入登录文件失败") {
 		t.Errorf("the sheet does not say what failed; texts=%v", tester.Texts())
 	}
 	for _, text := range tester.Texts() {
@@ -1408,7 +1408,7 @@ func TestSessionFileSheetOffersAFilePicker(t *testing.T) {
 	a := testApp(t)
 	a.openSessionFile("grok", "work")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	if !tester.HasText("导入会话文件") || !tester.HasText("选择…") {
+	if !tester.HasText("导入登录文件") || !tester.HasText("选择…") {
 		t.Errorf("the session sheet is incomplete; texts=%v", tester.Texts())
 	}
 	if a.prompt.path == "" {
@@ -1444,7 +1444,7 @@ func abs(v int) int {
 func TestProviderActionsMatchWhatTheProviderSupports(t *testing.T) {
 	// Key-only providers are configured; the four with an official CLI log in.
 	for _, id := range []string{"deepseek", "opencode-go", "commandcode"} {
-		if got := loginButtonLabel(id); got != "配置 key" {
+		if got := loginButtonLabel(id); got != "设置密钥" {
 			t.Errorf("%s button = %q, want 配置 key", id, got)
 		}
 	}
@@ -1477,19 +1477,19 @@ func TestProviderActionsMatchWhatTheProviderSupports(t *testing.T) {
 		}
 		return out
 	}
-	if got := labels("deepseek"); len(got) != 1 || got[0] != "粘贴 API key…" {
+	if got := labels("deepseek"); len(got) != 1 || got[0] != "粘贴 API 密钥…" {
 		t.Errorf("deepseek login methods = %v", got)
 	}
-	if got := labels("commandcode"); len(got) != 1 || got[0] != "粘贴 API key…" {
+	if got := labels("commandcode"); len(got) != 1 || got[0] != "粘贴 API 密钥…" {
 		t.Errorf("commandcode reads no cookies, methods = %v", got)
 	}
-	if got := labels("opencode-go"); len(got) != 3 || got[1] != "从浏览器导入 cookie…" {
+	if got := labels("opencode-go"); len(got) != 3 || got[1] != "读取浏览器登录状态…" {
 		t.Errorf("opencode-go methods = %v", got)
 	}
-	if got := labels("cursor"); len(got) != 3 || got[0] != "用官方 CLI 登录…" || got[2] != "导入会话文件…" {
+	if got := labels("cursor"); len(got) != 3 || got[0] != "用官方工具登录…" || got[2] != "导入登录文件…" {
 		t.Errorf("cursor methods = %v", got)
 	}
-	if got := labels("grok"); len(got) != 4 || got[1] != "从浏览器导入 cookie…" {
+	if got := labels("grok"); len(got) != 4 || got[1] != "读取浏览器登录状态…" {
 		t.Errorf("grok methods = %v", got)
 	}
 }
@@ -1667,7 +1667,7 @@ func TestSwitchEntryOnlyAppearsForASwitchableAccount(t *testing.T) {
 	menuFor := func() []string {
 		t.Helper()
 		tester := ui.NewTester(a.view, mainWidth, mainHeight)
-		if err := tester.Click("账号操作"); err != nil {
+		if err := tester.Click("账号"); err != nil {
 			t.Fatalf("no account menu: %v", err)
 		}
 		return tester.Menu()
@@ -1687,7 +1687,7 @@ func TestSwitchEntryOnlyAppearsForASwitchableAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.navigate("provider:cursor")
-	if items := menuFor(); has(items, "让本机用它") {
+	if items := menuFor(); has(items, "启用") {
 		t.Errorf("an access-only login was offered as switchable: %v", items)
 	}
 
@@ -1696,13 +1696,13 @@ func TestSwitchEntryOnlyAppearsForASwitchableAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	a.navigate("provider:cursor")
-	if items := menuFor(); !has(items, "让本机用它") {
+	if items := menuFor(); !has(items, "启用") {
 		t.Errorf("a full session was not offered: %v", items)
 	}
 
 	// A provider with no local client never offers it at all.
 	a.navigate("provider:opencode-go")
-	if items := menuFor(); has(items, "让本机用它") {
+	if items := menuFor(); has(items, "启用") {
 		t.Errorf("opencode-go has no client to switch: %v", items)
 	}
 }
@@ -1787,7 +1787,7 @@ func TestTheChartReadsThePointUnderThePointer(t *testing.T) {
 	a.navigate("history")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	tester.Frame()
-	if !tester.HasText("近 11 次探测") {
+	if !tester.HasText("近 11 次查询") {
 		t.Fatalf("the chart has no summary caption to replace; texts=%v", tester.Texts())
 	}
 	// The caption sits under the chart; the chart is the row above it.
@@ -1887,7 +1887,7 @@ func TestRawErrorTextStaysOutOfTheSentence(t *testing.T) {
 	if tester.HasText("unexpected EOF") {
 		t.Error("a raw library error is shown where the window's own sentence belongs")
 	}
-	if !tester.HasText("这次探测没有答上来 · 下面是 12 分钟前的数据") {
+	if !tester.HasText("这次查询没有结果 · 下面是 12 分钟前的数据") {
 		t.Errorf("the failure is not explained in the app's own words; texts=%v", tester.Texts())
 	}
 
@@ -1900,7 +1900,7 @@ func TestRawErrorTextStaysOutOfTheSentence(t *testing.T) {
 	b.navigate("overview")
 	other := ui.NewTester(b.view, mainWidth, mainHeight)
 	other.Frame()
-	if !other.HasText("探测失败 · cookie 已过期，重新登录") {
+	if !other.HasText("查询失败 · cookie 已过期，重新登录") {
 		t.Errorf("our own message was hidden as if it were a library's; texts=%v", other.Texts())
 	}
 }
@@ -1940,7 +1940,7 @@ func TestTheChartAnswersTheArrowKeys(t *testing.T) {
 	if newest == "" {
 		t.Fatalf("the caption does not read an observation; texts=%v", tester.Texts())
 	}
-	if !strings.Contains(read(), "近 11 次探测") {
+	if !strings.Contains(read(), "近 11 次查询") {
 		t.Errorf("the reading took the summary off the screen: %q", read())
 	}
 	if said := tester.Announcements(); len(said) == 0 || said[len(said)-1] != newest {

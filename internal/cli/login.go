@@ -34,21 +34,21 @@ func runLogin(args []string) int {
 	fs := newFlagSet("login", nil)
 	fs.Help(loginHelp)
 	fs.providerAccount(&providerID, &account)
-	fs.BoolVar(&useCookie, "cookie", false, "从浏览器导入 cookie")
-	fs.StringVar(&manual, "manual", "", "Cookie header，例如 a=b; c=d")
-	fs.StringVar(&authFile, "file", "", "会话文件路径")
-	fs.StringVar(&key, "key", "", "API key（省略则交互输入，不回显）")
-	fs.StringVar(&email, "email", "", "账号邮箱，用来区分同一 provider 的多个账号")
-	fs.StringVar(&browser, "browser", "", "chrome | edge | kimi-desktop（默认 chrome）")
-	fs.StringVar(&profile, "profile", "", "Chrome profile")
-	fs.BoolVar(&force, "force", false, "忽略缓存，强制重导")
-	fs.BoolVar(&noBrowser, "no-browser", false, "只打印登录 URL，不打开浏览器")
-	fs.IntVar(&timeoutMin, "timeout", 15, "等待浏览器授权的分钟数")
+	fs.BoolVar(&useCookie, "cookie", false, "从浏览器导入登录状态")
+	fs.StringVar(&manual, "manual", "", "手动粘贴的 Cookie 请求头，例如 a=b; c=d")
+	fs.StringVar(&authFile, "file", "", "官方登录文件的路径")
+	fs.StringVar(&key, "key", "", "API 密钥（不写就交互输入，不回显）")
+	fs.StringVar(&email, "email", "", "账号邮箱，用来区分同一服务商的多个账号")
+	fs.StringVar(&browser, "browser", "", "用哪个浏览器：chrome / edge / kimi-desktop（默认 chrome）")
+	fs.StringVar(&profile, "profile", "", "用哪个 Chrome 个人资料（不填就自动选）")
+	fs.BoolVar(&force, "force", false, "忽略已有缓存，重新导入一次")
+	fs.BoolVar(&noBrowser, "no-browser", false, "只打印登录网址，不打开浏览器")
+	fs.IntVar(&timeoutMin, "timeout", 15, "等浏览器授权的分钟数（默认 15）")
 	if !fs.Parse(args) {
 		return 2
 	}
 	if explicitEmptyFlag(args, "key") {
-		fmt.Fprintln(os.Stderr, "empty key; aborting")
+		fmt.Fprintln(os.Stderr, "密钥是空的，已中止")
 		return 2
 	}
 	if providerID == "" {
@@ -56,7 +56,7 @@ func runLogin(args []string) int {
 		return 2
 	}
 	if !knownProvider(providerID) {
-		fmt.Fprintf(os.Stderr, "unknown provider %q\n\n", providerID)
+		fmt.Fprintf(os.Stderr, "不认识的服务商 %q\n\n", providerID)
 		fs.Usage()
 		return 2
 	}
@@ -93,7 +93,7 @@ func runLogin(args []string) int {
 	case "kimi":
 		return loginKimi(ctx, account, noBrowser)
 	default:
-		fmt.Fprintf(os.Stderr, "unknown provider %q\n\n", providerID)
+		fmt.Fprintf(os.Stderr, "不认识的服务商 %q\n\n", providerID)
 		fs.Usage()
 		return 2
 	}
@@ -180,7 +180,7 @@ func safeSessionName(s string) string {
 func loginCodex(ctx context.Context, account string) int {
 	bin, err := exec.LookPath("codex")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "没找到 codex CLI，先安装官方 Codex CLI，再重试")
+		fmt.Fprintln(os.Stderr, "没找到 codex 命令，先安装官方 Codex 工具，再重试")
 		return 2
 	}
 
@@ -226,7 +226,7 @@ func loginCodex(ctx context.Context, account string) int {
 func loginKimi(ctx context.Context, account string, noBrowser bool) int {
 	bin, err := exec.LookPath("kimi")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "没找到 kimi CLI，改为粘贴 API key")
+		fmt.Fprintln(os.Stderr, "没找到 kimi 命令，改成粘贴 API 密钥")
 		return loginAPIKey("kimi", account, "", noBrowser, "")
 	}
 

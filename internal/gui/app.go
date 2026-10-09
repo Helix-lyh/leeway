@@ -303,7 +303,7 @@ func (a *App) Refresh(force bool) {
 				// What is spoken and what is notified are the same sentence the
 				// page shows: a layer's own message is not written for a person,
 				// so it stays out of all three and lives in the tooltip.
-				said, _ := failureText("探测失败", ferr)
+				said, _ := failureText("查询失败", ferr)
 				a.say(said)
 				if notify {
 					a.notifyFailure(said)
@@ -338,7 +338,7 @@ func (a *App) notifyFailure(reason string) {
 	}
 	n := mygo.NewNotification(mygo.NotificationOptions{
 		ID:    "leeway-fetch-failed",
-		Title: "leeway 探测失败",
+		Title: "leeway 查询失败",
 		Body:  reason,
 	})
 	if err := n.Show(); err != nil {
@@ -553,39 +553,39 @@ func (a *App) credentialInfo(p provider.Provider, acc config.AccountConfig) (kin
 	spec := p.AuthSpec()
 	switch {
 	case acc.APIKey != "":
-		kind = "账号 API key"
+		kind = "账号的 API 密钥"
 	case len(spec.EnvAPIKey) > 0 && os.Getenv(spec.EnvAPIKey[0]) != "":
 		kind = "环境变量 " + spec.EnvAPIKey[0]
 	case len(spec.EnvAuthToken) > 0 && os.Getenv(spec.EnvAuthToken[0]) != "":
 		kind = "环境变量 " + spec.EnvAuthToken[0]
 	case a.cfg != nil && a.cfg.APIKey(p.ID()) != "":
-		kind = "配置里的 API key"
+		kind = "配置里的 API 密钥"
 	case acc.AuthFile != "":
-		kind = "会话文件 " + shortenPath(acc.AuthFile)
+		kind = "登录文件 " + shortenPath(acc.AuthFile)
 	case acc.ManualCookieHeader != "":
-		kind = "手动 cookie"
+		kind = "手动填的登录状态"
 	case spec.UsesCookies:
 		if a.cfg != nil {
 			if h, err := auth.ResolveCookieHeader(p.ID(), a.cfg.Provider(p.ID()), acc.Name); err == nil && h != "" {
-				kind = "cookie"
+				kind = "浏览器登录状态"
 			}
 		}
 	case spec.UsesCodexCLI:
 		if path, err := codex.AuthFilePath(); err == nil && fileExists(path) {
-			kind = "Codex CLI 会话"
+			kind = "Codex CLI 登录文件"
 		}
 	case len(spec.LocalAuthFiles) > 0:
 		if path, ok := localSessionFile(spec); ok {
-			kind = "会话文件 " + shortenPath(path)
+			kind = "登录文件 " + shortenPath(path)
 		}
 	}
 	if p.ID() == "cursor" && kind == "" {
 		// cursor resolves its token environment first, then the configured key,
 		// and only then the private session, so this is the fallback branch.
 		if ca, ok, err := auth.LoadCursorAuth(acc.Name); err == nil && ok && ca.AccessToken != "" {
-			kind = "cursor 私有会话"
+			kind = "Cursor 私有登录文件"
 			if exp, ok := auth.JWTExpiry(ca.AccessToken); ok {
-				expires = exp.Local().Format("01-02 15:04") + " 过期"
+				expires = exp.Local().Format("01-02 15:04") + " 已过期"
 			}
 		}
 	}
@@ -656,12 +656,12 @@ func (a *App) Use(providerID, account string) {
 				a.toast, _ = failureText("切换失败", err.Error())
 				return
 			}
-			msg := "已切换 " + res.Provider + " 到 " + displayAccount(res.Account)
+			msg := "已把 " + res.Provider + " 切换到 " + displayAccount(res.Account)
 			if res.SavedAs != "" {
-				msg += "（原账号已存为 " + res.SavedAs + "）"
+				msg += "（原账号已备份为 " + res.SavedAs + "）"
 			}
 			if res.Unsaved {
-				msg += "；原登录不在 leeway 台账里，切走之后只剩目标号"
+				msg += "；原登录不在 leeway 记录里，切换后只剩目标账号"
 			}
 			if len(res.Targets) > 0 {
 				msg += "（写入 " + strings.Join(res.Targets, "、") + "）"
@@ -679,7 +679,7 @@ func (a *App) Logout(providerID, account string) {
 		a.apply(func() {
 			if err != nil {
 				log.Printf("gui: log out %s/%s: %v", providerID, account, err)
-				a.toast, _ = failureText("退出失败", err.Error())
+				a.toast, _ = failureText("移除失败", err.Error())
 				return
 			}
 			a.toast = msg
@@ -708,10 +708,10 @@ func (a *App) ClearCache() {
 		a.apply(func() {
 			if err != nil {
 				log.Printf("gui: clear the cookie cache: %v", err)
-				a.toast, _ = failureText("清除缓存失败", err.Error())
+				a.toast, _ = failureText("重新读取失败", err.Error())
 				return
 			}
-			a.toast = "已清除 cookie 缓存"
+			a.toast = "已清除，下次会重新读取"
 			a.Refresh(true)
 		})
 	}()

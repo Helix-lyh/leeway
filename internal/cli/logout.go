@@ -23,7 +23,7 @@ func runLogout(args []string) int {
 		return 2
 	}
 	if !knownProvider(providerID) {
-		fmt.Fprintf(os.Stderr, "unknown provider %q\n", providerID)
+		fmt.Fprintf(os.Stderr, "不认识的服务商 %q\n", providerID)
 		fs.Usage()
 		return 2
 	}
@@ -54,7 +54,7 @@ func logoutIsolated(providerID, account string) int {
 		return 1
 	}
 	if !underDir(root, home) {
-		fmt.Fprintf(os.Stderr, "refuse to delete %s (not a leeway session dir)\n", home)
+		fmt.Fprintf(os.Stderr, "不删除 %s：它不是 leeway 的登录目录\n", home)
 		return 1
 	}
 	if err := os.RemoveAll(home); err != nil {
@@ -69,7 +69,7 @@ func logoutIsolated(providerID, account string) int {
 	if cfg, err := config.Load(); err == nil {
 		_ = cfg.RemoveAccount(providerID, name)
 	}
-	fmt.Fprintf(os.Stderr, "已清除 %s 账号 %s 的私有登录（%s）\n", providerID, displayAccount(name), home)
+	fmt.Fprintf(os.Stderr, "已删除 %s 账号 %s 的登录（%s）\n", providerID, displayAccount(name), home)
 	return 0
 }
 
@@ -96,7 +96,7 @@ func logoutAPIKey(providerID, account string) int {
 			}
 		}
 	}
-	fmt.Fprintf(os.Stderr, "已移除 %s 账号 %s\n", providerID, displayAccount(account))
+	fmt.Fprintf(os.Stderr, "已删除 %s 账号 %s\n", providerID, displayAccount(account))
 	return 0
 }
 

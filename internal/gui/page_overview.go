@@ -27,14 +27,14 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 		}
 	})
 	if a.fetchErr != "" {
-		text, detail := failureText(joinNonEmpty([]string{"这次探测没有答上来", staleNote(a)}, " · "), a.fetchErr)
+		text, detail := failureText(joinNonEmpty([]string{"这次查询没有结果", staleNote(a)}, " · "), a.fetchErr)
 		errorLine(c, p, text, detail)
 	}
 
 	list := a.providers()
 	if len(list) == 0 {
 		card(c, p, func() {
-			body(c, p, "没有可用的 provider。")
+			body(c, p, "还没有可用的服务商。")
 		})
 		return
 	}
@@ -324,7 +324,7 @@ func resetMeta(w model.RateWindow, now time.Time) string {
 		parts = append(parts, r)
 	}
 	if w.RateLimited {
-		parts = append(parts, "provider 报告已限流")
+		parts = append(parts, "服务商说请求太频繁")
 	}
 	return strings.Join(parts, " · ")
 }
@@ -332,7 +332,7 @@ func resetMeta(w model.RateWindow, now time.Time) string {
 // trendCaption says what the hero's chart covers: how many probes, over how
 // long, and where the window moved.
 func trendCaption(points []history.Point, w model.RateWindow) string {
-	parts := []string{fmt.Sprintf("近 %d 次探测", len(points))}
+	parts := []string{fmt.Sprintf("近 %d 次查询", len(points))}
 	// The chart scales itself to the series, so it has to say what its ends
 	// are worth: otherwise a climb of two points and a climb of forty draw
 	// the same picture.
@@ -424,7 +424,7 @@ func (a *App) openCard(c *ui.Context, p palette, label string, open func(), e ui
 func (a *App) probingLine(c *ui.Context, p palette) ui.Element {
 	return ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
 		ui.Spinner(c).Size(iconBody, iconBody)
-		muted(c, p, "正在探测…")
+		muted(c, p, "正在查询…")
 	})
 }
 
@@ -508,14 +508,14 @@ func (a *App) overviewAccount(c *ui.Context, p palette, v providerView, av accou
 	case av.Status == "ok" && av.Snapshot != nil:
 		windows := displayWindows(av.Snapshot)
 		if len(windows) == 0 {
-			unconfiguredLine(c, p, "provider 没有报告任何额度窗口。")
+			unconfiguredLine(c, p, "服务商没有提供额度信息。")
 		}
 		for _, w := range windows {
 			a.windowRow(c, p, v.ID, w, a.historyFor(v.ID, av.Name, w.ID), 0)
 		}
 	default:
 		if av.Error != "" {
-			text, detail := failureText("这个账号这次没有答上来", av.Error)
+			text, detail := failureText("这个账号这次没有结果", av.Error)
 			errorLine(c, p, text, detail)
 		} else {
 			unconfiguredLine(c, p, accountHint(v.ID, av))
@@ -524,7 +524,7 @@ func (a *App) overviewAccount(c *ui.Context, p palette, v providerView, av accou
 		// own block, where the rest of the window puts a row's actions.
 		ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 			if av.Status != "ok" {
-				if btnSmall(ui.Button(c, "重试")).Clicked() {
+				if btnSmall(ui.Button(c, "刷新")).Clicked() {
 					a.Refresh(true)
 				}
 			}
@@ -648,11 +648,11 @@ func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			switch {
 			case !v.Enabled:
-				if btnSmall(ui.Button(c, "启用")).Clicked() {
+				if btnSmall(ui.Button(c, "添加")).Clicked() {
 					a.Enable(v.ID, true)
 				}
 			case v.Status == "error":
-				if btnSmall(ui.Button(c, "重试")).Clicked() {
+				if btnSmall(ui.Button(c, "刷新")).Clicked() {
 					a.Refresh(true)
 				}
 				loginActions(c, a, v.ID, defaultAccount(v))
@@ -703,12 +703,12 @@ func providerError(v providerView) string {
 // waiting for.
 func attentionReason(v providerView) string {
 	if !v.Enabled {
-		return "已在设置里停用，不会参与探测。"
+		return "已移除，不会被查询。"
 	}
 	if v.Status == "error" {
 		// What to do about it is the two buttons on the row; what happened is
 		// the provider's own sentence, appended after this one.
-		return "探测失败"
+		return "查询失败"
 	}
 	if av, ok := firstAccount(v); ok {
 		if av.Cred != "" {
@@ -767,7 +767,7 @@ func windowMeta(w model.RateWindow, points []history.Point, now time.Time) strin
 		parts = append(parts, d)
 	}
 	if w.RateLimited {
-		parts = append(parts, "provider 报告已限流")
+		parts = append(parts, "服务商说请求太频繁")
 	}
 	return strings.Join(parts, " · ")
 }

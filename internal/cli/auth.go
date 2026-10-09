@@ -36,7 +36,7 @@ var keyPage = map[string]string{
 func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	bin, err := exec.LookPath("cursor-agent")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "没找到 cursor-agent CLI，先安装（https://cursor.com/cli），再重试")
+		fmt.Fprintln(os.Stderr, "没找到 cursor-agent 命令，先按 https://cursor.com/cli 安装，再重试")
 		return 2
 	}
 
@@ -76,7 +76,7 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	}
 	if !ok || ca.AccessToken == "" {
 		p, _ := auth.CursorAuthFile(staging)
-		fmt.Fprintf(os.Stderr, "登录似乎没完成：%s 里没有令牌\n", p)
+		fmt.Fprintf(os.Stderr, "登录好像没完成：%s 里没有登录信息。请重跑 leeway login cursor\n", p)
 		return 1
 	}
 
@@ -115,8 +115,8 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	}
 	p, _ := auth.CursorAuthFile(name)
 	label := accountStatusName(name, email)
-	fmt.Fprintf(os.Stderr, "\n已登录 cursor 账号 %s%s，令牌由官方 CLI 写入 %s（0600）\n", label, expiresIn, p)
-	fmt.Fprintln(os.Stderr, "该账号与官方 Cursor CLI / keychain 完全独立。查额度在 usage 后面加号；要让本机 Cursor 用这个号：")
+	fmt.Fprintf(os.Stderr, "\n已登录 cursor 账号 %s%s，登录信息由官方工具写入 %s（权限 0600）\n", label, expiresIn, p)
+	fmt.Fprintln(os.Stderr, "这个账号和官方 Cursor 工具、keychain 互不影响。要看用量，在 usage 后面加账号名；要让本机 Cursor 用这个账号：")
 	fmt.Fprintln(os.Stderr, suffixAccount("leeway use cursor", name))
 	return 0
 }
@@ -138,13 +138,13 @@ func loginGrok(ctx context.Context, account string) int {
 	}
 	authFile := filepath.Join(home, "auth.json")
 	if grok.HasOfficialShape(authFile) {
-		fmt.Fprintf(os.Stderr, "grok 账号 %s 已有完整官方快照。切本机：leeway use grok %s；替换快照：leeway login grok %s --file ~/.grok/auth.json\n", name, name, name)
+		fmt.Fprintf(os.Stderr, "grok 账号 %s 已有一份完整官方登录。让本机 grok 用它：leeway use grok %s；换一份：leeway login grok %s --file ~/.grok/auth.json\n", name, name, name)
 		return 1
 	}
 
 	bin, err := exec.LookPath("grok")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "没找到 grok CLI，先安装：curl -fsSL https://x.ai/cli/install.sh | bash")
+		fmt.Fprintln(os.Stderr, "没找到 grok 命令，先安装：curl -fsSL https://x.ai/cli/install.sh | bash")
 		return 2
 	}
 
@@ -172,12 +172,12 @@ func loginGrok(ctx context.Context, account string) int {
 		label = accountStatusName(name, email)
 	}
 	fmt.Fprintf(os.Stderr, "\n已登录 grok 账号 %s → %s\n", label, authFile)
-	fmt.Fprintln(os.Stderr, "该账号与官方 grok CLI（~/.grok）完全独立。查额度：leeway usage grok"+suffixFlag(name))
+	fmt.Fprintln(os.Stderr, "这个账号和官方 grok 工具（~/.grok）互不影响。看用量：leeway usage grok"+suffixFlag(name))
 	if shaped {
-		fmt.Fprintln(os.Stderr, "要让本机 grok CLI 用这个号：")
+		fmt.Fprintln(os.Stderr, "要让本机 grok 用这个账号：")
 		fmt.Fprintln(os.Stderr, suffixAccount("leeway use grok", name))
 	} else {
-		fmt.Fprintf(os.Stderr, "设备码会话缺官方资料字段，use 会拒绝写入。切本机 grok 请先快照能开 CLI 的文件：leeway login grok %s --file ~/.grok/auth.json\n", name)
+		fmt.Fprintf(os.Stderr, "这份登录缺官方字段，use 会拒绝写入。要让本机 grok 用它，先备份能打开 grok 的文件：leeway login grok %s --file ~/.grok/auth.json\n", name)
 	}
 	return 0
 }
@@ -199,20 +199,20 @@ func loginAPIKey(providerID, account, email string, noBrowser bool, key string) 
 	if key == "" {
 		page := keyPage[providerID]
 		if page != "" && !noBrowser {
-			fmt.Fprintf(os.Stderr, "打开 %s 创建并复制 API key…\n", page)
+			fmt.Fprintf(os.Stderr, "正在打开 %s，请创建并复制 API 密钥…\n", page)
 			if err := auth.OpenBrowser(page); err != nil {
-				fmt.Fprintf(os.Stderr, "(打不开浏览器，请手动访问 %s)\n", page)
+				fmt.Fprintf(os.Stderr, "(没能打开浏览器，请手动访问 %s)\n", page)
 			}
 		}
 		var err error
-		key, err = auth.PromptSecret("粘贴 API key（不回显）: ")
+		key, err = auth.PromptSecret("粘贴 API 密钥（不回显）: ")
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "read key:", err)
 			return 2
 		}
 	}
 	if key == "" {
-		fmt.Fprintln(os.Stderr, "empty key; aborting")
+		fmt.Fprintln(os.Stderr, "密钥是空的，已中止")
 		return 2
 	}
 	cfg, err := config.Load()
@@ -234,16 +234,16 @@ func loginAPIKey(providerID, account, email string, noBrowser bool, key string) 
 	// readable rows, so an email given here is recorded on the account.
 	if email != "" {
 		if err := cfg.SetAccountEmail(providerID, account, email); err != nil {
-			fmt.Fprintln(os.Stderr, "保存邮箱失败：", err)
+			fmt.Fprintln(os.Stderr, "没能保存邮箱：", err)
 			return 1
 		}
 	}
 
-	fmt.Fprintf(os.Stderr, "已保存 %s 的 key（%s）\n", providerID, maskKey(key))
+	fmt.Fprintf(os.Stderr, "已保存 %s 的 API 密钥（%s）\n", providerID, maskKey(key))
 	if account != "" && account != "default" {
-		fmt.Fprintln(os.Stderr, suffixAccount("查额度：leeway usage "+providerID, account))
+		fmt.Fprintln(os.Stderr, suffixAccount("看用量：leeway usage "+providerID, account))
 	} else {
-		fmt.Fprintln(os.Stderr, "查额度：leeway usage "+providerID)
+		fmt.Fprintln(os.Stderr, "看用量：leeway usage "+providerID)
 	}
 	return 0
 }
@@ -545,7 +545,7 @@ func logoutCursor(account string) int {
 		return 1
 	}
 	_ = cfg.RemoveAccount("cursor", name)
-	fmt.Fprintf(os.Stderr, "已清除 cursor 账号的私有登录（%s）；keychain 里的官方会话不受影响\n", home)
+	fmt.Fprintf(os.Stderr, "已删除 cursor 账号的登录（%s）；keychain 里的官方登录不受影响\n", home)
 	return 0
 }
 
@@ -565,7 +565,7 @@ func logoutGrok(account string) int {
 		return 1
 	}
 	if !underDir(root, home) {
-		fmt.Fprintf(os.Stderr, "refuse to delete %s (not a leeway session dir)\n", home)
+		fmt.Fprintf(os.Stderr, "不删除 %s：它不是 leeway 的登录目录\n", home)
 		return 1
 	}
 	if err := os.RemoveAll(home); err != nil {
@@ -575,7 +575,7 @@ func logoutGrok(account string) int {
 	if cfg, err := config.Load(); err == nil {
 		_ = cfg.RemoveAccount("grok", name)
 	}
-	fmt.Fprintf(os.Stderr, "已清除 grok 账号 %q 的私有登录（%s）\n", name, home)
+	fmt.Fprintf(os.Stderr, "已删除 grok 账号 %q 的登录（%s）\n", name, home)
 	return 0
 }
 

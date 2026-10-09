@@ -118,7 +118,7 @@ func (a *App) matrixHead(c *ui.Context, p palette, v providerView, av accountVie
 func matrixActions(c *ui.Context, a *App, p palette, providerID, account string) ui.Element {
 	ready := accountSwitchReady(a, providerID, account)
 	session := accountUsesSession(a, providerID, account)
-	return btnSmall(ui.ButtonBase(c).Label("账号操作").Cursor(ui.CursorPointer).Children(func() {
+	return btnSmall(ui.ButtonBase(c).Label("账号").Cursor(ui.CursorPointer).Children(func() {
 		ui.Icon(c, iconMore).FontSize(sizeChrome).TextColor(p.t.TextMuted)
 	})).Menu(func(m *ui.Menu) {
 		for _, method := range loginMethods(providerID) {
@@ -128,14 +128,14 @@ func matrixActions(c *ui.Context, a *App, p palette, providerID, account string)
 		}
 		m.Separator()
 		if canSwitchTo(providerID, ready) {
-			if m.Item("让本机用它").Chosen() {
+			if m.Item("启用").Chosen() {
 				a.askUse(providerID, account)
 			}
 			m.Separator()
 		}
-		if m.Item("复制当前 JSON").Chosen() {
+		if m.Item("复制数据").Chosen() {
 			mygo.Clipboard.WriteText(a.CopyJSON())
-			a.toast = "已复制 JSON"
+			a.toast = "已复制"
 		}
 		m.Separator()
 		if m.Item(removeAccountLabel(session)).Chosen() {
@@ -153,7 +153,7 @@ func (a *App) matrixCell(c *ui.Context, p palette, av accountView, w model.RateW
 		return
 	}
 	if cw.UsedPercent == nil && cw.Used == nil {
-		muted(c, p, "未报告")
+		muted(c, p, "无数据")
 		return
 	}
 	value(c, p, amountText(cw), p.amountColor(cw))

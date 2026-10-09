@@ -95,7 +95,7 @@ func (a *App) Menu() *mygo.Menu {
 		{Role: mygo.RoleAppMenu},
 		{Label: "文件", Submenu: []*mygo.MenuItem{
 			{Label: "刷新", Accelerator: "CmdOrCtrl+R", Click: func(*mygo.MenuItem, *mygo.Window) { a.Refresh(true) }},
-			{Label: "复制 JSON", Accelerator: "CmdOrCtrl+Shift+C", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.Clipboard.WriteText(a.CopyJSON()) }},
+			{Label: "复制数据", Accelerator: "CmdOrCtrl+Shift+C", Click: func(*mygo.MenuItem, *mygo.Window) { mygo.Clipboard.WriteText(a.CopyJSON()) }},
 			mygo.Separator(),
 			{Label: "设置…", Accelerator: "CmdOrCtrl+,", Click: func(*mygo.MenuItem, *mygo.Window) { a.OpenSettings() }},
 			mygo.Separator(),
@@ -218,7 +218,7 @@ func (a *App) titleBar(c *ui.Context, p palette) {
 			a.titleState(c, p)
 			ui.Spacer(c)
 			if !a.lastAt.IsZero() && !a.fetching {
-				muted(c, p, "更新于 "+agoText(a.lastAt, a.now()))
+				muted(c, p, agoText(a.lastAt, a.now())+"更新")
 			}
 			a.titleActions(c, p)
 		})
@@ -241,9 +241,9 @@ func (a *App) titleState(c *ui.Context, p palette) {
 	}
 	busy := a.fetching || a.fetchErr != ""
 	if a.fetching {
-		entries = []entry{{0, "探测中…", p.t.TextMuted}}
+		entries = []entry{{0, "正在查询…", p.t.TextMuted}}
 	} else if a.fetchErr != "" {
-		entries = []entry{{0, "探测失败", p.toneColor(toneCritical)}}
+		entries = []entry{{0, "查询失败", p.toneColor(toneCritical)}}
 	}
 	shown := 0
 	ui.Row(c).Gap(14).AlignItems(ui.Center).Role(ui.RoleStatus).Children(func() {
@@ -263,7 +263,7 @@ func (a *App) titleState(c *ui.Context, p palette) {
 			})
 		}
 		if shown == 0 {
-			muted(c, p, "没有启用的 provider")
+			muted(c, p, "还没有添加服务商")
 		}
 	})
 }
@@ -325,7 +325,7 @@ func refreshLabel(sec int) string {
 // sidebarItems lists the pages: the dashboard, one item per provider, and
 // the pages about the data itself.
 func (a *App) sidebarItems(c *ui.Context, p palette) {
-	ui.SidebarSection(c, "监控", nil, func() {
+	ui.SidebarSection(c, "用量", nil, func() {
 		sidebarItem(c, "overview", iconOverview, "总览", a.page == "overview")
 		// Only the subscriptions this machine actually has: a provider nobody
 		// has set up is a row to read once in the first-run guide, not a page
@@ -351,7 +351,7 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 			})
 		}
 		if listed == 0 {
-			muted(c, p, "配置过的 provider 会出现在这里")
+			muted(c, p, "配置好的服务商会显示在这里")
 		}
 	})
 	ui.SidebarSection(c, "数据", nil, func() {
@@ -507,9 +507,9 @@ func deltaText(points []history.Point, w model.RateWindow) string {
 	if d := w.Delta; d != nil {
 		switch {
 		case d.UsedPercent != nil && *d.UsedPercent != 0:
-			return fmt.Sprintf("较上次 %+.0f%%", *d.UsedPercent)
+			return fmt.Sprintf("比上次 %+.0f%%", *d.UsedPercent)
 		case d.Used != nil && *d.Used != 0:
-			return fmt.Sprintf("较上次 %+.2f", *d.Used)
+			return fmt.Sprintf("比上次 %+.2f", *d.Used)
 		}
 		return ""
 	}
@@ -526,11 +526,11 @@ func deltaText(points []history.Point, w model.RateWindow) string {
 	switch {
 	case last.UsedPercent != nil && prev.UsedPercent != nil:
 		if d := *last.UsedPercent - *prev.UsedPercent; d != 0 {
-			return fmt.Sprintf("较上次 %+.0f%%", d)
+			return fmt.Sprintf("比上次 %+.0f%%", d)
 		}
 	case last.Used != nil && prev.Used != nil:
 		if d := *last.Used - *prev.Used; d != 0 {
-			return fmt.Sprintf("较上次 %+.2f", d)
+			return fmt.Sprintf("比上次 %+.2f", d)
 		}
 	}
 	return ""
@@ -541,18 +541,18 @@ func deltaText(points []history.Point, w model.RateWindow) string {
 func accountActions(c *ui.Context, a *App, p palette, providerID, account string) ui.Element {
 	ready := accountSwitchReady(a, providerID, account)
 	session := accountUsesSession(a, providerID, account)
-	return btnSmall(ui.ButtonBase(c).Label("账号操作")).Cursor(ui.CursorPointer).
+	return btnSmall(ui.ButtonBase(c).Label("账号")).Cursor(ui.CursorPointer).
 		Children(func() { ui.Icon(c, iconMore).FontSize(sizeChrome).TextColor(p.t.TextMuted) }).
 		Menu(func(m *ui.Menu) {
 			if canSwitchTo(providerID, ready) {
-				if m.Item("让本机用它").Chosen() {
+				if m.Item("启用").Chosen() {
 					a.askUse(providerID, account)
 				}
 				m.Separator()
 			}
-			if m.Item("复制当前 JSON").Chosen() {
+			if m.Item("复制数据").Chosen() {
 				mygo.Clipboard.WriteText(a.CopyJSON())
-				a.toast = "已复制 JSON"
+				a.toast = "已复制"
 			}
 			m.Separator()
 			if m.Item(removeAccountLabel(session)).Chosen() {
@@ -565,9 +565,9 @@ func accountActions(c *ui.Context, a *App, p palette, providerID, account string
 // leeway's own ledger, or just the stored key.
 func removeAccountLabel(session bool) string {
 	if session {
-		return "退出登录"
+		return "移除账号"
 	}
-	return "删除 API key"
+	return "删除密钥"
 }
 
 // loginActions opens the sheet that gives a provider credentials.
@@ -590,11 +590,11 @@ type loginMethod struct {
 // provider's own AuthSpec so the window never offers a credential kind the
 // provider does not read.
 func loginMethods(providerID string) []loginMethod {
-	apiKey := loginMethod{"粘贴 API key…", func(a *App, id, acc string) { a.openAPIKey(id, acc) }}
-	cookie := loginMethod{"从浏览器导入 cookie…", func(a *App, id, acc string) { a.openCookieImport(id, acc) }}
-	manual := loginMethod{"粘贴 cookie header…", func(a *App, id, acc string) { a.openManualCookie(id, acc) }}
-	file := loginMethod{"导入会话文件…", func(a *App, id, acc string) { a.openSessionFile(id, acc) }}
-	cli := loginMethod{"用官方 CLI 登录…", func(a *App, id, acc string) { a.openCLI(id, acc) }}
+	apiKey := loginMethod{"粘贴 API 密钥…", func(a *App, id, acc string) { a.openAPIKey(id, acc) }}
+	cookie := loginMethod{"读取浏览器登录状态…", func(a *App, id, acc string) { a.openCookieImport(id, acc) }}
+	manual := loginMethod{"手动粘贴登录状态…", func(a *App, id, acc string) { a.openManualCookie(id, acc) }}
+	file := loginMethod{"导入登录文件…", func(a *App, id, acc string) { a.openSessionFile(id, acc) }}
+	cli := loginMethod{"用官方工具登录…", func(a *App, id, acc string) { a.openCLI(id, acc) }}
 
 	spec, ok := providerSpec(providerID)
 	if !ok {
@@ -629,7 +629,7 @@ func loginButtonLabel(providerID string) string {
 	if ok && (spec.OfficialCLI || spec.UsesCodexCLI) {
 		return "登录"
 	}
-	return "配置 key"
+	return "设置密钥"
 }
 
 // providerSpec is the provider's declared credential kinds.
@@ -641,7 +641,7 @@ func providerSpec(providerID string) (provider.AuthSpec, bool) {
 	return p.AuthSpec(), true
 }
 
-// canSwitchTo reports whether `让本机用它` can do anything for a provider at
+// canSwitchTo reports whether `启用` can do anything for a provider at
 // all: only the three with an official local client. Codex deliberately never
 // writes ~/.codex, and key-only providers have no client of their own.
 func canSwitchTo(providerID string, ready bool) bool {
@@ -678,17 +678,17 @@ func accountUsesSession(a *App, providerID, account string) bool {
 func providerHint(id string) string {
 	switch id {
 	case "deepseek", "opencode-go", "commandcode":
-		return "还没有 API key。"
+		return "还没有 API 密钥。"
 	case "cursor":
-		return "还没有 cursor 私有会话。先用官方 cursor-agent 登录。"
+		return "还没有登录信息。先用官方 cursor-agent 登录。"
 	case "grok":
-		return "还没有 grok 会话。用官方 grok 登录，或导入 ~/.grok/auth.json。"
+		return "还没有登录信息。用官方 grok 登录，或导入 ~/.grok/auth.json。"
 	case "codex":
-		return "还没有 codex 会话。用官方 codex 登录，或导入 ~/.codex/auth.json。"
+		return "还没有登录信息。用官方 codex 登录，或导入 ~/.codex/auth.json。"
 	case "kimi":
-		return "还没有 kimi 凭据。官方 kimi 登录、API key 或浏览器 cookie 都可以。"
+		return "还没有登录信息。三种都行：官方 kimi 登录、API 密钥、浏览器登录状态。"
 	}
-	return "还没有凭据。"
+	return "还没有登录信息。"
 }
 
 // sinceStart renders how long the last probe took.

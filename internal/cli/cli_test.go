@@ -471,7 +471,7 @@ func TestUseCursorWritesOfficialFiles(t *testing.T) {
 	if strings.Contains(out, "tok-work") || strings.Contains(out, "rt-work") {
 		t.Fatalf("stdout leaked token:\n%s", out)
 	}
-	if !strings.Contains(out, `switched cursor to account "work"`) {
+	if !strings.Contains(out, `已把 cursor 切到账号 "work"`) {
 		t.Fatalf("stdout = %q", out)
 	}
 	for _, want := range targets {

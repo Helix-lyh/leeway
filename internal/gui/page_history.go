@@ -22,13 +22,13 @@ func goVersion() string { return runtime.Version() }
 // historyPage shows the recorded observations of every provider, account and
 // window as one row each.
 func (a *App) historyPage(c *ui.Context, p palette) {
-	sub := fmt.Sprintf("每个窗口最近 %d 次探测 · 最近一次 %s", a.settings.HistoryN, agoText(a.lastAt, a.now()))
+	sub := fmt.Sprintf("每个额度周期最近 %d 次查询 · 最近一次 %s", a.settings.HistoryN, agoText(a.lastAt, a.now()))
 	if path, err := history.Path(); err == nil {
-		sub = fmt.Sprintf("每个窗口最近 %d 次探测 · 记录在 %s · 最近一次 %s",
+		sub = fmt.Sprintf("每个额度周期最近 %d 次查询 · 记录在 %s · 最近一次 %s",
 			a.settings.HistoryN, filepath.Base(path), agoText(a.lastAt, a.now()))
 	}
 	pageHead(c, p, "历史", sub, func() {
-		if btnLarge(ui.Button(c, "重新读取")).Clicked() {
+		if btnLarge(ui.Button(c, "刷新")).Clicked() {
 			a.loadHistory()
 		}
 	})
@@ -45,7 +45,7 @@ func (a *App) historyPage(c *ui.Context, p palette) {
 				mark(c, p, id, providerName(id), 24, "")
 				section(c, p, providerName(id))
 				ui.Spacer(c)
-				label(c, p, fmt.Sprintf("%d 条序列", len(series)))
+				label(c, p, fmt.Sprintf("%d 条记录", len(series)))
 			})
 			hairline(c, p)
 			for i, s := range series {
@@ -72,17 +72,17 @@ func historyEmpty(c *ui.Context, p palette, a *App) ui.Element {
 					pt.Fill(ui.Rect{X: x, Y: y, W: 7, H: 2}, p.track, 1)
 				}
 			})
-			ui.Text(c, "还没有历史点").
+			ui.Text(c, "还没有记录").
 				FontSize(sizeValue).
 				FontWeight(700).
 				LetterSpacing(-0.2)
-			ui.Text(c, "每次探测都会记一个点，记满之后这里就有走势：涨得快说明用得猛，掉下去说明重置了。").
+			ui.Text(c, "每次查询记一笔，记满后这里就有走势：涨得快说明用得多，掉下去说明重置了。").
 				FontSize(sizeBody).
 				TextColor(p.t.TextMuted).
 				LineHeight(1.55).
 				MaxWidth(560)
 			ui.Row(c).Gap(space2).Padding(space1, 0, 0, 0).Children(func() {
-				if btnLarge(ui.PrimaryButton(c, "去总览刷新")).Clicked() {
+				if btnLarge(ui.PrimaryButton(c, "去总览页刷新")).Clicked() {
 					a.navigate("overview")
 					a.Refresh(true)
 				}
@@ -121,7 +121,7 @@ func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 		_, over := a.sparkline(c, p, "history:"+s.Provider+"/"+s.Window+"/"+s.Account, "走势："+windowTitle(s.Provider, s.Window, title), s.Points, barColor(p, window), 40, nil)
 		parts := []string{chartScale(s.Points), historyCaption(s.Points)}
 		if n := countResets(s.Points); n > 0 {
-			parts = append(parts, fmt.Sprintf("期间重置 %d 次（图上的竖线）", n))
+			parts = append(parts, fmt.Sprintf("期间重置 %d 次（竖线就是重置）", n))
 		}
 		muted(c, p, chartCaption(s.Points, over, joinNonEmpty(parts, " · ")))
 		if live != nil {
@@ -201,18 +201,18 @@ func providerName(id string) string {
 // --- about -----------------------------------------------------------------
 
 func (a *App) aboutPage(c *ui.Context, p palette) {
-	pageHead(c, p, "关于", "leeway · AI 编程 provider 用量 / 额度 / 重置时间", nil)
+	pageHead(c, p, "关于", "leeway · AI 编程服务的用量、额度和重置时间", nil)
 	card(c, p, func() {
 		keyValue(c, p, "版本", "leeway "+version)
-		keyValue(c, p, "界面", "go "+goVersion())
+		keyValue(c, p, "运行环境", "go "+goVersion())
 		keyValue(c, p, "配置", configPathText())
 		keyValue(c, p, "缓存", cacheDirText())
-		keyValue(c, p, "会话", sessionDirText())
+		keyValue(c, p, "登录文件", sessionDirText())
 		keyValue(c, p, "历史", historyPathText())
 	})
 	card(c, p, func() {
 		section(c, p, "命令行")
-		unconfiguredLine(c, p, "窗口和命令行共用同一份配置与历史：命令行里的 leeway 照常可用。")
+		unconfiguredLine(c, p, "窗口和命令行共用同一份配置和历史，命令行的 leeway 照常可用。")
 		ui.Text(c, "leeway usage --json | leeway status | leeway help login").
 			Font(p.mono).
 			FontSize(sizeBody).
@@ -220,9 +220,9 @@ func (a *App) aboutPage(c *ui.Context, p palette) {
 			Selectable()
 	})
 	card(c, p, func() {
-		section(c, p, "探测方式")
-		unconfiguredLine(c, p, "leeway 只读各 provider 的用量接口：用你自己的 key、cookie，或官方 CLI 已经登录好的会话。")
-		unconfiguredLine(c, p, "凭据不进日志、不进 JSON 输出；密钥只写进你自己的 config.json。")
+		section(c, p, "数据来源")
+		unconfiguredLine(c, p, "leeway 只看不改：用你已有的登录信息，去问服务商还剩多少额度。")
+		unconfiguredLine(c, p, "登录信息不进日志、不进 JSON 输出；API 密钥只写进你自己的 config.json。")
 	})
 }
 

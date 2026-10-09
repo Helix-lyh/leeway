@@ -84,7 +84,7 @@ func credSentence(cred string) string {
 	if cred != "" && !isCJK(rune(cred[0])) {
 		gap = " "
 	}
-	return "凭据来自" + gap + cred + "；刷新一次就能看到用量。"
+	return "登录信息来自" + gap + cred + "；刷新一次就能看到用量。"
 }
 
 // isCJK reports whether r is written in Chinese, Japanese or Korean.
@@ -143,7 +143,7 @@ func spanText(d time.Duration) string {
 // agoText renders how long ago something happened, for "更新于" lines.
 func agoText(t, now time.Time) string {
 	if t.IsZero() {
-		return "尚未探测"
+		return "还没有查询过"
 	}
 	d := now.Sub(t)
 	switch {
@@ -170,7 +170,7 @@ func statusText(status string) string {
 	case "not_configured":
 		return "未配置"
 	case "disabled":
-		return "已停用"
+		return "已移除"
 	case "warn":
 		return "注意"
 	default:
@@ -183,7 +183,7 @@ func statusText(status string) string {
 // machine has not been probed yet, which is not the same as not being set up.
 func statusLabel(status, cred string) string {
 	if status == "not_configured" && cred != "" {
-		return "待刷新"
+		return "待查询"
 	}
 	return statusText(status)
 }

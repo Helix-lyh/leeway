@@ -52,12 +52,12 @@ func Run(args []string) int {
 			return 0
 		}
 		if len(rest) > 1 {
-			fmt.Fprintf(os.Stderr, "unexpected argument %q\n", rest[1])
+			fmt.Fprintf(os.Stderr, "多出来的参数 %q\n", rest[1])
 			return 2
 		}
 		return runHelpTopic(rest[0])
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q\n\n%s", args[0], usageText)
+		fmt.Fprintf(os.Stderr, "没有 %q 这条命令\n\n%s", args[0], usageText)
 		return 2
 	}
 }
@@ -90,19 +90,19 @@ func runUsage(args []string) int {
 	fs := newFlagSet("usage", &jsonOut)
 	fs.Help(usageHelp)
 	fs.providerAccount(&providerFilter, &accountFilter)
-	fs.IntVar(&watchSecs, "watch", 0, "每 N 秒刷新")
-	fs.IntVar(&last, "last", -1, "近 N 次探测（≥1 时不联网）")
-	fs.BoolVar(&noCache, "no-cache", false, "不走 60s 缓存")
-	fs.BoolVar(&noDelta, "no-delta", false, "表上不画相对上次的增量（JSON 仍带 delta）")
+	fs.IntVar(&watchSecs, "watch", 0, "每 N 秒自动刷新一次")
+	fs.IntVar(&last, "last", -1, "看最近 N 次记录（不联网）")
+	fs.BoolVar(&noCache, "no-cache", false, "不用 60 秒内的缓存")
+	fs.BoolVar(&noDelta, "no-delta", false, "表格不显示与上次的差值（JSON 里仍有）")
 	if !fs.Parse(args) {
 		return 2
 	}
 	if last == 0 {
-		fmt.Fprintln(os.Stderr, "usage: --last 必须 ≥ 1")
+		fmt.Fprintln(os.Stderr, "--last 要给 1 以上的数，例如 --last 12")
 		return 2
 	}
 	if last >= 1 && watchSecs > 0 {
-		fmt.Fprintln(os.Stderr, "usage: --last 和 --watch 不能一起用")
+		fmt.Fprintln(os.Stderr, "--last 和 --watch 只能选一个")
 		return 2
 	}
 	if last >= 1 {
@@ -325,27 +325,27 @@ func runUse(args []string) int {
 			return useKimiSession(a, account, jsonOut)
 		}
 	case "codex":
-		fmt.Fprintln(os.Stderr, "codex 不写官方 ~/.codex（避免 refresh 把官方会话作废）。查额度：leeway usage codex "+account)
+		fmt.Fprintln(os.Stderr, "codex 不能写进官方 ~/.codex（免得刷新让官方登录失效）。要看用量：leeway usage codex "+account)
 		return 2
 	}
 
 	acc, ok := cfg.Account(providerID, account)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "%s 没有账号 %q\n", providerID, account)
+		fmt.Fprintf(os.Stderr, "%s 里没有叫 %q 的账号。先看 leeway status，或添加：leeway login %s %s --key\n", providerID, account, providerID, account)
 		return 2
 	}
 	if acc.APIKey == "" {
-		fmt.Fprintf(os.Stderr, "%s 账号 %q 没有 API key — leeway login %s %s --key\n",
+		fmt.Fprintf(os.Stderr, "%s 账号 %q 还没有 API 密钥。补上：leeway login %s %s --key\n",
 			providerID, account, providerID, account)
 		return 2
 	}
 	target := cfg.KeyTarget(providerID)
 	if target.File == "" || target.Key == "" {
-		fmt.Fprintln(os.Stderr, "没有配置 key 写入目标（需要文件和字段名）")
+		fmt.Fprintln(os.Stderr, "不知道密钥该写到哪里：请在配置里补上文件路径和字段名")
 		return 2
 	}
 	if err := credwrite.Patch(target.File, target.Key, acc.APIKey); err != nil {
-		fmt.Fprintln(os.Stderr, "写入目标失败：", err)
+		fmt.Fprintln(os.Stderr, "没能写进目标文件：", err)
 		return 1
 	}
 	return printUseResult(switcher.Result{
@@ -359,15 +359,15 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 	name, email := resolveCursorAccount(cfg, account)
 	ca, ok, err := auth.LoadCursorAuth(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "读取 cursor 会话失败：", err)
+		fmt.Fprintln(os.Stderr, "读不到 cursor 的登录信息：", err)
 		return 1
 	}
 	if !ok || ca.AccessToken == "" || ca.RefreshToken == "" {
-		fmt.Fprintf(os.Stderr, "cursor 账号 %q 还没登录 — leeway login cursor %s\n", name, name)
+		fmt.Fprintf(os.Stderr, "cursor 账号 %q 还没登录。先登录：leeway login cursor %s\n", name, name)
 		return 2
 	}
 	if exp, ok := auth.JWTExpiry(ca.AccessToken); ok && time.Now().After(exp) {
-		fmt.Fprintf(os.Stderr, "cursor 账号 %q 的令牌已过期 — leeway login cursor %s\n", name, name)
+		fmt.Fprintf(os.Stderr, "cursor 账号 %q 的登录过期了。重新登录：leeway login cursor %s\n", name, name)
 		return 1
 	}
 	if block, reason := switcher.CheckCursorIDE(); block {
@@ -376,25 +376,25 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 	}
 	targets, err := switcher.OfficialCursorTargets()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "找不到 Cursor 的会话库：%v\n", err)
+		fmt.Fprintf(os.Stderr, "没找到 Cursor 的登录位置：%v\n", err)
 		return 1
 	}
 	saved, unsaved, err := switcher.SnapshotCursorIfNeeded(targets, ca.AccessToken)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "保存当前 Cursor 登录失败：", err)
+		fmt.Fprintln(os.Stderr, "没能备份当前的 Cursor 登录：", err)
 		return 1
 	}
 	if saved != "" {
-		fmt.Fprintf(os.Stderr, "已把当前 Cursor 登录收进 leeway 账号 %s\n", saved)
+		fmt.Fprintf(os.Stderr, "已把当前 Cursor 登录存成 leeway 账号 %s\n", saved)
 	} else if unsaved {
-		fmt.Fprintln(os.Stderr, "当前 Cursor 登录不在 leeway 台账里，切走之后只剩目标号")
+		fmt.Fprintln(os.Stderr, "当前 Cursor 登录没存进 leeway，切走后这个账号就找不回来了")
 	}
 	if err := switcher.ApplyCursor(targets, ca, email); err != nil {
-		fmt.Fprintln(os.Stderr, "写入 Cursor 会话失败：", err)
+		fmt.Fprintln(os.Stderr, "没能写入 Cursor 的登录信息：", err)
 		return 1
 	}
 	if !jsonOut {
-		fmt.Fprintln(os.Stderr, "重新打开 Cursor 后才会用新号")
+		fmt.Fprintln(os.Stderr, "要重新打开 Cursor 才会用新账号")
 	}
 	return printUseResult(switcher.Result{
 		Provider: "cursor",
@@ -408,24 +408,24 @@ func useCursor(cfg *config.Config, account string, jsonOut bool) int {
 func useGrok(cfg *config.Config, account string, jsonOut bool) int {
 	name, src := resolveGrokAuthFile(cfg, account)
 	if src == "" {
-		fmt.Fprintf(os.Stderr, "grok 账号 %q 还没登录 — leeway login grok %s\n", name, name)
+		fmt.Fprintf(os.Stderr, "grok 账号 %q 还没登录。先登录：leeway login grok %s\n", name, name)
 		return 2
 	}
 	if !fileExists(src) {
-		fmt.Fprintf(os.Stderr, "grok 账号 %q 的会话文件不在 %s — leeway login grok %s\n", name, src, name)
+		fmt.Fprintf(os.Stderr, "grok 账号 %q 的登录文件不在 %s。重新登录：leeway login grok %s\n", name, src, name)
 		return 2
 	}
 	if !grok.HasOfficialShape(src) {
-		fmt.Fprintf(os.Stderr, "grok 账号 %q 还不是官方完整会话，写入会逼 grok 重新网页登录。先用能开 grok 的文件快照：leeway login grok %s --file ~/.grok/auth.json\n", name, name)
+		fmt.Fprintf(os.Stderr, "grok 账号 %q 不是官方完整登录，写进去会让 grok 要求重新网页登录。改用能打开 grok 的文件备份：leeway login grok %s --file ~/.grok/auth.json\n", name, name)
 		return 1
 	}
 	dst, err := switcher.OfficialGrokAuthFile()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "找不到 grok 的会话文件：", err)
+		fmt.Fprintln(os.Stderr, "找不到 grok 的登录文件：", err)
 		return 1
 	}
 	if err := switcher.ApplyGrok(dst, src); err != nil {
-		fmt.Fprintln(os.Stderr, "写入 grok 会话失败：", err)
+		fmt.Fprintln(os.Stderr, "没能写入 grok 的登录信息：", err)
 		return 1
 	}
 	email := grokAuthEmail(src)
@@ -471,11 +471,11 @@ func printUseResult(r switcher.Result, jsonOut bool) int {
 	if jsonOut {
 		return newJSONEncoder().Encode(r)
 	}
-	fmt.Printf("switched %s to account %q", r.Provider, r.Account)
+	fmt.Printf("已把 %s 切到账号 %q", r.Provider, r.Account)
 	if r.Email != "" && r.Email != r.Account {
-		fmt.Printf(" (%s)", r.Email)
+		fmt.Printf("（%s）", r.Email)
 	}
-	fmt.Printf(" (wrote %s)\n", strings.Join(r.Targets, ", "))
+	fmt.Printf("（写入 %s）\n", strings.Join(r.Targets, ", "))
 	return 0
 }
 
@@ -496,7 +496,7 @@ func saveManualCookie(providerID, header string) int {
 		fmt.Fprintln(os.Stderr, "config save:", err)
 		return 2
 	}
-	fmt.Fprintf(os.Stderr, "saved manual cookie header for %q\n", providerID)
+	fmt.Fprintf(os.Stderr, "已保存 %q 的手动登录状态\n", providerID)
 	return 0
 }
 
@@ -513,7 +513,7 @@ func importBrowserCookies(providerID, account, browser, profile string, force bo
 			return 1
 		}
 	} else if ok && !force && time.Since(cc.ImportedAt) < auth.ImportTTL {
-		fmt.Fprintf(os.Stderr, "cookie cache for %q%s is fresh (imported %s by %s); use --force to re-import\n",
+		fmt.Fprintf(os.Stderr, "%q%s 的浏览器登录状态缓存还有效（%s 由 %s 导入）；要重新导入请加 --force\n",
 			providerID, cacheSuffix(profile), cc.ImportedAt.Format(time.RFC3339), cc.Browser)
 		return 0
 	}
@@ -532,13 +532,13 @@ func importBrowserCookies(providerID, account, browser, profile string, force bo
 			return 1
 		}
 	} else if account != "" {
-		fmt.Fprintf(os.Stderr, "warning: --account binding requires --profile; config not updated for account %q (imported cookies are stored at provider level)\n", account)
+		fmt.Fprintf(os.Stderr, "注意：--account 要配合 --profile 才能绑定；账号 %q 的配置没有更新（导入的浏览器登录状态只存在服务商一级）\n", account)
 	}
 	n := strings.Count(header, ";") + 1
 	if header == "" {
 		n = 0
 	}
-	fmt.Fprintf(os.Stderr, "imported %d cookies for %q%s from %s%s\n", n, providerID, cacheSuffix(profile), browser, accountSuffix(account))
+	fmt.Fprintf(os.Stderr, "已从 %s 为 %q%s 读取 %d 条登录状态%s\n", browser, providerID, cacheSuffix(profile), n, accountSuffix(account))
 	return 0
 }
 
@@ -590,7 +590,7 @@ func saveAccountAuthFile(providerID, account, authFile string) int {
 	case "codex":
 		return snapshotCodexAuthFile(account, authFile)
 	default:
-		fmt.Fprintf(os.Stderr, "%s 用 --key，不支持 --file\n", providerID)
+		fmt.Fprintf(os.Stderr, "%s 只能用 --key 填密钥，不支持 --file\n", providerID)
 		return 2
 	}
 }
@@ -627,17 +627,17 @@ func snapshotGrokAuthFile(account, src string) int {
 	incoming := dst + ".incoming"
 	if err := os.WriteFile(incoming, raw, 0o600); err != nil {
 		os.Remove(incoming)
-		fmt.Fprintln(os.Stderr, "写入 grok 会话失败：", err)
+		fmt.Fprintln(os.Stderr, "没能写入 grok 的登录信息：", err)
 		return 1
 	}
 	if !grok.HasOfficialShape(incoming) {
 		os.Remove(incoming)
-		fmt.Fprintln(os.Stderr, "这份文件缺官方资料字段（auth_mode / user_id）。请先用官方 grok 登录到能正常开 CLI，再 --file 那份 ~/.grok/auth.json")
+		fmt.Fprintln(os.Stderr, "这份文件少了官方字段（auth_mode / user_id）。先用官方 grok 登录到能正常打开，再 --file 那份 ~/.grok/auth.json")
 		return 1
 	}
 	if err := os.Rename(incoming, dst); err != nil {
 		os.Remove(incoming)
-		fmt.Fprintln(os.Stderr, "写入 grok 会话失败：", err)
+		fmt.Fprintln(os.Stderr, "没能写入 grok 的登录信息：", err)
 		return 1
 	}
 	return bindIsolatedAuthFile("grok", name, dst)
@@ -685,7 +685,7 @@ func snapshotJSONFile(providerID, account, src, dst string, ok func([]byte) bool
 		return 1
 	}
 	if !ok(raw) {
-		fmt.Fprintf(os.Stderr, "这份文件不是可用的 %s 会话\n", providerID)
+		fmt.Fprintf(os.Stderr, "这份文件不能当 %s 的登录用：缺少 access token 或 refresh token。请换一份官方登录文件\n", providerID)
 		return 1
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
@@ -721,7 +721,7 @@ func bindIsolatedAuthFile(providerID, account, dst string) int {
 			_ = cfg.SetAccountEmail("grok", account, email)
 		}
 	}
-	fmt.Fprintf(os.Stderr, "已快照 %s 账号 %s → %s\n", providerID, displayAccount(account), dst)
+	fmt.Fprintf(os.Stderr, "已备份 %s 账号 %s → %s\n", providerID, displayAccount(account), dst)
 	return 0
 }
 
@@ -776,7 +776,7 @@ func useKimiSession(a config.AccountConfig, account string, jsonOut bool) int {
 		src = p
 	}
 	if !fileExists(src) {
-		fmt.Fprintf(os.Stderr, "kimi 账号 %q 的会话文件不在 %s — leeway login kimi %s\n", account, src, account)
+		fmt.Fprintf(os.Stderr, "kimi 账号 %q 的登录文件不在 %s。重新登录：leeway login kimi %s\n", account, src, account)
 		return 2
 	}
 	dst, err := kimi.OfficialCredentialPath()
@@ -790,11 +790,11 @@ func useKimiSession(a config.AccountConfig, account string, jsonOut bool) int {
 		return 1
 	}
 	if !kimiSessionOK(raw) {
-		fmt.Fprintf(os.Stderr, "kimi 账号 %q 不是完整 CLI 会话 — leeway login kimi %s\n", account, account)
+		fmt.Fprintf(os.Stderr, "kimi 账号 %q 不是完整登录。重新登录：leeway login kimi %s\n", account, account)
 		return 1
 	}
 	if samePath(src, dst) {
-		fmt.Fprintf(os.Stderr, "kimi 账号 %q 绑在官方会话文件上。先快照：leeway login kimi %s --file %s\n", account, account, a.AuthFile)
+		fmt.Fprintf(os.Stderr, "kimi 账号 %q 直接绑在官方登录文件上。先备份：leeway login kimi %s --file %s\n", account, account, a.AuthFile)
 		return 1
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {

@@ -38,7 +38,7 @@ func toggleRow(c *ui.Context, p palette, name string, control func(name string))
 // settingsView is the settings window: the same app state as the main window,
 // a second window of its own.
 // settingsSubtitle is the settings window's one line of context.
-const settingsSubtitle = "窗口偏好写在 gui.json，与命令行的 config.json 分开"
+const settingsSubtitle = "窗口的设置存在 gui.json，与命令行的 config.json 分开"
 
 func (a *App) settingsView(c *ui.Context) {
 	p := a.theme(c)
@@ -78,7 +78,7 @@ func (a *App) settingsView(c *ui.Context) {
 						Ellipsis("…").
 						Tooltip(settingsSubtitle)
 					ui.Spacer(c)
-					ui.Tabs(c, &a.settingsTab, "通用", "Provider", "数据")
+					ui.Tabs(c, &a.settingsTab, "通用", "服务商", "数据")
 				})
 			ui.Scroll(c).Grow(1).FillWidth().Padding(space5, space5, space6, space5).Children(func() {
 				ui.Column(c).FillWidth().Gap(space4).Children(func() {
@@ -99,7 +99,7 @@ func (a *App) settingsView(c *ui.Context) {
 func (a *App) settingsGeneral(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "刷新")
-		formRow(c, p, "自动刷新", "自动刷新读一分钟内的缓存；手动刷新总是重新探测。", func() {
+		formRow(c, p, "自动刷新", "自动刷新用 1 分钟内的结果；手动刷新一定会重新查询。", func() {
 			labels := make([]string, len(refreshOptions))
 			for i, o := range refreshOptions {
 				labels[i] = o.label
@@ -114,7 +114,7 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 				}
 			}
 		})
-		formRow(c, p, "探测超时（秒）", "单个 provider 的 HTTP 超时，等价于 LEEWAY_TIMEOUT。", func() {
+		formRow(c, p, "查询超时（秒）", "单个服务商的查询超时，等同于 LEEWAY_TIMEOUT。", func() {
 			secs := float64(a.settings.TimeoutSec)
 			field := ui.NumberInput(c, &secs, 5, 300, 5)
 			if field.Changed() {
@@ -127,10 +127,10 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "外观")
 		formRow(c, p, "主题", "", func() { appearancePicker(c, p, a) })
-		toggleRow(c, p, "打开窗口时探测", func(name string) { switchRow(c, &a.settings.OnOpenFetch, a, name) })
-		toggleRow(c, p, "探测失败时发通知", func(name string) { switchRow(c, &a.settings.NotifyOnError, a, name) })
+		toggleRow(c, p, "打开窗口就查询", func(name string) { switchRow(c, &a.settings.OnOpenFetch, a, name) })
+		toggleRow(c, p, "查询失败时通知我", func(name string) { switchRow(c, &a.settings.NotifyOnError, a, name) })
 		if mygo.App.IsReady() && !mygo.NotificationsSupported() {
-			unconfiguredLine(c, p, "这个环境不支持系统通知（macOS 只在打包安装后的构建里允许）。")
+			unconfiguredLine(c, p, "这个环境不支持系统通知（只在安装后的 .app 里可用）。")
 		}
 	})
 
@@ -140,11 +140,11 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 			on := mygo.App.IsReady() && mygo.App.OpenAtLogin()
 			if ui.Switch(c, &on).Label(name).Changed() && mygo.App.IsReady() {
 				if err := mygo.App.SetOpenAtLogin(on); err != nil {
-					a.toast, _ = failureText("开机自启设置失败", err.Error())
+					a.toast, _ = failureText("开机启动设置失败", err.Error())
 				}
 			}
 		})
-		unconfiguredLine(c, p, "需要打包后的 .app（macOS 13+）；未打包运行时这个开关会失败并提示原因。")
+		unconfiguredLine(c, p, "需要安装后的 .app（macOS 13 以上）。")
 	})
 }
 
@@ -235,7 +235,7 @@ func switchRow(c *ui.Context, field *bool, a *App, name string) ui.Element {
 // the names.
 func (a *App) settingsProviders(c *ui.Context, p palette) {
 	card(c, p, func() {
-		section(c, p, "启用的 provider")
+		section(c, p, "全部服务商")
 		for i, v := range a.providers() {
 			view := v
 			if i > 0 {
@@ -253,12 +253,12 @@ func (a *App) settingsProviders(c *ui.Context, p palette) {
 					}
 				}
 				on := view.Enabled
-				if ui.Switch(c, &on).Label("启用 " + view.DisplayName).Changed() {
+				if ui.Switch(c, &on).Label("添加 " + view.DisplayName).Changed() {
 					a.Enable(view.ID, on)
 				}
 			})
 		}
-		unconfiguredLine(c, p, "停用的 provider 不参与探测。登录、切号和退出在各自的详情页里。")
+		unconfiguredLine(c, p, "已移除的服务商不会被查询。登录、切换账号和移除，都在它的详情页里。")
 	})
 }
 
@@ -266,7 +266,7 @@ func (a *App) settingsProviders(c *ui.Context, p palette) {
 func (a *App) settingsData(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "历史")
-		formRow(c, p, "每个窗口保留的探测次数", "影响历史页的点阵，也是 CLI 里 usage --last 的默认次数。", func() {
+		formRow(c, p, "每个额度周期保留的查询次数", "影响历史页的走势图，也是命令行 usage --last 的默认值。", func() {
 			n := float64(a.settings.HistoryN)
 			field := ui.NumberInput(c, &n, 5, 200, 5)
 			if field.Changed() {
@@ -282,7 +282,7 @@ func (a *App) settingsData(c *ui.Context, p palette) {
 		for i, f := range []struct{ label, path string }{
 			{"配置", configPathText()},
 			{"缓存", cacheDirText()},
-			{"会话", sessionDirText()},
+			{"登录文件", sessionDirText()},
 			{"历史", historyPathText()},
 		} {
 			file := f
@@ -311,23 +311,23 @@ func (a *App) settingsData(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "维护")
 		ui.Row(c).Gap(space2).Wrap().Children(func() {
-			if btnSmall(ui.Button(c, "复制当前 JSON")).Clicked() {
+			if btnSmall(ui.Button(c, "复制数据")).Clicked() {
 				mygo.Clipboard.WriteText(a.CopyJSON())
-				a.toast = "已复制 JSON"
+				a.toast = "已复制"
 			}
-			if btnSmall(ui.Button(c, "清除 cookie 缓存")).Clicked() {
+			if btnSmall(ui.Button(c, "重新读取浏览器登录状态")).Clicked() {
 				a.askClearCache()
 			}
-			if btnSmall(ui.Button(c, "立刻刷新")).Disabled(a.fetching).Clicked() {
+			if btnSmall(ui.Button(c, "刷新")).Disabled(a.fetching).Clicked() {
 				a.Refresh(true)
 			}
 		})
-		unconfiguredLine(c, p, "清除缓存只让下一次探测重新读一遍浏览器 cookie，不动 config.json 里的密钥。")
+		unconfiguredLine(c, p, "只让下一次查询重新读一遍浏览器登录状态，不动 config.json 里的密钥。")
 	})
 
 	card(c, p, func() {
 		section(c, p, "关于")
 		keyValue(c, p, "版本", "leeway "+version)
-		keyValue(c, p, "界面", "go "+goVersion())
+		keyValue(c, p, "运行环境", "go "+goVersion())
 	})
 }

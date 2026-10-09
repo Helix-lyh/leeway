@@ -23,7 +23,7 @@ import (
 	"leeway/internal/auth"
 )
 
-var errUnsupportedOS = errors.New("给本机官方客户端切号只支持 macOS 和 Linux")
+var errUnsupportedOS = errors.New("只有 macOS 和 Linux 能把登录切换给官方工具")
 
 // Result is what `leeway use` prints: where the session was written, no secrets.
 type Result struct {
@@ -142,7 +142,7 @@ func pickCursorStateDB(candidates []string) (string, error) {
 	case 1:
 		return found[0], nil
 	default:
-		return "", fmt.Errorf("找到 %d 个 Cursor state.vscdb（%s）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个", len(found), strings.Join(found, ", "))
+		return "", fmt.Errorf("找到 %d 个 Cursor state.vscdb（%s）；请用 LEEWAY_CURSOR_STATE_DB 指定写哪一个", len(found), strings.Join(found, ", "))
 	}
 }
 
@@ -165,10 +165,10 @@ func OfficialGrokAuthFile() (string, error) {
 // cursor-agent keychain item, the IDE sqlite and ~/.cursor/auth.json.
 func ApplyCursor(t CursorTargets, ca auth.CursorAuth, email string) error {
 	if ca.AccessToken == "" {
-		return errors.New("cursor 会话里没有 access token")
+		return errors.New("cursor 的登录信息里没有 access token")
 	}
 	if t.StateDB == "" && t.AuthJSON == "" && t.Keychain == "" {
-		return errors.New("这台机器上没找到可写的 Cursor 凭据位置（IDE 的 state.vscdb、cursor-agent 的 keychain、~/.cursor/auth.json 都没有）")
+		return errors.New("这台机器上没找到能写 Cursor 登录的地方（IDE 的 state.vscdb、cursor-agent 的 keychain、~/.cursor/auth.json 都没有）。请先装并登录 Cursor")
 	}
 	// The keychain write is the one that can be refused (macOS prompts), so it
 	// goes first: a refusal then leaves the other stores untouched.
@@ -205,12 +205,12 @@ func writeCursorStateDB(path string, ca auth.CursorAuth, email string) error {
 	u.RawQuery = q.Encode()
 	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
-		return fmt.Errorf("打开 Cursor state.vscdb：%w", err)
+		return fmt.Errorf("打不开 Cursor 的 state.vscdb：%w", err)
 	}
 	defer db.Close()
 
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS ItemTable (key TEXT PRIMARY KEY, value TEXT)`); err != nil {
-		return fmt.Errorf("prepare Cursor ItemTable: %w", err)
+		return fmt.Errorf("准备 Cursor 的 ItemTable 失败：%w", err)
 	}
 	tx, err := db.Begin()
 	if err != nil {
@@ -226,22 +226,22 @@ func writeCursorStateDB(path string, ca auth.CursorAuth, email string) error {
 		return err
 	}
 	if err := upsert("cursorAuth/accessToken", ca.AccessToken); err != nil {
-		return fmt.Errorf("write cursorAuth/accessToken: %w", err)
+		return fmt.Errorf("写入 cursorAuth/accessToken 失败：%w", err)
 	}
 	if err := upsert("cursorAuth/refreshToken", ca.RefreshToken); err != nil {
-		return fmt.Errorf("write cursorAuth/refreshToken: %w", err)
+		return fmt.Errorf("写入 cursorAuth/refreshToken 失败：%w", err)
 	}
 	if err := upsert("cursorAuth/cachedEmail", email); err != nil {
-		return fmt.Errorf("write cursorAuth/cachedEmail: %w", err)
+		return fmt.Errorf("写入 cursorAuth/cachedEmail 失败：%w", err)
 	}
 	if err := upsert("cursor.accessToken", ca.AccessToken); err != nil {
-		return fmt.Errorf("write cursor.accessToken: %w", err)
+		return fmt.Errorf("写入 cursor.accessToken 失败：%w", err)
 	}
 	if err := upsert("cursor.email", email); err != nil {
-		return fmt.Errorf("write cursor.email: %w", err)
+		return fmt.Errorf("写入 cursor.email 失败：%w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("写入 Cursor state.vscdb：%w", err)
+		return fmt.Errorf("没能写入 Cursor 的 state.vscdb：%w", err)
 	}
 	return nil
 }
@@ -303,7 +303,7 @@ func SnapshotCursorIfNeeded(t CursorTargets, incomingToken string) (saved string
 		default:
 			// The current login could not be read, so it cannot be kept:
 			// writing over it now would lose the machine's own session.
-			return "", false, fmt.Errorf("读本机 cursor keychain 失败，已放弃切换（否则会丢当前登录）：%v", kerr)
+			return "", false, fmt.Errorf("读不到本机 cursor 的 keychain 登录，已放弃切换（不然会丢掉当前登录）：%v", kerr)
 		}
 	}
 	for i, token := range candidates {
@@ -390,13 +390,13 @@ func tokenHeldByCursorSession(token string) (bool, error) {
 func ApplyGrok(dst, src string) error {
 	raw, err := os.ReadFile(src)
 	if err != nil {
-		return fmt.Errorf("read grok session: %w", err)
+		return fmt.Errorf("读取 grok 登录文件失败：%w", err)
 	}
 	var dest []byte
 	if fileExists(dst) {
 		dest, err = os.ReadFile(dst)
 		if err != nil {
-			return fmt.Errorf("read official grok auth.json: %w", err)
+			return fmt.Errorf("读取官方 grok auth.json 失败：%w", err)
 		}
 	}
 	out, err := mergeGrokAuth(dest, raw)
@@ -409,13 +409,13 @@ func ApplyGrok(dst, src string) error {
 func mergeGrokAuth(dst, src []byte) ([]byte, error) {
 	source, err := grokRegistry(src)
 	if err != nil {
-		return nil, fmt.Errorf("parse grok session: %w", err)
+		return nil, fmt.Errorf("解析 grok 登录文件失败：%w", err)
 	}
 	dest := map[string]json.RawMessage{}
 	if len(bytes.TrimSpace(dst)) > 0 {
 		dest, err = grokRegistry(dst)
 		if err != nil {
-			return nil, fmt.Errorf("parse official grok auth.json: %w", err)
+			return nil, fmt.Errorf("解析官方 grok auth.json 失败：%w", err)
 		}
 	}
 	var oidc []string
@@ -425,7 +425,7 @@ func mergeGrokAuth(dst, src []byte) ([]byte, error) {
 		}
 	}
 	if len(oidc) == 0 {
-		return nil, errors.New("grok 会话里没有 xAI 登录信息")
+		return nil, errors.New("grok 的登录文件里没有 xAI 登录信息")
 	}
 	for k := range dest {
 		if strings.HasPrefix(k, "https://auth.x.ai::") {
@@ -444,7 +444,7 @@ func grokRegistry(raw []byte) (map[string]json.RawMessage, error) {
 		return nil, err
 	}
 	if m == nil {
-		return nil, errors.New("grok auth.json 不是 JSON 对象")
+		return nil, errors.New("grok 的 auth.json 不是 JSON 对象，请换一份官方登录文件")
 	}
 	return m, nil
 }

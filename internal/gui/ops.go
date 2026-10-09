@@ -136,7 +136,7 @@ func overrideEnv(kv ...string) []string {
 func loginAPIKey(providerID, account, key string) error {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return errors.New("API key 为空")
+		return errors.New("API 密钥不能为空")
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -160,7 +160,7 @@ func importCookies(providerID, account, browser, profile string, force bool) (st
 			return "", rerr
 		}
 	} else if ok && !force && time.Since(cc.ImportedAt) < auth.ImportTTL {
-		return fmt.Sprintf("缓存里的 cookie 还新（%s，%s 导入），跳过", cc.ImportedAt.Local().Format("01-02 15:04"), cc.Browser), nil
+		return fmt.Sprintf("本地登录状态还新（%s 导入），跳过", cc.ImportedAt.Local().Format("01-02 15:04")), nil
 	}
 
 	header, err := auth.Import(providerID, browser, profile)
@@ -179,7 +179,7 @@ func importCookies(providerID, account, browser, profile string, force bool) (st
 	if strings.TrimSpace(header) != "" {
 		n = strings.Count(header, ";") + 1
 	}
-	return fmt.Sprintf("已从 %s 导入 %d 条 cookie", browser, n), nil
+	return fmt.Sprintf("已从 %s 读取 %d 条登录状态", browser, n), nil
 }
 
 // saveManualCookie stores a pasted cookie header for a provider or account,
@@ -190,7 +190,7 @@ func saveManualCookie(providerID, account, raw string) error {
 		header = strings.TrimSpace(raw)
 	}
 	if !strings.Contains(header, "=") {
-		return errors.New("cookie header 里没有 name=value")
+		return errors.New("没找到 name=value 格式的内容")
 	}
 	if account != "" && account != "default" {
 		return bindAccount(providerID, account, func(a *config.AccountConfig) { a.ManualCookieHeader = header })
@@ -294,7 +294,7 @@ func importAuthFile(providerID, account, src string) (string, error) {
 	switch providerID {
 	case "grok":
 		if !grok.HasOfficialShape(path) {
-			return "", errors.New("这不是完整的官方 grok 会话（缺 profile/email 字段），use 会拒绝写回")
+			return "", errors.New("这不是完整的 grok 登录文件（缺 profile/email 字段），同步会被拒绝")
 		}
 		home, err := grokHome(displayAccount(account))
 		if err != nil {
@@ -320,10 +320,10 @@ func importAuthFile(providerID, account, src string) (string, error) {
 		}
 		dst = p
 	default:
-		return "", fmt.Errorf("%s 的会话不是文件导入的", providerID)
+		return "", fmt.Errorf("%s 的登录文件不是导入的", providerID)
 	}
 	if check, ok := sessionChecks[providerID]; ok && !check(raw) {
-		return "", fmt.Errorf("这份文件不是可用的 %s 会话", providerID)
+		return "", fmt.Errorf("这份文件不能用作 %s 的登录文件", providerID)
 	}
 	if err := writeFileAtomic(dst, raw); err != nil {
 		return "", err
@@ -341,7 +341,7 @@ func importAuthFile(providerID, account, src string) (string, error) {
 			_ = cfg.SetAccountEmail("grok", displayAccount(account), email)
 		}
 	}
-	return fmt.Sprintf("已快照 %s 账号 %s", providerID, displayAccount(account)), nil
+	return fmt.Sprintf("已备份 %s 账号 %s", providerID, displayAccount(account)), nil
 }
 
 func writeFileAtomic(dst string, raw []byte) error {
@@ -377,14 +377,14 @@ func officialLogin(ctx context.Context, providerID, account string, log func(str
 	case "kimi":
 		return loginKimiCLI(ctx, name, log)
 	default:
-		return fmt.Errorf("%s 用 API key 登录", providerID)
+		return fmt.Errorf("%s 用 API 密钥登录", providerID)
 	}
 }
 
 func loginCursorCLI(ctx context.Context, account string, log func(string)) error {
 	bin, err := exec.LookPath("cursor-agent")
 	if err != nil {
-		return errors.New("没找到 cursor-agent CLI，先安装 https://cursor.com/cli")
+		return errors.New("没找到 cursor-agent，先安装：https://cursor.com/cli")
 	}
 	staging := displayAccount(account)
 	home, err := auth.CursorHome(staging)
@@ -408,7 +408,7 @@ func loginCursorCLI(ctx context.Context, account string, log func(string)) error
 		return err
 	}
 	if !ok || ca.AccessToken == "" {
-		return errors.New("登录似乎没完成：官方 CLI 没写出令牌")
+		return errors.New("登录似乎没完成：官方工具没有写出登录信息")
 	}
 	email, _ := auth.LookupCursorEmail(ctx, ca.AccessToken)
 	name := strings.TrimSpace(account)
@@ -446,11 +446,11 @@ func loginGrokCLI(ctx context.Context, name string, log func(string)) error {
 	}
 	authFile := filepath.Join(home, "auth.json")
 	if grok.HasOfficialShape(authFile) {
-		return fmt.Errorf("grok 账号 %s 已有完整官方快照；要替换请用「导入会话文件」", name)
+		return fmt.Errorf("grok 账号 %s 已有完整备份；要替换请用「导入登录文件」", name)
 	}
 	bin, err := exec.LookPath("grok")
 	if err != nil {
-		return errors.New("没找到 grok CLI，先安装：curl -fsSL https://x.ai/cli/install.sh | bash")
+		return errors.New("没找到 grok，先安装：curl -fsSL https://x.ai/cli/install.sh | bash")
 	}
 	cmd := exec.CommandContext(ctx, bin, "login", "--device-auth")
 	cmd.Env = overrideEnv("GROK_HOME", home)
@@ -470,7 +470,7 @@ func loginGrokCLI(ctx context.Context, name string, log func(string)) error {
 	}
 	log("\n已登录 grok 账号 " + name + "\n")
 	if !grok.HasOfficialShape(authFile) {
-		log("\n设备码会话缺官方资料字段，写回本机 grok 会被拒绝；请用「导入会话文件」快照 ~/.grok/auth.json\n")
+		log("\n这个登录缺官方资料字段，同步给 grok 会被拒绝；请用「导入登录文件」备份 ~/.grok/auth.json\n")
 	}
 	return nil
 }
@@ -478,7 +478,7 @@ func loginGrokCLI(ctx context.Context, name string, log func(string)) error {
 func loginCodexCLI(ctx context.Context, name string, log func(string)) error {
 	bin, err := exec.LookPath("codex")
 	if err != nil {
-		return errors.New("没找到 codex CLI，先安装官方 Codex CLI")
+		return errors.New("没找到 codex，先安装官方 Codex CLI")
 	}
 	home, err := isolatedHome("codex", name)
 	if err != nil {
@@ -508,7 +508,7 @@ func loginCodexCLI(ctx context.Context, name string, log func(string)) error {
 func loginKimiCLI(ctx context.Context, name string, log func(string)) error {
 	bin, err := exec.LookPath("kimi")
 	if err != nil {
-		return errors.New("没找到 kimi CLI；可以用「粘贴 API key」或「导入浏览器 cookie」")
+		return errors.New("没找到 kimi；可以用「粘贴 API 密钥」或「读取浏览器登录状态」")
 	}
 	home, err := isolatedHome("kimi", name)
 	if err != nil {
@@ -561,11 +561,11 @@ func useAccount(providerID, account string) (switcher.Result, error) {
 		if acc, ok := cfg.Account("kimi", account); ok {
 			return useKimiAccount(acc, account)
 		}
-		return switcher.Result{}, errors.New("kimi 这个号只有 key/cookie，没有会话文件可写回官方 kimi-code.json")
+		return switcher.Result{}, errors.New("这个 kimi 账号只有密钥或浏览器登录状态，没有登录文件可以写给 kimi-code.json")
 	case "codex":
-		return switcher.Result{}, errors.New("codex 不写官方 ~/.codex（避免 refresh 把官方会话作废）")
+		return switcher.Result{}, errors.New("codex 不写 ~/.codex（避免刷新把官方登录作废）")
 	}
-	return switcher.Result{}, fmt.Errorf("%s 没有本机官方客户端可切", providerID)
+	return switcher.Result{}, fmt.Errorf("本机没有 %s 的官方工具可同步", providerID)
 }
 
 // accountSwitchReady reports whether `让本机用它` can work for this account: the
@@ -606,7 +606,7 @@ func cursorSessionForSwitch(cfg *config.Config, account string) (string, auth.Cu
 		return name, auth.CursorAuth{}, fmt.Errorf("cursor 账号 %q 还没登录", name)
 	}
 	if exp, ok := auth.JWTExpiry(ca.AccessToken); ok && time.Now().After(exp) {
-		return name, auth.CursorAuth{}, fmt.Errorf("cursor 账号 %q 的令牌已过期，重新登录", name)
+		return name, auth.CursorAuth{}, fmt.Errorf("cursor 账号 %q 的登录已过期，重新登录", name)
 	}
 	return name, ca, nil
 }
@@ -681,7 +681,7 @@ func grokSwitchSource(cfg *config.Config, account string) (string, error) {
 		return "", fmt.Errorf("grok 账号 %q 还没登录", name)
 	}
 	if !grok.HasOfficialShape(src) {
-		return "", fmt.Errorf("grok 账号 %q 不是完整官方会话，写回会逼 grok 重新网页登录；请先导入 ~/.grok/auth.json", name)
+		return "", fmt.Errorf("grok 账号 %q 的登录不完整，同步会逼 grok 重新网页登录；请先导入 ~/.grok/auth.json", name)
 	}
 	return src, nil
 }
@@ -714,21 +714,21 @@ func useGrokAccount(cfg *config.Config, account string) (switcher.Result, error)
 // account with only a key or cookie has none.
 func kimiSwitchSource(a config.AccountConfig, account string) (string, error) {
 	if a.AuthFile == "" {
-		return "", fmt.Errorf("kimi 这个号只有 key/cookie，没有会话文件可写回官方 kimi-code.json")
+		return "", fmt.Errorf("这个 kimi 账号只有密钥或浏览器登录状态，没有登录文件可以写给 kimi-code.json")
 	}
 	src := a.AuthFile
 	if p, err := provider.LocalSessionPath(a.AuthFile); err == nil {
 		src = p
 	}
 	if !fileExists(src) {
-		return "", fmt.Errorf("kimi 账号 %q 的会话文件不在 %s", account, src)
+		return "", fmt.Errorf("kimi 账号 %q 的登录文件不在 %s", account, src)
 	}
 	raw, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
 	}
 	if !sessionChecks["kimi"](raw) {
-		return "", fmt.Errorf("kimi 账号 %q 不是完整 CLI 会话", account)
+		return "", fmt.Errorf("kimi 账号 %q 的登录不完整", account)
 	}
 	return src, nil
 }
@@ -747,7 +747,7 @@ func useKimiAccount(a config.AccountConfig, account string) (switcher.Result, er
 		return switcher.Result{}, err
 	}
 	if samePath(src, dst) {
-		return switcher.Result{}, errors.New("这个号就绑在官方会话文件上，先快照一份再切")
+		return switcher.Result{}, errors.New("这个账号就绑在官方登录文件上，先备份一份再切")
 	}
 	if err := writeFileAtomic(dst, raw); err != nil {
 		return switcher.Result{}, err
@@ -778,7 +778,7 @@ func logoutAccount(providerID, account string) (string, error) {
 		if err := clearProviderCredentials(providerID, account); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("已清除 cursor 账号 %s 的凭据", name), nil
+		return fmt.Sprintf("已清除 cursor 账号 %s 的登录信息", name), nil
 	case "grok", "codex", "kimi":
 		msg, err := logoutIsolated(providerID, account)
 		if err != nil {
@@ -853,7 +853,7 @@ func logoutIsolated(providerID, account string) (string, error) {
 		return "", err
 	}
 	if !underDir(root, home) {
-		return "", fmt.Errorf("拒绝删除 %s：不在 leeway 会话目录里", home)
+		return "", fmt.Errorf("拒绝删除 %s：不在 leeway 的目录里", home)
 	}
 	if err := os.RemoveAll(home); err != nil {
 		return "", err
