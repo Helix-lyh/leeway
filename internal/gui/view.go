@@ -439,7 +439,7 @@ func failureText(sentence, message string) (string, string) {
 	// One that leads with our words and trails a machine's — "写 Cursor
 	// keychain 失败：exit status 51" — is split at that last colon, so the
 	// sentence stays ours and the tail goes to the tooltip.
-	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) {
+	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) && looksLikeAMachine(message[i+len("："):]) {
 		return joinNonEmpty([]string{sentence, message[:i]}, " · "), strings.TrimSpace(message[i+len("："):])
 	}
 	if !hasCJK(message) || looksLikeAMachine(message) {
@@ -458,6 +458,12 @@ func failureText(sentence, message string) (string, string) {
 // stay on screen.
 func looksLikeAMachine(message string) bool {
 	if strings.Contains(message, ": ") || strings.Contains(message, "exit status") {
+		return true
+	}
+	// A quoted path is how an OS names a file it could not open, and it is
+	// quoted in Chinese too: 无法打开"/Users/张三/auth.json"：没有那个文件或目录.
+	if strings.Contains(message, `"/`) || strings.Contains(message, `"~`) ||
+		strings.Contains(message, "“/") || strings.Contains(message, "“~") {
 		return true
 	}
 	// Sentence punctuation is the other tell: a person wrote this, whatever

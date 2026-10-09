@@ -652,7 +652,14 @@ func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
 					a.Enable(v.ID, true)
 				}
 			case v.Status == "error":
-				if btnSmall(ui.Button(c, "重试")).Clicked() {
+				retry := btnSmall(ui.Button(c, "重试"))
+				// The line beside this carries the same text as a tooltip, but
+				// it is not focusable — a keyboard or screen-reader user only
+				// reaches the detail through the control that fixes it.
+				if d := providerError(v); d != "" && d != attentionReason(v) {
+					retry = retry.Tooltip(attentionReason(v) + " · " + d)
+				}
+				if retry.Clicked() {
 					a.Refresh(true)
 				}
 				loginActions(c, a, v.ID, defaultAccount(v))

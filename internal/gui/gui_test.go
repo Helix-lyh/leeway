@@ -1374,6 +1374,15 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 		{"没找到 cursor-agent CLI，先安装 https://cursor.com/cli", "切换失败 · 没找到 cursor-agent CLI，先安装 https://cursor.com/cli", ""},
 		{"请先导入 ~/.grok/auth.json", "切换失败 · 请先导入 ~/.grok/auth.json", ""},
 		{"找到 3 个 Cursor state.vscdb（/Users/x/Library/…/state.vscdb, /Users/x/.config/…/state.vscdb）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个", "切换失败 · 找到 3 个 Cursor state.vscdb（/Users/x/Library/…/state.vscdb, /Users/x/.config/…/state.vscdb）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个", ""},
+		// Ours on both sides of the colon: the split is only for a machine's
+		// tail, so our own explanation is not demoted to a tooltip and the
+		// sentence does not stutter ("登录没有完成 · 登录似乎没完成").
+		{"登录似乎没完成：官方 CLI 没写出令牌", "切换失败 · 登录似乎没完成：官方 CLI 没写出令牌", ""},
+		{"写 Cursor keychain 后回读不一致：写入 64 字节，读回 32 字节", "切换失败 · 写 Cursor keychain 后回读不一致：写入 64 字节，读回 32 字节", ""},
+		// Ours, naming a file it refused to touch: the path is the point.
+		{"拒绝删除 /Users/张三/.leeway/sessions/x：不在 leeway 会话目录里", "切换失败 · 拒绝删除 /Users/张三/.leeway/sessions/x：不在 leeway 会话目录里", ""},
+		// A machine's, quoting the file it could not open, in Chinese.
+		{`无法打开"/Users/张三/auth.json"：没有那个文件或目录`, "切换失败", `无法打开"/Users/张三/auth.json"：没有那个文件或目录`},
 	} {
 		got, detail := failureText("切换失败", c.message)
 		if got != c.want || detail != c.detail {
