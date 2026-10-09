@@ -125,7 +125,7 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 // appearancePicker is the theme row: three little windows, each drawn in the
 // theme it offers, so the choice is made by looking instead of by reading.
 // "Follow the system" is drawn as the two themes it moves between.
-func appearancePicker(c *ui.Context, p palette, a *App) *ui.Element {
+func appearancePicker(c *ui.Context, p palette, a *App) ui.Element {
 	options := []struct {
 		value, label string
 		dark         bool
@@ -191,7 +191,7 @@ func miniWindow(dark bool) (canvas, card, track, accent ui.Color) {
 }
 
 // switchRow binds a Switch to a settings field and saves on change.
-func switchRow(c *ui.Context, field *bool, a *App) *ui.Element {
+func switchRow(c *ui.Context, field *bool, a *App) ui.Element {
 	on := *field
 	sw := ui.Switch(c, &on)
 	if sw.Changed() {

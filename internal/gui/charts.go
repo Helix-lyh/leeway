@@ -9,7 +9,7 @@ import (
 // sparkline draws the recorded observations of one window as a line with the
 // area under it filled. The stroke is laid down a step at a time, because
 // Painter.Line draws only horizontal and vertical lines.
-func sparkline(c *ui.Context, p palette, points []history.Point, color ui.Color, height float32) *ui.Element {
+func sparkline(c *ui.Context, p palette, points []history.Point, color ui.Color, height float32) ui.Element {
 	vals := sparkValues(points)
 	return ui.Box(c).FillWidth().Height(height).Draw(func(pt *ui.Painter, r ui.Rect) {
 		base := r.Y + r.H - 1

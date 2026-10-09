@@ -3,7 +3,7 @@ module leeway
 go 1.27.1
 
 require (
-	github.com/egoist/mygo v0.2.16
+	github.com/egoist/mygo v0.3.4
 	golang.org/x/term v0.45.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.56.0

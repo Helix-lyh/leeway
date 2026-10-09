@@ -9,7 +9,7 @@ import (
 // providerMatrix reads several subscriptions of one provider side by side: one
 // column per account, one block per window. Four accounts then answer "which
 // one is nearly out" on one screen, which a full card per account cannot.
-func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) *ui.Element {
+func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) ui.Element {
 	return card(c, p, func() {
 		// One Gap(0) column, with the vertical rhythm carried by each row's own
 		// padding: the rows then touch, so the rules between the columns meet

@@ -11,7 +11,7 @@ import (
 // already has that, and the one action that gets it going. It replaces the
 // list of providers needing a hand, because on a first run they are the same
 // seven.
-func (a *App) startGuide(c *ui.Context, p palette) *ui.Element {
+func (a *App) startGuide(c *ui.Context, p palette) ui.Element {
 	return shell(c, p, func() {
 		section(c, p, "开始使用")
 		ui.Text(c, "leeway 不替你登录，也不碰你的密码：它读你已有的凭据，问 provider 自己还剩多少额度。").

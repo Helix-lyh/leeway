@@ -112,7 +112,7 @@ func sessionDirText() string {
 
 // providerAccount is one account's card: identity, credentials, every window
 // with its history, and the actions that apply.
-func (a *App) providerAccount(c *ui.Context, p palette, v providerView, av accountView) *ui.Element {
+func (a *App) providerAccount(c *ui.Context, p palette, v providerView, av accountView) ui.Element {
 	return card(c, p, func() {
 		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
 			ui.Text(c, displayAccount(av.Name)).FontSize(16).FontWeight(650).LetterSpacing(-0.2).SingleLine()

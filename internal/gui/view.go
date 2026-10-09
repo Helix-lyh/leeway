@@ -364,12 +364,12 @@ func (a *App) pageView(c *ui.Context, p palette) {
 }
 
 // pageHead is the title, subtitle and actions every page starts with.
-func pageHead(c *ui.Context, p palette, name, subtitle string, actions func()) *ui.Element {
+func pageHead(c *ui.Context, p palette, name, subtitle string, actions func()) ui.Element {
 	return pageHeadMarked(c, p, "", "", name, subtitle, actions)
 }
 
 // pageHeadMarked is a page head with a provider's mark in front of its name.
-func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string, actions func()) *ui.Element {
+func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string, actions func()) ui.Element {
 	return ui.Column(c).FillWidth().Gap(14).Children(func() {
 		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(16).Children(func() {
 			if id != "" {
@@ -390,12 +390,12 @@ func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string,
 }
 
 // tinyButton is a compact action inside a card.
-func tinyButton(c *ui.Context, label string) *ui.Element {
+func tinyButton(c *ui.Context, label string) ui.Element {
 	return ui.Button(c, label).Padding(5, 9).Radius(7).FontSize(sizeSmall)
 }
 
 // errorLine shows why a probe failed, without shouting.
-func errorLine(c *ui.Context, p palette, text string) *ui.Element {
+func errorLine(c *ui.Context, p palette, text string) ui.Element {
 	return ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Start).Children(func() {
 		ui.Icon(c, iconAlert).FontSize(13).TextColor(p.toneColor(toneCritical)).Padding(1, 0, 0, 0)
 		ui.Text(c, text).FontSize(sizeSmall).TextColor(p.toneColor(toneCritical)).Grow(1)
@@ -413,7 +413,7 @@ func notConfiguredLine(c *ui.Context, p palette, id string, av accountView) {
 }
 
 // unconfiguredLine shows what to do about a provider with no credentials.
-func unconfiguredLine(c *ui.Context, p palette, hint string) *ui.Element {
+func unconfiguredLine(c *ui.Context, p palette, hint string) ui.Element {
 	return muted(c, p, hint)
 }
 
@@ -469,7 +469,7 @@ func deltaText(points []history.Point, w model.RateWindow) string {
 
 // accountActions is the menu of what can be done with one account. Switching
 // the machine's own client only appears when that provider has one to switch.
-func accountActions(c *ui.Context, a *App, p palette, providerID, account string) *ui.Element {
+func accountActions(c *ui.Context, a *App, p palette, providerID, account string) ui.Element {
 	ready := accountSwitchReady(a, providerID, account)
 	session := accountUsesSession(a, providerID, account)
 	return ui.ButtonBase(c).Label("账号操作").Padding(5, 8).Radius(7).Cursor(ui.CursorPointer).
@@ -502,7 +502,7 @@ func removeAccountLabel(session bool) string {
 }
 
 // loginActions opens the sheet that gives a provider credentials.
-func loginActions(c *ui.Context, a *App, providerID, account string) *ui.Element {
+func loginActions(c *ui.Context, a *App, providerID, account string) ui.Element {
 	return ui.MenuButton(c, loginButtonLabel(providerID), func(m *ui.Menu) {
 		for _, method := range loginMethods(providerID) {
 			if m.Item(method.label).Chosen() {

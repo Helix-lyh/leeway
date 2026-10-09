@@ -70,7 +70,7 @@ func (a *App) historyPage(c *ui.Context, p palette) {
 
 // historyEmpty is the history page before anything has been recorded: it shows
 // the shape the page will take, and the one thing that fills it.
-func historyEmpty(c *ui.Context, p palette, a *App) *ui.Element {
+func historyEmpty(c *ui.Context, p palette, a *App) ui.Element {
 	return shell(c, p, func() {
 		ui.Column(c).FillWidth().Gap(14).Children(func() {
 			ui.Box(c).FillWidth().Height(72).Draw(func(pt *ui.Painter, r ui.Rect) {
