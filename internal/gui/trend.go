@@ -101,13 +101,26 @@ func rateText(rate float64) string {
 }
 
 // burnAlarm draws the projection under a bar, when there is one to draw: the
-// only line in the window that is allowed to be red.
+// only line in the window that is allowed to be red. The sentence ends with
+// when the provider gives the window back, for a row that has no reset label
+// of its own.
 func burnAlarm(c *ui.Context, p palette, points []history.Point, w model.RateWindow) {
-	text, t := burnLine(points, &w)
+	burnAlarmLine(c, p, points, w, true)
+}
+
+// burnAlarmNoReset is burnAlarm for a row whose own reset label already sits
+// above the bar: the sentence stops at when the window is full, so the
+// countdown is read once on the row rather than twice.
+func burnAlarmNoReset(c *ui.Context, p palette, points []history.Point, w model.RateWindow) {
+	burnAlarmLine(c, p, points, w, false)
+}
+
+func burnAlarmLine(c *ui.Context, p palette, points []history.Point, w model.RateWindow, withReset bool) {
+	text, t := burnLine(points, &w, withReset)
 	if text == "" {
 		return
 	}
-	ui.Text(c, text).FontSize(sizeSmall).TextColor(p.toneColor(t)).MaxLines(2)
+	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2)
 }
 
 // burnAlarmInColumn draws the projection the way a matrix column can hold it:
@@ -122,7 +135,7 @@ func burnAlarmInColumn(c *ui.Context, p palette, who string, points []history.Po
 	if who != "" {
 		text = who + "：" + text
 	}
-	ui.Text(c, text).FontSize(sizeSmall).TextColor(p.toneColor(toneCritical)).MaxLines(2)
+	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).MaxLines(2)
 }
 
 // resetDrop is what the newest reset in a series fell from and to. A reset can
@@ -163,7 +176,7 @@ func resetNote(c *ui.Context, p palette, points []history.Point) {
 	if text == "" {
 		return
 	}
-	ui.Text(c, text).FontSize(sizeSmall).TextColor(p.toneColor(t)).MaxLines(2)
+	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2)
 }
 
 func sign(v float64) int {
@@ -225,14 +238,19 @@ func burnOf(points []history.Point, w *model.RateWindow) (burn, bool) {
 }
 
 // burnLine is the sentence no other tool says: this window runs out before
-// the provider gives it back.
-func burnLine(points []history.Point, w *model.RateWindow) (text string, t tone) {
+// the provider gives it back. withReset adds when the provider gives it back,
+// for the rows that have no reset label of their own.
+func burnLine(points []history.Point, w *model.RateWindow, withReset bool) (text string, t tone) {
 	b, ok := burnOf(points, w)
 	if !ok {
 		return "", toneNeutral
 	}
-	return fmt.Sprintf("最近 %s每小时涨 %s，约 %s后用满；重置还有 %s",
-		spanText(b.span), rateText(b.rate), spanText(b.in), spanText(b.left)), toneCritical
+	text = fmt.Sprintf("最近 %s每小时涨 %s，约 %s后用满",
+		spanText(b.span), rateText(b.rate), spanText(b.in))
+	if withReset {
+		text += "；重置还有 " + spanText(b.left)
+	}
+	return text, toneCritical
 }
 
 // burnWarning is the projection worth telling the user about without being
@@ -269,7 +287,19 @@ func (a *App) burnToast(c *ui.Context) {
 		return
 	}
 	a.burned = key
-	if text != "" {
-		c.AddToast(ui.Toast{ID: "burn", Title: text})
+	if text == "" {
+		return
 	}
+	// The overview and the history both say this themselves — the overview's
+	// lead card carries the sentence beside the bar the projection is drawn
+	// on, and the history lists every series with the same sentence in its own
+	// row. A toast there would cover what is underneath to repeat what is
+	// already on screen, so those two pages get the announcement without the
+	// box; a provider page may be showing a different provider, so it gets
+	// both.
+	if a.page == "overview" || a.page == "history" {
+		c.Announce(text)
+		return
+	}
+	c.AddToast(ui.Toast{ID: "burn", Title: text})
 }

@@ -198,12 +198,20 @@ const (
 	toneCritical
 )
 
+// The levels a percentage window is judged by, in one place: the number's
+// color, its bar and the bands behind its chart all read the same two numbers.
+// They mirror the CLI's percentColor thresholds.
+const (
+	percentWarnAt     = 50
+	percentCriticalAt = 80
+)
+
 // percentTone mirrors the CLI's percentColor thresholds.
 func percentTone(pct float64) tone {
 	switch {
-	case pct < 50:
+	case pct < percentWarnAt:
 		return toneOK
-	case pct < 80:
+	case pct < percentCriticalAt:
 		return toneWarn
 	default:
 		return toneCritical

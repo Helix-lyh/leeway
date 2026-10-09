@@ -6,24 +6,51 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// formRow is a settings row: the label above its control, as docs/GUI.md asks
+// of every form in the window, then the line that explains it. One step
+// between the label and its control, one between the control and the line
+// under it; the card's own gap is what separates two rows.
+func formRow(c *ui.Context, p palette, name, hint string, control func()) ui.Element {
+	return ui.Column(c).FillWidth().Gap(space2).Children(func() {
+		ui.Column(c).FillWidth().Gap(space1).Children(func() {
+			label(c, p, name)
+			control()
+		})
+		if hint != "" {
+			unconfiguredLine(c, p, hint)
+		}
+	})
+}
+
+// toggleRow is the exception the rule allows: a switch is a state rather than
+// a value, so its name and the switch share a line, as every settings list on
+// the platform reads. The name is a row's own title rather than a field's
+// caption — label() is for the caption of a control that carries a value, and
+// a switch row carries none.
+func toggleRow(c *ui.Context, p palette, name string, control func(name string)) ui.Element {
+	return ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(space3).Children(func() {
+		body(c, p, name)
+		ui.Box(c).Grow(1)
+		control(name)
+	})
+}
+
 // settingsView is the settings window: the same app state as the main window,
 // a second window of its own.
+// settingsSubtitle is the settings window's one line of context.
+const settingsSubtitle = "窗口偏好写在 gui.json，与命令行的 config.json 分开"
+
 func (a *App) settingsView(c *ui.Context) {
 	p := a.theme(c)
-	a.settingsArrival.index = 0
 	if a.toast != "" {
 		c.Toast(a.toast)
 		a.toast = ""
 	}
 	a.burnToast(c)
 	tb := c.TitleBar()
-	height := tb.Height
-	if height < 54 {
-		height = 54
-	}
-	left := float32(18)
+	left := float32(space4)
 	if tb.Left > 0 {
-		left = tb.Left + 12
+		left = tb.Left + space3
 	}
 	ui.Column(c).
 		Fill().
@@ -31,36 +58,38 @@ func (a *App) settingsView(c *ui.Context) {
 		Children(func() {
 			ui.Row(c).
 				FillWidth().
-				Height(height).
-				Padding(0, 18, 0, left).
-				Gap(12).
+				Height(a.titleBarHeight(c)).
+				Padding(0, space4, 0, left).
+				Gap(space3).
 				AlignItems(ui.Center).
 				DragWindow().
 				Material(glass.Glass{}).
 				Children(func() {
-					ui.Text(c, "设置").
-						FontSize(15).
-						FontWeight(700).
-						LetterSpacing(-0.2)
-					ui.Box(c).Width(1).Height(18).Background(p.t.TextMuted.Alpha(0.28))
-					muted(c, p, "窗口偏好写在 gui.json，与命令行的 config.json 分开")
+					// The title is the window's name: it never gives up room.
+					// The line beside it is the only thing that may, and it
+					// gives it up on one line rather than wrapping the bar.
+					chrome(c, p, "设置").Shrink(0)
+					chromeRule(c, p)
+					// The one line in the window that has to give way when the
+					// system text is large: it says its whole sentence as a
+					// tooltip, so the truncation is never the end of it.
+					muted(c, p, settingsSubtitle).
+						SingleLine().
+						Ellipsis("…").
+						Tooltip(settingsSubtitle)
 					ui.Spacer(c)
 					ui.Tabs(c, &a.settingsTab, "通用", "Provider", "数据")
 				})
-			ui.Scroll(c).Grow(1).FillWidth().Padding(24, 26, 30, 26).Children(func() {
-				// The window's content arrives as one block: a settings
-				// window has one thing to read, not a page of cards.
-				a.settingsArrival.hold(c, a.now(), func() {
-					ui.Column(c).FillWidth().Gap(18).Children(func() {
-						switch a.settingsTab {
-						case 1:
-							a.settingsProviders(c, p)
-						case 2:
-							a.settingsData(c, p)
-						default:
-							a.settingsGeneral(c, p)
-						}
-					})
+			ui.Scroll(c).Grow(1).FillWidth().Padding(space5, space5, space6, space5).Children(func() {
+				ui.Column(c).FillWidth().Gap(space4).Children(func() {
+					switch a.settingsTab {
+					case 1:
+						a.settingsProviders(c, p)
+					case 2:
+						a.settingsData(c, p)
+					default:
+						a.settingsGeneral(c, p)
+					}
 				})
 			})
 		})
@@ -70,7 +99,7 @@ func (a *App) settingsView(c *ui.Context) {
 func (a *App) settingsGeneral(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "刷新")
-		labeledRow(c, p, "自动刷新", func() {
+		formRow(c, p, "自动刷新", "自动刷新读一分钟内的缓存；手动刷新总是重新探测。", func() {
 			labels := make([]string, len(refreshOptions))
 			for i, o := range refreshOptions {
 				labels[i] = o.label
@@ -85,9 +114,7 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 				}
 			}
 		})
-		unconfiguredLine(c, p, "自动刷新读一分钟内的缓存；手动刷新总是重新探测。")
-
-		labeledRow(c, p, "探测超时（秒）", func() {
+		formRow(c, p, "探测超时（秒）", "单个 provider 的 HTTP 超时，等价于 LEEWAY_TIMEOUT。", func() {
 			secs := float64(a.settings.TimeoutSec)
 			field := ui.NumberInput(c, &secs, 5, 300, 5)
 			if field.Changed() {
@@ -95,14 +122,13 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 				a.SaveSettings()
 			}
 		})
-		unconfiguredLine(c, p, "单个 provider 的 HTTP 超时，等价于 LEEWAY_TIMEOUT。")
 	})
 
 	card(c, p, func() {
 		section(c, p, "外观")
-		labeledRow(c, p, "主题", func() { appearancePicker(c, p, a) })
-		labeledRow(c, p, "打开窗口时探测", func() { switchRow(c, &a.settings.OnOpenFetch, a) })
-		labeledRow(c, p, "探测失败时发通知", func() { switchRow(c, &a.settings.NotifyOnError, a) })
+		formRow(c, p, "主题", "", func() { appearancePicker(c, p, a) })
+		toggleRow(c, p, "打开窗口时探测", func(name string) { switchRow(c, &a.settings.OnOpenFetch, a, name) })
+		toggleRow(c, p, "探测失败时发通知", func(name string) { switchRow(c, &a.settings.NotifyOnError, a, name) })
 		if mygo.App.IsReady() && !mygo.NotificationsSupported() {
 			unconfiguredLine(c, p, "这个环境不支持系统通知（macOS 只在打包安装后的构建里允许）。")
 		}
@@ -110,11 +136,11 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 
 	card(c, p, func() {
 		section(c, p, "启动")
-		labeledRow(c, p, "开机自动启动", func() {
+		toggleRow(c, p, "开机自动启动", func(name string) {
 			on := mygo.App.IsReady() && mygo.App.OpenAtLogin()
-			if ui.Switch(c, &on).Changed() && mygo.App.IsReady() {
+			if ui.Switch(c, &on).Label(name).Changed() && mygo.App.IsReady() {
 				if err := mygo.App.SetOpenAtLogin(on); err != nil {
-					a.toast = "开机自启设置失败：" + err.Error()
+					a.toast, _ = failureText("开机自启设置失败", err.Error())
 				}
 			}
 		})
@@ -135,14 +161,14 @@ func appearancePicker(c *ui.Context, p palette, a *App) ui.Element {
 		{"light", "浅色", false, false},
 		{"dark", "深色", true, false},
 	}
-	return ui.Row(c).Gap(10).Children(func() {
+	return ui.Row(c).Gap(space2).Children(func() {
 		for _, o := range options {
 			opt := o
 			selected := a.settings.Theme == opt.value
-			ui.Column(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Column(c).Gap(space1).AlignItems(ui.Center).Children(func() {
 				swatch := ui.Box(c).
 					Size(62, 40).
-					Radius(10).
+					Radius(radiusControl).
 					Label("主题："+opt.label).
 					Border(1, p.border).
 					Draw(func(pt *ui.Painter, r ui.Rect) {
@@ -152,10 +178,10 @@ func appearancePicker(c *ui.Context, p palette, a *App) ui.Element {
 							pt.FillGradient(r, ui.LinearGradient{
 								From: ui.Hex("#ececf2"), To: ui.Hex("#131318"),
 								Angle: 90, Oklab: true,
-							}, 10)
+							}, radiusControl)
 							card, track = ui.RGBA(255, 255, 255, 0.55), ui.RGBA(0, 0, 0, 0.12)
 						} else {
-							pt.Fill(r, canvas, 10)
+							pt.Fill(r, canvas, radiusControl)
 						}
 						panel := ui.Rect{X: r.X + 7, Y: r.Y + 7, W: r.W - 14, H: r.H - 14}
 						pt.Fill(panel, card, 5)
@@ -170,10 +196,9 @@ func appearancePicker(c *ui.Context, p palette, a *App) ui.Element {
 					a.settings.Theme = opt.value
 					a.SaveSettings()
 				}
+				name := label(c, p, opt.label)
 				if selected {
-					ui.Text(c, opt.label).FontSize(sizeLabel).FontWeight(600).TextColor(p.t.Text)
-				} else {
-					label(c, p, opt.label)
+					name.TextColor(p.t.Text)
 				}
 			})
 		}
@@ -190,10 +215,12 @@ func miniWindow(dark bool) (canvas, card, track, accent ui.Color) {
 	return ui.Hex("#ececf2"), ui.RGBA(255, 255, 255, 0.96), ui.RGBA(0, 0, 0, 0.10), p.accent
 }
 
-// switchRow binds a Switch to a settings field and saves on change.
-func switchRow(c *ui.Context, field *bool, a *App) ui.Element {
+// switchRow binds a Switch to a settings field and saves on change. The switch
+// carries the row's name as its own label: the words beside it are a separate
+// element, so without it assistive technology reads out a switch with no name.
+func switchRow(c *ui.Context, field *bool, a *App, name string) ui.Element {
 	on := *field
-	sw := ui.Switch(c, &on)
+	sw := ui.Switch(c, &on).Label(name)
 	if sw.Changed() {
 		*field = on
 		a.SaveSettings()
@@ -202,25 +229,32 @@ func switchRow(c *ui.Context, field *bool, a *App) ui.Element {
 }
 
 // settingsProviders lists every provider with the switch that enables it.
+// The rows are a list, not a form: the mark and the name are what the eye
+// scans, so they lead, and the state and the actions trail — the switch last,
+// where the platform puts it, rather than a column of switches in front of
+// the names.
 func (a *App) settingsProviders(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "启用的 provider")
-		for _, v := range a.providers() {
+		for i, v := range a.providers() {
 			view := v
-			ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Center).Children(func() {
-				on := view.Enabled
-				if ui.Switch(c, &on).Changed() {
-					a.Enable(view.ID, on)
-				}
+			if i > 0 {
+				hairline(c, p)
+			}
+			ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
 				mark(c, p, view.ID, view.DisplayName, 26, "")
-				ui.Text(c, view.DisplayName).FontSize(sizeBody).Grow(1).SingleLine()
+				body(c, p, view.DisplayName).Grow(1).SingleLine()
 				pill(c, p, statusLabel(view.Status, view.firstCred()), statusTone(view.Status))
-				if ui.Button(c, "详情").Padding(5, 10).Radius(7).FontSize(sizeSmall).Clicked() {
+				if btnSmall(ui.Button(c, "详情")).Clicked() {
 					a.navigate("provider:" + view.ID)
 					if a.win != nil && !a.win.IsDestroyed() {
 						a.win.Show()
 						a.win.Focus()
 					}
+				}
+				on := view.Enabled
+				if ui.Switch(c, &on).Label("启用 " + view.DisplayName).Changed() {
+					a.Enable(view.ID, on)
 				}
 			})
 		}
@@ -232,7 +266,7 @@ func (a *App) settingsProviders(c *ui.Context, p palette) {
 func (a *App) settingsData(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "历史")
-		labeledRow(c, p, "每个窗口保留的探测次数", func() {
+		formRow(c, p, "每个窗口保留的探测次数", "影响历史页的点阵，也是 CLI 里 usage --last 的默认次数。", func() {
 			n := float64(a.settings.HistoryN)
 			field := ui.NumberInput(c, &n, 5, 200, 5)
 			if field.Changed() {
@@ -241,22 +275,23 @@ func (a *App) settingsData(c *ui.Context, p palette) {
 				a.loadHistory()
 			}
 		})
-		unconfiguredLine(c, p, "影响历史页的点阵，也是 CLI 里 usage --last 的默认次数。")
 	})
 
 	card(c, p, func() {
 		section(c, p, "文件")
-		for _, f := range []struct{ label, path string }{
+		for i, f := range []struct{ label, path string }{
 			{"配置", configPathText()},
 			{"缓存", cacheDirText()},
 			{"会话", sessionDirText()},
 			{"历史", historyPathText()},
 		} {
 			file := f
-			ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
-				label(c, p, file.label).Width(40)
-				path := ui.Text(c, shortenPath(file.path)).
-					FontSize(sizeSmall).
+			if i > 0 {
+				hairline(c, p)
+			}
+			ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
+				label(c, p, file.label).Width(labelColumn)
+				path := body(c, p, shortenPath(file.path)).
 					Font(p.mono).
 					Grow(1).
 					SingleLine().
@@ -266,7 +301,7 @@ func (a *App) settingsData(c *ui.Context, p palette) {
 					mygo.Clipboard.WriteText(file.path)
 					a.toast = "已复制路径"
 				}
-				if ui.Button(c, "打开").Padding(5, 10).Radius(7).FontSize(sizeSmall).Clicked() {
+				if btnSmall(ui.Button(c, "打开")).Clicked() {
 					mygo.Shell.ShowItemInFolder(file.path)
 				}
 			})
@@ -275,15 +310,15 @@ func (a *App) settingsData(c *ui.Context, p palette) {
 
 	card(c, p, func() {
 		section(c, p, "维护")
-		ui.Row(c).Gap(8).Wrap().Children(func() {
-			if ui.Button(c, "复制当前 JSON").Clicked() {
+		ui.Row(c).Gap(space2).Wrap().Children(func() {
+			if btnSmall(ui.Button(c, "复制当前 JSON")).Clicked() {
 				mygo.Clipboard.WriteText(a.CopyJSON())
 				a.toast = "已复制 JSON"
 			}
-			if ui.Button(c, "清除 cookie 缓存").Clicked() {
+			if btnSmall(ui.Button(c, "清除 cookie 缓存")).Clicked() {
 				a.askClearCache()
 			}
-			if ui.Button(c, "立刻刷新").Disabled(a.fetching).Clicked() {
+			if btnSmall(ui.Button(c, "立刻刷新")).Disabled(a.fetching).Clicked() {
 				a.Refresh(true)
 			}
 		})

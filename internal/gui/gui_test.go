@@ -6,6 +6,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -57,13 +58,39 @@ func testApp(t *testing.T) *App {
 	a.clock = func() time.Time { return pinned }
 	a.settings.IntervalSec = 0
 	a.settings.OnOpenFetch = false
-	// A configured key, so the provider has a credential to name.
-	if err := loginAPIKey("deepseek", "", "sk-test"); err != nil {
-		t.Fatalf("loginAPIKey: %v", err)
+	// A configured key per provider the fake answer calls ok, so the machine
+	// the fixture describes is one that could exist: the skeleton reads these
+	// credentials to decide how many cards the answer will have, and an answer
+	// that reports a provider ok without one is a state no probe can produce.
+	for _, id := range []string{"deepseek", "kimi"} {
+		if err := loginAPIKey(id, "", "sk-test"); err != nil {
+			t.Fatalf("loginAPIKey(%s): %v", id, err)
+		}
+	}
+	// Cursor has no API key: its credential is a private session file, written
+	// through the same call the CLI's `leeway use` makes.
+	if err := auth.WriteCursorAuth("default", auth.CursorAuth{AccessToken: "test"}); err != nil {
+		t.Fatalf("WriteCursorAuth: %v", err)
 	}
 	a.reloadConfig()
 	a.out = fakeOutput(pinned)
 	a.lastAt = a.out.GeneratedAt
+	return a
+}
+
+// freshApp is a machine nothing has been set up on: no credential anywhere,
+// which is the only state the first-run guide is actually the answer to.
+func freshApp(t *testing.T) *App {
+	t.Helper()
+	isolate(t)
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	a := NewApp()
+	a.clock = func() time.Time { return pinned }
+	a.settings.IntervalSec = 0
+	a.settings.OnOpenFetch = false
+	a.reloadConfig()
 	return a
 }
 
@@ -438,6 +465,60 @@ func TestCardOpensTheProviderPage(t *testing.T) {
 	snapshot(t, tester, "provider")
 }
 
+// The whole card is the target, not only the chevron in its corner: a card
+// that lightens under the pointer is a card that answers a press, wherever it
+// lands on the plate.
+func TestTheWholeCardIsTheTarget(t *testing.T) {
+	a := testApp(t)
+	// With history the card carries a chart, and the chart takes the pointer
+	// for its own keys — so this is the fixture that catches a chart sitting on
+	// top of the card's own click.
+	withHistory(a)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	card, ok := tester.Find("查看 DeepSeek")
+	if !ok {
+		t.Fatal("the lead card has no accessible name")
+	}
+	if card.W < 600 || card.H < 150 {
+		t.Errorf("the target is not the whole card: %.0fx%.0f", card.W, card.H)
+	}
+	// The plate answers the hand as well as the pointer: held down, the whole
+	// card takes the wash, and letting go opens the provider.
+	x, y := card.X+card.W/2, card.Y+card.H/2
+	tester.Press(x, y)
+	snapshot(t, tester, "overview-pressed")
+	tester.Release(x, y)
+	if a.page != "provider:deepseek" {
+		t.Fatalf("a press on the card body did not open it; page = %q", a.page)
+	}
+}
+
+// A card that answers the pointer but not the keyboard is half a control: the
+// overview is the window's front door, and it has to open from the keyboard
+// alone: focusable is not enough, the card has to be clickable as well. The
+// card is rendered on its own, because a window with a refresh button in it
+// would answer the first Enter with a real probe.
+func TestTheCardOpensFromTheKeyboard(t *testing.T) {
+	a := &App{}
+	opened := false
+	view := func(c *ui.Context) {
+		p := a.theme(c)
+		a.openCard(c, p, "查看 DeepSeek", func() { opened = true }, shell(c, p, func() {
+			ui.Text(c, "DeepSeek").FontSize(sizeValue).TextColor(p.t.Text)
+		}))
+	}
+	tester := ui.NewTester(view, 400, 200)
+	tester.Key(0, ui.KeyTab)
+	tester.Key(0, ui.KeyEnter)
+	tester.Frame()
+	if !opened {
+		t.Error("the card did not open on Enter: it answers the pointer only")
+	}
+	if r, ok := tester.Find("查看 DeepSeek"); !ok || r.W <= 0 {
+		t.Errorf("the card has no accessible name or no box: %+v ok=%v", r, ok)
+	}
+}
+
 // Four subscriptions of one provider are read side by side, and the whole
 // matrix has to fit the window: an account per card would push the last one
 // below the fold, which is the question this layout answers.
@@ -661,9 +742,10 @@ func TestLoginSheetRendersAndKeepsTheTypedKey(t *testing.T) {
 }
 
 func TestFirstRunTeachesInsteadOfBlaming(t *testing.T) {
-	a := testApp(t)
-	// Nothing configured: the window has to say what to do about it.
-	a.out = &model.Output{Version: 1, GeneratedAt: a.lastAt}
+	// Nothing configured and nothing answered: the window has to say what to
+	// do about it. This is the state a fresh install is in, and the guide is
+	// what the page lands on, not a placeholder for an answer.
+	a := freshApp(t)
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "overview-first-run")
 	// A row per provider, each with the action that provider needs first,
@@ -699,8 +781,7 @@ func TestFirstRunTeachesInsteadOfBlaming(t *testing.T) {
 // The guide reads this machine: a session that is there is offered as ready,
 // and one that is not is never claimed.
 func TestFirstRunSeesTheSessionsThisMachineHas(t *testing.T) {
-	a := testApp(t)
-	a.out = &model.Output{Version: 1, GeneratedAt: a.lastAt}
+	a := freshApp(t)
 	home, err := os.UserHomeDir()
 	if err != nil {
 		t.Fatal(err)
@@ -722,6 +803,49 @@ func TestFirstRunSeesTheSessionsThisMachineHas(t *testing.T) {
 	}
 }
 
+// The first probe takes a moment. A window that spends that moment showing a
+// guide it is about to take away reads as a bug, so it shows the shape the
+// answer will land in, and only until the answer lands.
+func TestTheFirstProbeShowsTheShapeOfTheAnswer(t *testing.T) {
+	a := testApp(t)
+	a.out = nil
+	a.fetching = true
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	snapshot(t, tester, "overview-probing")
+	if !tester.HasText("正在探测…") {
+		t.Errorf("the window does not say what it is doing; texts=%v", tester.Texts())
+	}
+	if tester.HasText("开始使用") {
+		t.Error("the first-run guide is shown while the first probe is still out")
+	}
+
+	// The probe lands: the page is the real one, and the skeleton is gone.
+	a.fetching = false
+	a.out = fakeOutput(a.now())
+	a.lastAt = a.out.GeneratedAt
+	landed := ui.NewTester(a.view, mainWidth, mainHeight)
+	if landed.HasText("正在探测…") {
+		t.Error("the skeleton outlived the probe")
+	}
+	if !landed.HasText("78%") {
+		t.Errorf("the answer did not replace the skeleton; texts=%v", landed.Texts())
+	}
+
+	// A machine with nothing on it has no number coming: the answer is the
+	// guide, so the window draws the guide rather than a skeleton for a card
+	// that will never arrive.
+	fresh := freshApp(t)
+	fresh.fetching = true
+	waiting := ui.NewTester(fresh.view, mainWidth, mainHeight)
+	snapshot(t, waiting, "overview-probing-fresh")
+	if !waiting.HasText("开始使用") {
+		t.Errorf("a machine with nothing configured waits behind a skeleton for a number that cannot come; texts=%v", waiting.Texts())
+	}
+	if waiting.HasText("需要处理") {
+		t.Error("a machine with nothing configured is promised a 需要处理 card it will not get")
+	}
+}
+
 // A window climbing toward a limit it will reach before the provider gives it
 // back is the one thing this tool exists to say out loud.
 func TestTheWindowThatRunsOutFirstIsNamedAloud(t *testing.T) {
@@ -736,6 +860,10 @@ func TestTheWindowThatRunsOutFirstIsNamedAloud(t *testing.T) {
 	}
 	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
 	const alarm = "最近 2 小时每小时涨 25%，约 1 小时 12 分后用满；重置还有 2 天 4 小时"
+	// The overview draws its own reset line above the bar, so its projection
+	// stops at when the window is full: the countdown is read once there, and
+	// on the history row — which has no reset label of its own — it is not.
+	const alarmOnOverview = "最近 2 小时每小时涨 25%，约 1 小时 12 分后用满"
 
 	a.navigate("history")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
@@ -748,7 +876,7 @@ func TestTheWindowThatRunsOutFirstIsNamedAloud(t *testing.T) {
 	a.navigate("overview")
 	over := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshotStill(t, over, "overview-burn")
-	if !saysText(over, alarm) {
+	if !saysText(over, alarmOnOverview) {
 		t.Errorf("the overview does not project the burn; texts=%v", over.Texts())
 	}
 	if saysText(over, "刚重置") {
@@ -757,7 +885,9 @@ func TestTheWindowThatRunsOutFirstIsNamedAloud(t *testing.T) {
 }
 
 // The projection reaches the user wherever they are looking: it is the one
-// thing worth saying without being asked, and worth saying only once.
+// thing worth saying without being asked, and worth saying only once. On the
+// overview the sentence is already on screen in the lead card, so the page
+// gets the announcement and not a second copy of it in a toast.
 func TestTheBurnWarningIsToldOnce(t *testing.T) {
 	a := testApp(t)
 	now := a.now()
@@ -769,7 +899,7 @@ func TestTheBurnWarningIsToldOnce(t *testing.T) {
 	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
 	a.navigate("overview")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	snapshotStill(t, tester, "overview-burn-toast")
+	snapshotStill(t, tester, "overview-burn-spoken")
 	const warning = "DeepSeek Weekly 按现在的速度 1 小时 12 分后用满"
 	if got := tester.Announcements(); !containsText(got, warning) {
 		t.Errorf("the warning was not announced; got %v", got)
@@ -918,9 +1048,7 @@ func TestTheSidebarListsOnlyWhatThisMachineHas(t *testing.T) {
 
 // A window with nothing configured says so where the list would be.
 func TestASidebarWithNothingConfiguredSaysSo(t *testing.T) {
-	a := testApp(t)
-	a.out = &model.Output{Version: 1, GeneratedAt: a.lastAt}
-	a.cfg = nil
+	a := freshApp(t)
 	a.navigate("overview")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	r, ok := tester.Find("配置过的 provider 会出现在这里")
@@ -961,9 +1089,13 @@ func TestTheEndOfALongPageIsReachable(t *testing.T) {
 	if !ok {
 		t.Fatalf("the last card is not on the page; texts=%v", tester.Texts())
 	}
-	viewport := float32(mainHeight) - titleBarMin
+	// The scroll's viewport ends at the window's bottom, and the page's own
+	// bottom padding sits inside it: at the end of the page the last line has
+	// to clear that padding rather than end inside it. Tester.Find reports
+	// window coordinates, so the window's bottom is the viewport's.
+	viewport := float32(mainHeight) - pageBottomPad
 	if bottom := r.Y + r.H; bottom > viewport-8 {
-		t.Errorf("the last line ends at %.0f, inside the scroll's own bottom padding (viewport ends at %.0f)", bottom, viewport)
+		t.Errorf("the last line ends at %.0f, inside the scroll's own bottom padding (the padding starts at %.0f)", bottom, viewport)
 	}
 }
 
@@ -1215,6 +1347,60 @@ func TestLogoutConfirmForKeyOnlyProviderSaysKey(t *testing.T) {
 	}
 }
 
+// A sheet that failed says so in this codebase's words. The credential sheets
+// have no log pane to put a library's message in, so the message goes on the
+// tooltip — the same rule the pages follow.
+func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
+	for _, c := range []struct {
+		message string
+		want    string
+		detail  string
+	}{
+		// Our words, then a machine's: only our half is the sentence.
+		{"写 Cursor keychain 失败：exit status 51", "切换失败 · 写 Cursor keychain 失败", "exit status 51"},
+		// Ours throughout: it is the sentence, with nothing hidden.
+		{"cookie 已过期，重新登录", "切换失败 · cookie 已过期，重新登录", ""},
+		// A machine's alone: the sentence is ours and the tooltip has it.
+		{"unexpected EOF", "切换失败", "unexpected EOF"},
+		// A machine's in Chinese: a localised OS error is still a machine's,
+		// and the path in it gives that away where the language does not.
+		{"open /Users/张三/Library/auth.json: no such file or directory", "切换失败", "open /Users/张三/Library/auth.json: no such file or directory"},
+		{"打开 /Users/张三/x 被拒绝", "切换失败", "打开 /Users/张三/x 被拒绝"},
+	} {
+		got, detail := failureText("切换失败", c.message)
+		if got != c.want || detail != c.detail {
+			t.Errorf("failureText(%q) = %q / %q, want %q / %q", c.message, got, detail, c.want, c.detail)
+		}
+	}
+}
+
+func TestAFailedSheetKeepsTheLibrarysWordsOffTheSentence(t *testing.T) {
+	a := testApp(t)
+	a.openSessionFile("grok", "work")
+	a.prompt.path = filepath.Join(t.TempDir(), "not-there.json")
+	// The sheet's failure path without the goroutine a window needs: the file
+	// is read and the message split exactly as `submitPrompt` does it, so the
+	// assertion below is about the split and not about a race.
+	if _, err := importAuthFile("grok", "work", a.prompt.path); err == nil {
+		t.Fatalf("reading %s succeeded; the fixture is wrong", a.prompt.path)
+	} else {
+		a.prompt.err, a.prompt.errDetail = failureText("导入会话文件失败", err.Error())
+	}
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if !tester.HasText("导入会话文件失败") {
+		t.Errorf("the sheet does not say what failed; texts=%v", tester.Texts())
+	}
+	for _, text := range tester.Texts() {
+		if strings.Contains(text, "no such file") || strings.Contains(text, a.prompt.path) {
+			t.Errorf("a library's own message is the sheet's sentence: %q", text)
+		}
+	}
+	if a.prompt.errDetail == "" {
+		t.Error("the message the reader is owed went nowhere")
+	}
+}
+
 func TestSessionFileSheetOffersAFilePicker(t *testing.T) {
 	a := testApp(t)
 	a.openSessionFile("grok", "work")
@@ -1228,67 +1414,6 @@ func TestSessionFileSheetOffersAFilePicker(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
-
-func TestArrivalEntersInOrder(t *testing.T) {
-	// Nothing has started at the first frame.
-	for i := range 4 {
-		if got := arrivalProgress(0, i); got != 0 {
-			t.Fatalf("block %d starts at %v, want 0", i, got)
-		}
-	}
-	// Each block starts a step behind the one before it.
-	if arrivalProgress(arrivalStep, 0) <= arrivalProgress(arrivalStep, 1) {
-		t.Error("the second block is not behind the first")
-	}
-	// Everything has arrived a step after the last block's duration.
-	end := arrivalDur + 4*arrivalStep
-	for i := range 4 {
-		if got := arrivalProgress(end, i); got != 1 {
-			t.Fatalf("block %d is %v after the entrance, want 1", i, got)
-		}
-	}
-	// Nothing goes backwards on the way.
-	last := float32(-1)
-	for elapsed := time.Duration(0); elapsed < end; elapsed += 10 * time.Millisecond {
-		got := arrivalProgress(elapsed, 0)
-		if got < last {
-			t.Fatalf("at %v the first block went from %v back to %v", elapsed, last, got)
-		}
-		last = got
-	}
-}
-
-// The entrance runs in the real render path, not only in its arithmetic: a
-// window a moment after it opened has its blocks on the way in, and Reduce
-// Motion puts them at their place from the first frame.
-func TestTheWindowEntersInOrder(t *testing.T) {
-	a := testApp(t)
-	rest := ui.NewTester(a.view, mainWidth, mainHeight)
-	rest.Frame()
-	atRest := rest.Image()
-
-	// The window opened 150 ms ago: the head is most of the way in, the cards
-	// behind it are barely there. The clock is pinned, so the frame is one of
-	// the window mid-entrance and not a moment that drifts.
-	a.arrival.at = a.now().Add(-150 * time.Millisecond)
-	mid := ui.NewTester(a.view, mainWidth, mainHeight)
-	mid.Frame()
-	snapshot(t, mid, "window-entrance")
-	if meanDifference(mid.Image(), atRest) < 1 {
-		t.Error("a window 150 ms into its entrance renders as the window at rest")
-	}
-
-	a.arrival.at = a.now()
-	still := ui.NewTester(a.view, mainWidth, mainHeight)
-	still.SetPreferences(ui.Preferences{ReduceMotion: true, TextScale: 1})
-	still.Frame()
-	// A frame is never bit for bit the one before it — a color transition
-	// the headless tester cannot freeze drifts by a least digit — but an
-	// entrance that still ran would differ by far more than that.
-	if d := meanDifference(still.Image(), atRest); d > 1 {
-		t.Errorf("Reduce Motion still animates the entrance: mean difference %v", d)
-	}
-}
 
 // meanDifference is how far apart two frames are on average, over the three
 // channels of every pixel, from 0 for the same picture to 255.
@@ -1578,3 +1703,274 @@ func TestSwitchEntryOnlyAppearsForASwitchableAccount(t *testing.T) {
 		t.Errorf("opencode-go has no client to switch: %v", items)
 	}
 }
+
+// A missing observation is a gap in the record, not a value: the line is drawn
+// in the stretches the series really has, so a hole stays a hole instead of
+// becoming a straight line through a number the provider never reported.
+func TestAGapInTheSeriesStaysAGap(t *testing.T) {
+	runs := chartRuns([]chartPoint{{at: 0, v: 10}, {at: 1, v: 20}, {at: 3, v: 40}, {at: 4, v: 50}, {at: 7, v: 80}})
+	if len(runs) != 2 {
+		t.Fatalf("a series with one hole and one lone point has %d runs, want 2: %+v", len(runs), runs)
+	}
+	if len(runs[0]) != 2 || runs[0][0].at != 0 || runs[0][1].at != 1 {
+		t.Errorf("the first run is %+v, want the two points before the hole", runs[0])
+	}
+	if len(runs[1]) != 2 || runs[1][0].at != 3 || runs[1][1].at != 4 {
+		t.Errorf("the second run is %+v, want the two points after the hole", runs[1])
+	}
+}
+
+// The system's text size reaches every size the window sets: the six sizes are
+// the window's own, so the window is the one that has to scale them, and a
+// reader who has asked for larger text gets it on every page.
+func TestTheSystemTextSizeReachesEveryPage(t *testing.T) {
+	for _, page := range []string{"overview", "provider:deepseek", "history", "about"} {
+		a := testApp(t)
+		a.navigate(page)
+		plain := ui.NewTester(a.view, mainWidth, mainHeight)
+		plain.Frame()
+		big := ui.NewTester(a.view, mainWidth, mainHeight)
+		big.SetPreferences(ui.Preferences{TextScale: 1.5})
+		big.Frame()
+		snapshot(t, big, "text-scale-"+strings.ReplaceAll(page, ":", "-"))
+		if d := meanDifference(plain.Image(), big.Image()); d < 1 {
+			t.Errorf("%s renders the same at 1.5x text (mean difference %v)", page, d)
+		}
+	}
+	// The settings window is a second window with its own header, so it gets
+	// its own render: its title line is the one that has the least room.
+	a := testApp(t)
+	big := ui.NewTester(a.settingsView, settingsWidth, settingsHght)
+	big.SetPreferences(ui.Preferences{TextScale: 1.5})
+	big.Frame()
+	snapshot(t, big, "text-scale-settings")
+}
+
+// The two preferences a reader can set that change what the window looks like
+// are rendered, not only computed: Increase Contrast has to reach the lines
+// the window draws faintest, and the focus ring has to be findable, so both
+// states are snapshots a reviewer can measure.
+func TestTheContrastAndFocusStatesAreVisible(t *testing.T) {
+	contrast := testApp(t)
+	contrast.navigate("overview")
+	strong := ui.NewTester(contrast.view, mainWidth, mainHeight)
+	strong.SetPreferences(ui.Preferences{HighContrast: true})
+	strong.Frame()
+	snapshotStill(t, strong, "overview-contrast")
+
+	focus := testApp(t)
+	focus.navigate("overview")
+	ring := ui.NewTester(focus.view, mainWidth, mainHeight)
+	ring.Frame()
+	// Tab reaches the first control on the page; the ring is what says so.
+	ring.Key(0, ui.KeyTab)
+	ring.Frame()
+	snapshot(t, ring, "overview-focus")
+}
+
+// The pointer on a chart names the observation under it. There is no tooltip:
+// the caption that describes the series appends the point it is on, and the
+// chart marks it — the reading is added, nothing above it moves, and the
+// summary the reader was already using stays where it was.
+func TestTheChartReadsThePointUnderThePointer(t *testing.T) {
+	a := testApp(t)
+	now := a.now()
+	var pts []history.Point
+	for i := range 11 {
+		v := float64(30 + i*4)
+		pts = append(pts, history.Point{T: now.Add(time.Duration(i) * time.Hour), UsedPercent: &v})
+	}
+	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
+	a.navigate("history")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if !tester.HasText("近 11 次探测") {
+		t.Fatalf("the chart has no summary caption to replace; texts=%v", tester.Texts())
+	}
+	// The caption sits under the chart; the chart is the row above it.
+	summary := joinNonEmpty([]string{chartScale(pts), historyCaption(pts)}, " · ")
+	at, ok := tester.Find(summary)
+	if !ok {
+		t.Fatalf("no caption showing the summary; texts=%v", tester.Texts())
+	}
+	tester.ClickAt(at.X+at.W/2, at.Y-24)
+	tester.Frame()
+	under := ""
+	for _, text := range tester.Texts() {
+		if scrubLine.MatchString(text) {
+			under = text
+			break
+		}
+	}
+	if under == "" {
+		t.Fatalf("the caption does not name the point under the pointer; texts=%v", tester.Texts())
+	}
+	if !strings.Contains(under, summary) {
+		t.Errorf("the reading took the series summary off the screen: %q", under)
+	}
+	snapshot(t, tester, "history-scrub")
+}
+
+// A probe that failed says so, and says what the numbers under it are: the last
+// ones that came back, not live ones. Cached data that looks live is the one
+// thing a monitor must never show.
+func TestAFailedProbeMarksTheNumbersAsOld(t *testing.T) {
+	a := testApp(t)
+	a.lastAt = pinned.Add(-12 * time.Minute)
+	a.fetchErr = "unexpected EOF"
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if !tester.HasText("下面是 12 分钟前的数据") {
+		t.Errorf("the cached numbers are not marked as old; texts=%v", tester.Texts())
+	}
+	snapshot(t, tester, "overview-stale")
+}
+
+// The chart's hover cells take the pointer, and the whole card is the target —
+// chart included. A chart that swallows the click of the card it sits in is a
+// dead zone in the middle of the page's main navigation.
+func TestTheChartDoesNotEatTheCardsClick(t *testing.T) {
+	a := testApp(t)
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	card, ok := tester.Find("查看 DeepSeek")
+	if !ok {
+		t.Fatalf("the hero card is not a labelled button; texts=%v", tester.Texts())
+	}
+	// The chart is the last band inside the card: above the caption and the
+	// card's own padding, below the bar.
+	tester.ClickAt(card.X+card.W/2, card.Y+card.H-70)
+	tester.Frame()
+	if a.page != "provider:deepseek" {
+		t.Errorf("clicking the chart left the page at %q; the hover cells ate the card's click", a.page)
+	}
+}
+
+// A matrix column is narrow enough at the window's minimum width that an
+// address has to be cut rather than wrapped: an address has no space in it, so
+// a second line breaks it mid-word ("alpha@example.c" / "om") and the column
+// reads as broken. It is one line with an ellipsis, and the whole address is
+// on the tooltip.
+func TestTheMatrixCutsAddressesRatherThanBreakingThem(t *testing.T) {
+	a := manyAccountApp(t)
+	a.navigate("provider:opencode-go")
+	tester := ui.NewTester(a.view, 780, 500)
+	tester.Frame()
+	snapshot(t, tester, "provider-many-narrow")
+	for _, acc := range []string{"alpha", "work", "side", "delta"} {
+		at, ok := tester.Find(acc + "@example.com")
+		if !ok {
+			t.Fatalf("%s's address is not shown; texts=%v", acc, tester.Texts())
+		}
+		if at.H > 18 {
+			t.Errorf("%s's address is %.0fpx tall, so it wrapped instead of being cut", acc, at.H)
+		}
+	}
+}
+
+// A raw library error never takes the sentence's place in the window: the
+// sentence is the app's, and the exact string is on the tooltip. What this
+// codebase writes for a person to read is Chinese, so a message with no
+// Chinese in it is a library's — and that is the one that has to move.
+func TestRawErrorTextStaysOutOfTheSentence(t *testing.T) {
+	a := testApp(t)
+	a.lastAt = pinned.Add(-12 * time.Minute)
+	a.fetchErr = "unexpected EOF"
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if tester.HasText("unexpected EOF") {
+		t.Error("a raw library error is shown where the window's own sentence belongs")
+	}
+	if !tester.HasText("这次探测没有答上来 · 下面是 12 分钟前的数据") {
+		t.Errorf("the failure is not explained in the app's own words; texts=%v", tester.Texts())
+	}
+
+	// The other half of the rule: a message this codebase wrote is still shown.
+	b := testApp(t)
+	b.navigate("overview")
+	for i := range b.out.Providers {
+		b.out.Providers[i].Error = "cookie 已过期，重新登录"
+	}
+	b.navigate("overview")
+	other := ui.NewTester(b.view, mainWidth, mainHeight)
+	other.Frame()
+	if !other.HasText("探测失败 · cookie 已过期，重新登录") {
+		t.Errorf("our own message was hidden as if it were a library's; texts=%v", other.Texts())
+	}
+}
+
+// The line is a picture of numbers, so the numbers have to be reachable
+// without seeing it: the chart takes the focus, the arrows walk it, and each
+// observation is announced as the same sentence the pointer readout shows.
+func TestTheChartAnswersTheArrowKeys(t *testing.T) {
+	a := testApp(t)
+	withHistory(a)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	// MyGo reports Focused() only while the window itself has the focus.
+	tester.SetFocused(true)
+	tester.Frame()
+
+	// Tab to the chart: nothing else claims the scrub state.
+	for i := 0; i < 40 && a.scrub.key != "overview-trend"; i++ {
+		tester.Key(0, ui.KeyTab)
+		tester.Frame()
+	}
+	if a.scrub.key != "overview-trend" {
+		t.Fatalf("the chart never took the focus; texts=%v", tester.Texts())
+	}
+	// The caption under the chart carries the series summary and the
+	// observation the keyboard is on, and what the frame asked a screen reader
+	// to say is that observation.
+	read := func() string {
+		for _, text := range tester.Texts() {
+			if scrubLine.MatchString(text) {
+				return text
+			}
+		}
+		return ""
+	}
+	point := func() string { return scrubLine.FindString(read()) }
+	newest := point()
+	if newest == "" {
+		t.Fatalf("the caption does not read an observation; texts=%v", tester.Texts())
+	}
+	if !strings.Contains(read(), "近 11 次探测") {
+		t.Errorf("the reading took the summary off the screen: %q", read())
+	}
+	if said := tester.Announcements(); len(said) == 0 || said[len(said)-1] != newest {
+		t.Errorf("focus announced %v, want the observation the caption reads (%q)", said, newest)
+	}
+	if a.scrub.at <= 0 {
+		t.Fatalf("focus landed on point %d, want a later one", a.scrub.at)
+	}
+	snapshot(t, tester, "overview-chart-focus")
+
+	// The left arrow walks back one observation and announces that one.
+	at := a.scrub.at
+	tester.Key(0, ui.KeyLeft)
+	tester.Frame()
+	if a.scrub.at != at-1 {
+		t.Errorf("left arrow left the cursor at %d, want %d", a.scrub.at, at-1)
+	}
+	back := point()
+	if back == "" || back == newest {
+		t.Errorf("the caption still reads %q after the left arrow", back)
+	}
+	if said := tester.Announcements(); len(said) == 0 || said[len(said)-1] != back {
+		t.Errorf("the left arrow announced %v, want %q", said, back)
+	}
+
+	// And the right arrow comes back to where it was.
+	tester.Key(0, ui.KeyRight)
+	tester.Frame()
+	if a.scrub.at != at || point() != newest {
+		t.Errorf("right arrow left the cursor at %d reading %q, want %d reading %q",
+			a.scrub.at, point(), at, newest)
+	}
+}
+
+// scrubLine is one observation as the caption reads it: "01-02 15:04 · 78%".
+var scrubLine = regexp.MustCompile(`\d\d-\d\d \d\d:\d\d · \d+(\.\d+)?%`)

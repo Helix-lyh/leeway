@@ -12,10 +12,10 @@ import (
 // list of providers needing a hand, because on a first run they are the same
 // seven.
 func (a *App) startGuide(c *ui.Context, p palette) ui.Element {
-	return shell(c, p, func() {
+	return card(c, p, func() {
 		section(c, p, "开始使用")
 		ui.Text(c, "leeway 不替你登录，也不碰你的密码：它读你已有的凭据，问 provider 自己还剩多少额度。").
-			FontSize(15).
+			FontSize(sizeChrome).
 			LineHeight(1.55).
 			MaxWidth(620)
 		hairline(c, p)
@@ -64,20 +64,20 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
 			switch {
 			case !v.Enabled:
-				if tinyButton(c, "启用").Clicked() {
+				if btnSmall(ui.Button(c, "启用")).Clicked() {
 					a.Enable(v.ID, true)
 				}
 			case cred != "":
-				if tinyButton(c, "刷新看看").Clicked() {
+				if btnSmall(ui.Button(c, "刷新看看")).Clicked() {
 					a.Refresh(true)
 				}
 			default:
-				if tinyButton(c, startAction(v.ID)).Clicked() {
+				if btnSmall(ui.Button(c, startAction(v.ID))).Clicked() {
 					method := loginMethods(v.ID)[0]
 					method.open(a, v.ID, defaultAccount(v))
 				}
 			}
-			if tinyButton(c, "详情").Clicked() {
+			if btnSmall(ui.Button(c, "详情")).Clicked() {
 				a.navigate("provider:" + v.ID)
 			}
 		})

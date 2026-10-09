@@ -34,6 +34,10 @@ type prompt struct {
 	profile string
 	reveal  bool
 	err     string
+	// errDetail is the provider's or the library's own words for the failure.
+	// It is never the sentence a reader reads: it hangs off the line as a
+	// tooltip, the same rule the page's errorLine follows.
+	errDetail string
 
 	running bool
 	done    bool
@@ -158,7 +162,7 @@ func (a *App) runCLI() {
 			a.prompt.running = false
 			a.prompt.done = true
 			if err != nil {
-				a.prompt.err = err.Error()
+				a.prompt.err, a.prompt.errDetail = failureText("登录没有完成", err.Error())
 				return
 			}
 			a.prompt.err = ""
@@ -187,7 +191,7 @@ func (a *App) submitPrompt() {
 			err := loginAPIKey(providerID, account, key)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err = err.Error()
+					a.prompt.err, a.prompt.errDetail = failureText("保存 API key 失败", err.Error())
 					return
 				}
 				a.prompt.reset()
@@ -200,7 +204,7 @@ func (a *App) submitPrompt() {
 			msg, err := importCookies(providerID, account, browser, profile, true)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err = err.Error()
+					a.prompt.err, a.prompt.errDetail = failureText("导入 cookie 失败", err.Error())
 					return
 				}
 				a.prompt.reset()
@@ -213,7 +217,7 @@ func (a *App) submitPrompt() {
 			err := saveManualCookie(providerID, account, header)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err = err.Error()
+					a.prompt.err, a.prompt.errDetail = failureText("保存手动 cookie 失败", err.Error())
 					return
 				}
 				a.prompt.reset()
@@ -226,7 +230,7 @@ func (a *App) submitPrompt() {
 			msg, err := importAuthFile(providerID, account, path)
 			a.apply(func() {
 				if err != nil {
-					a.prompt.err = err.Error()
+					a.prompt.err, a.prompt.errDetail = failureText("导入会话文件失败", err.Error())
 					return
 				}
 				a.prompt.reset()
@@ -236,7 +240,7 @@ func (a *App) submitPrompt() {
 	case promptNewAccount:
 		providerID, name := p.provider, p.name
 		if err := addAccount(providerID, name); err != nil {
-			p.err = err.Error()
+			p.err, p.errDetail = failureText("新建账号失败", err.Error())
 			return
 		}
 		a.prompt.reset()

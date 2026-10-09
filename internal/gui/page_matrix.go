@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
 	"leeway/internal/model"
@@ -13,17 +14,18 @@ func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) ui.Elemen
 	return card(c, p, func() {
 		// One Gap(0) column, with the vertical rhythm carried by each row's own
 		// padding: the rows then touch, so the rules between the columns meet
-		// and read as one line down the whole matrix. With the gaps the card
-		// would otherwise add, every rule would be a short dash.
+		// and read as one line down the whole matrix.
 		ui.Column(c).FillWidth().Gap(0).Children(func() {
-			matrixRow(c, p, v, 0, 14, func(c *ui.Context, i int, av accountView) {
+			matrixRow(c, p, v, 0, space2, func(c *ui.Context, i int, av accountView) {
 				a.matrixHead(c, p, v, av)
 			})
 			for _, w := range matrixWindows(v) {
-				matrixSeparator(c, p, v)
+				// One line across the whole card: a block boundary is a rule of
+				// the table, not a dash inside each column.
+				hairline(c, p)
 				// The window title sits in the first column like a row header,
 				// so the rules keep running instead of stopping at each label.
-				matrixRow(c, p, v, 12, 0, func(c *ui.Context, i int, av accountView) {
+				matrixRow(c, p, v, space2, 0, func(c *ui.Context, i int, av accountView) {
 					if i != 0 {
 						return
 					}
@@ -36,7 +38,7 @@ func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) ui.Elemen
 				matrixRow(c, p, v, 0, 0, func(c *ui.Context, i int, av accountView) {
 					a.matrixCell(c, p, av, w)
 				})
-				matrixRow(c, p, v, 0, 12, func(c *ui.Context, i int, av accountView) {
+				matrixRow(c, p, v, 0, space2, func(c *ui.Context, i int, av accountView) {
 					cw, ok := accountWindow(av, w.ID)
 					if !ok {
 						return
@@ -51,55 +53,94 @@ func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) ui.Elemen
 }
 
 // matrixRow is one grid row of the matrix. The rule between two columns is
-// part of every row, which is what makes the dividers continuous.
+// drawn inside the row's own gap, which it does not take: the columns keep
+// their full width, and the rule still spans the row's whole height, so the
+// rules of touching rows read as one line down the matrix.
 func matrixRow(c *ui.Context, p palette, v providerView, top, bottom float32, cell func(c *ui.Context, i int, av accountView)) {
-	ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Start).Children(func() {
-		for i := range v.Accounts {
-			if i > 0 {
-				columnRule(c, p)
+	ui.Row(c).FillWidth().Gap(space4).AlignItems(ui.Start).
+		Dividers(1, p.divider).
+		Children(func() {
+			for i := range v.Accounts {
+				av := v.Accounts[i]
+				// The row's padding is carried by the cells, so every column
+				// starts and ends on the same line and the rule spans the lot.
+				ui.Column(c).Grow(1).MinWidth(0).Gap(space2).Padding(top, 0, bottom).Children(func() { cell(c, i, av) })
 			}
-			av := v.Accounts[i]
-			// The padding belongs to the cells, not to the row: a rule only
-			// stretches over the row's content, so padding outside the cells
-			// would leave the same gaps the card's own gap does.
-			ui.Column(c).Grow(1).MinWidth(0).Gap(6).Padding(top, 0, bottom).Children(func() { cell(c, i, av) })
-		}
-	})
+		})
 }
 
-// matrixSeparator is the hairline between two blocks, drawn as one segment per
-// column so the rules cross it instead of stopping at its edge.
-func matrixSeparator(c *ui.Context, p palette, v providerView) {
-	ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Start).Children(func() {
-		for i := range v.Accounts {
-			if i > 0 {
-				columnRule(c, p)
-			}
-			ui.Column(c).Grow(1).MinWidth(0).Children(func() { hairline(c, p) })
-		}
-	})
-}
-
-// matrixHead is one account's column head: who it is, how it stands, and what
-// can be done about it.
+// matrixHead is one account's column head: who it is, how it stands, and the
+// one control that acts on it.
 func (a *App) matrixHead(c *ui.Context, p palette, v providerView, av accountView) {
-	ui.Text(c, displayAccount(av.Name)).FontSize(15).FontWeight(650).LetterSpacing(-0.2).SingleLine()
+	// The control sits on the name's line, where a card's actions sit
+	// everywhere else in the window; the pills keep a line of their own,
+	// because a pill sharing a line with a control in a column this narrow is
+	// squeezed down to a dot.
+	ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
+		// The head is quieter than the numbers under it: it names the column,
+		// it does not compete with what the column says.
+		// The column is named by the account; a narrow column cuts it, so the
+		// whole name hangs off the label the way every other cut string does.
+		chrome(c, p, displayAccount(av.Name)).Tooltip(displayAccount(av.Name))
+		ui.Spacer(c)
+		matrixActions(c, a, p, v.ID, av.Name)
+	})
 	if av.Email != "" && av.Email != av.Name {
-		// An address is the one thing that tells two accounts apart, so it is
-		// allowed a second line instead of an ellipsis.
-		ui.Text(c, av.Email).FontSize(sizeLabel).TextColor(p.t.TextMuted).MaxLines(2)
+		// One line, cut at the end, with the whole address on the tooltip. An
+		// address has no space in it, so a second line does not wrap it — it
+		// breaks it in the middle of a word ("alpha@example.c" / "om"), which
+		// reads as a broken column rather than a shortened one. The column is
+		// named by the account name above, which carries its own tooltip for
+		// the same reason this line does.
+		ui.Text(c, av.Email).
+			FontSize(sizeLabel).
+			TextColor(p.t.TextMuted).
+			SingleLine().
+			Ellipsis("…").
+			Tooltip(av.Email)
 	}
-	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 		if av.Plan != "" {
 			pill(c, p, av.Plan, toneNeutral)
 		}
 		pill(c, p, statusLabel(av.Status, av.Cred), statusTone(av.Status))
 	})
-	// The buttons keep their own line: in a column this narrow a pill and a
-	// button on one line squeeze the pill down to a dot.
-	ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
-		loginActions(c, a, v.ID, av.Name)
-		accountActions(c, a, p, v.ID, av.Name)
+}
+
+// matrixActions is the one control a matrix column carries: the ways to give
+// the account credentials and everything that can be done with it, in a single
+// menu. A pair of buttons per column is eight controls on the densest page in
+// the window, and the column head already says whose they are.
+//
+// It mirrors accountActions with the login methods folded in, because a matrix
+// column has room for one control and view.go's two menus cannot be merged
+// from here.
+func matrixActions(c *ui.Context, a *App, p palette, providerID, account string) ui.Element {
+	ready := accountSwitchReady(a, providerID, account)
+	session := accountUsesSession(a, providerID, account)
+	return btnSmall(ui.ButtonBase(c).Label("账号操作").Cursor(ui.CursorPointer).Children(func() {
+		ui.Icon(c, iconMore).FontSize(sizeChrome).TextColor(p.t.TextMuted)
+	})).Menu(func(m *ui.Menu) {
+		for _, method := range loginMethods(providerID) {
+			if m.Item(method.label).Chosen() {
+				method.open(a, providerID, account)
+			}
+		}
+		m.Separator()
+		if canSwitchTo(providerID, ready) {
+			if m.Item("让本机用它").Chosen() {
+				a.askUse(providerID, account)
+			}
+			m.Separator()
+		}
+		if m.Item("复制当前 JSON").Chosen() {
+			mygo.Clipboard.WriteText(a.CopyJSON())
+			a.toast = "已复制 JSON"
+		}
+		m.Separator()
+		if m.Item(removeAccountLabel(session)).Chosen() {
+			a.askLogout(providerID, account)
+		}
 	})
 }
 

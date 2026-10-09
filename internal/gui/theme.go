@@ -26,11 +26,16 @@ type palette struct {
 	bezel     ui.Color // the tray a panel sits in
 	bezelHi   ui.Color // that tray, under the pointer
 	border    ui.Color // hairlines
+	borderHi  ui.Color // those hairlines, on the plate under the pointer
 	divider   ui.Color // the rule between two account columns, which has to read as one line
 	track     ui.Color // a bar's empty part
+	trackEdge ui.Color // the line around it, which is what makes the bar a control
+	rule      ui.Color // a line the caption points at, which has to hold over every band it crosses
+	grid      ui.Color // the scale behind a chart: quiet on the card, but never as loud as the data
 	markTile  ui.Color // the tile under a mark the provider publishes alone
 	tileEdge  ui.Color // and the hairline that keeps it off a dark card
 	markShade ui.Color // the shadow a provider mark sits on
+	money     ui.Color // a window with no level: money, which is data and not an action
 	accent    ui.Color
 	mono      string
 }
@@ -50,11 +55,18 @@ func paletteOf(t *ui.Theme) palette {
 		p.sheet = ui.RGBA(28, 28, 34, 0.98)
 		p.bezel = ui.RGBA(255, 255, 255, 0.035)
 		p.bezelHi = ui.RGBA(255, 255, 255, 0.06)
-		p.border = ui.RGBA(255, 255, 255, 0.10)
-		p.divider = ui.RGBA(255, 255, 255, 0.26)
-		p.track = ui.RGBA(255, 255, 255, 0.11)
+		p.border = ui.RGBA(255, 255, 255, 0.18)
+		p.borderHi = ui.RGBA(255, 255, 255, 0.30)
+		p.divider = ui.RGBA(255, 255, 255, 0.36)
+		p.track = ui.RGBA(255, 255, 255, 0.14)
+		p.trackEdge = ui.RGBA(255, 255, 255, 0.38)
 		p.markShade = ui.RGBA(0, 0, 0, 0.45)
+		p.money = ui.Oklch(0.72, 0.09, 255)
 		p.accent = ui.Oklch(0.72, 0.17, 285)
+		// The dark accent is a light violet: white on it is 2.64:1, so the
+		// label on a primary button goes dark instead, which is the choice
+		// MyGo's own theme following makes for a light accent.
+		t.AccentText = ui.RGB(24, 24, 27)
 	} else {
 		p.canvas = ui.Hex("#f2f2f6")
 		p.canvasTop = ui.Oklch(0.975, 0.016, 285)
@@ -63,42 +75,130 @@ func paletteOf(t *ui.Theme) palette {
 		p.sheet = ui.RGBA(255, 255, 255, 0.98)
 		p.bezel = ui.RGBA(20, 18, 40, 0.035)
 		p.bezelHi = ui.RGBA(20, 18, 40, 0.055)
-		p.border = ui.RGBA(0, 0, 0, 0.07)
-		p.divider = ui.RGBA(0, 0, 0, 0.18)
-		p.track = ui.RGBA(0, 0, 0, 0.075)
+		p.border = ui.RGBA(0, 0, 0, 0.16)
+		p.borderHi = ui.RGBA(0, 0, 0, 0.26)
+		p.divider = ui.RGBA(0, 0, 0, 0.44)
+		p.track = ui.RGBA(0, 0, 0, 0.10)
+		p.trackEdge = ui.RGBA(0, 0, 0, 0.45)
 		p.markShade = ui.RGBA(20, 18, 40, 0.16)
+		p.money = ui.Oklch(0.52, 0.09, 255)
 		p.accent = ui.Oklch(0.55, 0.20, 285)
+		// MyGo's own muted grey is 4.33:1 on this window's canvas, just under
+		// the 4.5:1 ordinary text needs; this one is 4.72:1 there and 5.17:1
+		// on a card. The dark theme's is 6.75:1 and stays.
+		t.TextMuted = ui.Hex("#6b6b74")
 	}
+	// The rules on a chart are read, not decoration: the caption counts them
+	// ("图上的竖线"), and they cross the band tints, so they keep the full
+	// muted strength that clears 3:1 on the card and on every band.
+	p.rule = t.TextMuted
+	// The scale is the quietest line the window draws, and it is a line under
+	// the data: on the dark card the card border is under 2:1, louder than
+	// the rubric's 1.5:1 ceiling for a gridline, so it gets its own ink.
+	p.grid = p.border
+	if t.Dark {
+		p.grid = ui.RGBA(255, 255, 255, 0.12)
+	}
+	// The focus ring is the one line a keyboard user has to find, so it is the
+	// accent at full strength: at 60% over a card it measured 2.4:1, under the
+	// 3:1 a state indicator needs. It lives here rather than in theme() so the
+	// palette a test can build is the palette the window draws.
+	t.Focus = p.accent
 	return p
 }
 
 // theme applies leeway's colors to the frame's theme and returns them.
 func (a *App) theme(c *ui.Context) palette {
 	t := *c.Theme()
+	scaleType(c.Preferences().TextScale)
 	p := paletteOf(&t)
+	// Increase Contrast, which is a request for exactly the lines this window
+	// draws faintest: the rule between two accounts, the empty part of a bar,
+	// the edge of a card. They are decoration at the default setting, so they
+	// are drawn lightly; asked for more, they are what has to carry the
+	// structure, so they take on the text color until they do.
+	if c.Preferences().HighContrast {
+		p.border = p.border.Mix(t.Text, 0.45)
+		p.borderHi = p.borderHi.Mix(t.Text, 0.45)
+		p.divider = p.divider.Mix(t.Text, 0.40)
+		p.track = p.track.Mix(t.Text, 0.50)
+		p.trackEdge = p.trackEdge.Mix(t.Text, 0.30)
+		p.bezel = p.bezel.Mix(t.Text, 0.15)
+		p.bezelHi = p.bezelHi.Mix(t.Text, 0.15)
+	}
 	t.Background = p.canvas
 	t.Accent = p.accent
 	t.AccentHover = p.accent.Mix(ui.RGB(255, 255, 255), 0.18)
 	t.AccentPressed = p.accent.Mix(ui.RGB(0, 0, 0), 0.18)
-	t.Focus = p.accent.Alpha(0.6)
-	t.Radius = 9
+	t.Radius = radiusControl
 	c.SetTheme(&t)
 	return p
 }
 
 // --- type scale ------------------------------------------------------------
 //
-// Six sizes, three weights: the numbers carry the design, so they get the
-// room and the tabular figures, and everything else stays quiet.
+// Six sizes, two weights: the numbers carry the design, so they get the room
+// and the tabular figures, and everything else stays quiet. There is no size
+// between these; a page that wants one is a page that wants a different rank.
+
+// The six are variables rather than constants because the system's text size
+// multiplies them: a reader who has asked for larger text gets larger text in
+// every place the window sets a size, and no call site has to know about the
+// setting. MyGo's own theme scales its default size the same way; a window
+// that sets its sizes explicitly opts out of that, so it has to do it here.
+// Every step is at least 1.2x the one below it, so no two sizes read as the
+// same size with a mistake in it.
+var (
+	sizeHero   float32 = 40   // the one number the page is about
+	sizeTitle  float32 = 25   // a page or a provider's name
+	sizeValue  float32 = 20   // a window's number on a card
+	sizeChrome float32 = 16   // the wordmark, a card's title, a column head
+	sizeBody   float32 = 13   //
+	sizeLabel  float32 = 10.5 // captions and the smallest print
+)
+
+const trackLabel = 0.7
+
+// typeScale is the six sizes at a system text size, and scaleType puts them
+// back. A scale of zero is a window that never asked, which is the default.
+func typeScale(scale float32) (hero, title, value, chrome, body, label float32) {
+	if scale <= 0 {
+		scale = 1
+	}
+	return 40 * scale, 25 * scale, 20 * scale, 16 * scale, 13 * scale, 10.5 * scale
+}
+
+func scaleType(scale float32) {
+	sizeHero, sizeTitle, sizeValue, sizeChrome, sizeBody, sizeLabel = typeScale(scale)
+}
+
+// --- spacing and corners ---------------------------------------------------
+//
+// One 4 DIP rhythm, and four corners: a control, a card's surface, the tray
+// it sits in, and a capsule. Everything in the window is one of them.
 
 const (
-	sizeHero   = 40 // the one number the page is about
-	sizeTitle  = 25 // a page or a provider's name
-	sizeValue  = 21 // a window's number on a card
-	sizeBody   = 13
-	sizeSmall  = 12
-	sizeLabel  = 11 // captions and section labels
-	trackLabel = 0.7
+	space1 = 4
+	space2 = 8
+	space3 = 12
+	space4 = 16
+	space5 = 24
+	space6 = 32
+
+	radiusControl = 10
+	labelColumn   = 76 // the caption column every details list shares
+	// A card's surface sits 3px inside its tray, so its radius is the tray's
+	// less those 3px: two curves of one centre read as one plate, and two that
+	// do not are the thing the eye catches first.
+	radiusInner   = 15
+	radiusTray    = 18
+	radiusCapsule = 999
+)
+
+// icon sizes: MyGo sizes an icon by FontSize, so these are sizes, not type.
+const (
+	iconSmall = 13
+	iconBody  = 15
 )
 
 // hero is the number the page leads with.
@@ -117,17 +217,30 @@ func hero(c *ui.Context, p palette, text string, color ui.Color) ui.Element {
 func title(c *ui.Context, p palette, text string) ui.Element {
 	return ui.Text(c, text).
 		FontSize(sizeTitle).
-		FontWeight(650).
+		FontWeight(700).
 		LetterSpacing(-0.5).
 		SingleLine().
 		Role(ui.RoleHeading).
 		Level(1)
 }
 
-// section is a card's title: the same look as a label, one rank under the
-// page's title.
+// section is a card's title: a rank under the page's title, so it is set in
+// the text color at the chrome size rather than as another muted caption —
+// a card's name is something to scan for, not small print.
 func section(c *ui.Context, p palette, text string) ui.Element {
-	return label(c, p, text).Role(ui.RoleHeading).Level(2)
+	return ui.Text(c, text).
+		FontSize(sizeChrome).
+		FontWeight(600).
+		TextColor(p.t.Text).
+		SingleLine().
+		Role(ui.RoleHeading).
+		Level(2)
+}
+
+// chrome is the wordmark, a column head, a dialog's title: between a card's
+// number and its captions.
+func chrome(c *ui.Context, p palette, text string) ui.Element {
+	return ui.Text(c, text).FontSize(sizeChrome).FontWeight(700).SingleLine()
 }
 
 // value is a window's number on a card.
@@ -141,24 +254,45 @@ func value(c *ui.Context, p palette, text string, color ui.Color) ui.Element {
 		SingleLine()
 }
 
-// label is a caption above or beside a group: small, spaced, muted.
+// label is a caption above or beside a group: small, muted, and spaced only
+// when it is Latin — CJK is already set on its own square, and tracking it
+// only pulls the characters apart.
 func label(c *ui.Context, p palette, text string) ui.Element {
-	return ui.Text(c, text).
+	e := ui.Text(c, text).
 		FontSize(sizeLabel).
 		FontWeight(600).
-		LetterSpacing(trackLabel).
 		TextColor(p.t.TextMuted).
 		SingleLine()
+	if !hasCJK(text) {
+		e.LetterSpacing(trackLabel)
+	}
+	return e
+}
+
+// hasCJK reports whether a string is written in Chinese, Japanese or Korean,
+// which is set without the tracking Latin captions want.
+func hasCJK(s string) bool {
+	for _, r := range s {
+		switch {
+		case r >= 0x2E80 && r <= 0x9FFF, // radicals through unified ideographs
+			r >= 0xAC00 && r <= 0xD7AF, // Hangul syllables
+			r >= 0xF900 && r <= 0xFAFF, // compatibility ideographs
+			r >= 0xFF00 && r <= 0xFF60: // full-width forms
+			return true
+		}
+	}
+	return false
 }
 
 // body is ordinary running text.
 func body(c *ui.Context, p palette, text string) ui.Element {
-	return ui.Text(c, text).FontSize(sizeBody).TextColor(p.t.Text)
+	return ui.Text(c, text).FontSize(sizeBody).LineHeight(1.5).TextColor(p.t.Text)
 }
 
-// muted is ordinary text that should not shout.
+// muted is ordinary text that should not shout: the same size as the body, so
+// a sentence keeps its shape whichever of the two it is set in.
 func muted(c *ui.Context, p palette, text string) ui.Element {
-	return ui.Text(c, text).FontSize(sizeSmall).TextColor(p.t.TextMuted)
+	return ui.Text(c, text).FontSize(sizeBody).LineHeight(1.5).TextColor(p.t.TextMuted)
 }
 
 // --- surfaces --------------------------------------------------------------
@@ -174,52 +308,72 @@ func shadowSoft(e ui.Element, p palette) ui.Element {
 		Shadow(0, 8, 22, -10, ui.RGBA(20, 18, 40, 0.13))
 }
 
-// card is the surface every panel sits on: the tray, without the hover.
+// card is the surface a panel that only holds content sits on: the tray,
+// without the hover. A surface that lightens under the pointer is promising a
+// click it does not have, so only the cards that answer the pointer are
+// shell().
 func card(c *ui.Context, p palette, fn func()) ui.Element {
-	return shell(c, p, fn)
+	return shellSurface(c, p, false, fn)
 }
 
-// shell is a card in a tray: an outer bezel with a hairline, the surface
-// inside it, and one soft shadow under the whole thing, so a panel reads as
-// a plate set into the window rather than as a rectangle drawn on it.
+// shell is a card in a tray that answers the pointer: an outer bezel with a
+// hairline, the surface inside it, and one soft shadow under the whole thing,
+// so a panel reads as a plate set into the window rather than as a rectangle
+// drawn on it.
 func shell(c *ui.Context, p palette, fn func()) ui.Element {
-	outer := ui.Column(c).
-		FillWidth().
-		Padding(3).
-		Radius(19).
-		Background(p.bezel).
-		Border(1, p.border)
-	hovered := outer.Hovered()
-	if hovered {
-		outer.Background(p.bezelHi)
-	}
-	shadowSoft(outer, p)
-	outer.Children(func() {
-		inner := ui.Column(c).
-			FillWidth().
-			Padding(18).
-			Gap(14).
-			Radius(16).
-			Background(p.card).
-			Children(fn)
-		if hovered {
-			inner.Background(p.cardHi)
-		}
-		inner.Transition(panelMotion)
-	})
-	return outer.Transition(panelMotion)
+	return shellSurface(c, p, true, fn)
 }
 
-// cardMotion eases a surface between its resting and hovered colors.
-var cardMotion = ui.ElementTransition{
+func shellSurface(c *ui.Context, p palette, interactive bool, fn func()) ui.Element {
+	// Three plates, because MyGo gives an element one transition and a card
+	// needs two: the outer plate is the tray, and the tray and the surface
+	// inside it answer the pointer at the state speed on transitions of their
+	// own. Hovering the tray lifts its edge as well as its fill, so the card
+	// reads as picked up rather than tinted.
+	plate := ui.Column(c).FillWidth()
+	plate.Children(func() {
+		outer := ui.Column(c).
+			FillWidth().
+			Padding(3).
+			Radius(radiusTray).
+			Background(p.bezel).
+			Border(1, p.border)
+		hovered := interactive && outer.Hovered()
+		if hovered {
+			outer.Background(p.bezelHi).Border(1, p.borderHi)
+		}
+		shadowSoft(outer, p)
+		outer.Children(func() {
+			inner := ui.Column(c).
+				FillWidth().
+				Padding(space4).
+				Gap(space3).
+				Radius(radiusInner).
+				Background(p.card).
+				Children(fn)
+			if hovered {
+				inner.Background(p.cardHi)
+			}
+			inner.Transition(stateMotion)
+		})
+		outer.Transition(stateMotion)
+	})
+	return plate.Transition(panelMotion)
+}
+
+// stateMotion eases a control between its resting and hovered colors: fast
+// enough that the pointer feels answered rather than animated at.
+var stateMotion = ui.ElementTransition{
 	Colors:   true,
-	Duration: 160 * time.Millisecond,
+	Duration: 140 * time.Millisecond,
 	Ease:     easeGlide,
 }
 
-// panelMotion is cardMotion plus the way a panel arrives: the app opening, a
-// probe adding a provider, a tab switching. It is what the pages use, so a
-// card that was already there does not move when another one appears.
+// panelMotion is how a panel arrives and how its colors move: the app
+// opening, a probe adding a provider, a tab switching, the pointer arriving
+// on a card. It is one preset because it is one element — a card can only
+// carry one transition, and the pages want both halves of it. A card that was
+// already there does not move when another one appears.
 var panelMotion = ui.ElementTransition{
 	Colors:   true,
 	Enter:    &ui.Motion{Y: 8, Opacity: 1},
@@ -233,27 +387,50 @@ func easeGlide(t float32) float32 {
 	return 1 - float32(math.Pow(1-float64(t), 3.4))
 }
 
-// iconButton is a compact round action with one icon in it.
-func iconButton(c *ui.Context, p palette, label string, ic *ui.SVG, on func()) ui.Element {
-	b := ui.Button(c, "").Label(label).Padding(7).Radius(999).Children(func() {
-		ui.Icon(c, ic).FontSize(15).TextColor(p.t.TextMuted)
-	})
-	if on != nil && b.Clicked() {
-		on()
+// btnSmall gives a control the padding and corner of a row's action; btnLarge,
+// of a page's. Both are the same shape at two ranks, so a row of controls in a
+// card reads as one set rather than three unrelated widgets.
+func btnSmall(e ui.Element) ui.Element {
+	return e.Padding(5, 10).Radius(radiusControl).FontSize(sizeBody)
+}
+
+func btnLarge(e ui.Element) ui.Element {
+	return e.Padding(7, 14).Radius(radiusControl).FontSize(sizeBody)
+}
+
+// chromeRule is the short vertical hairline between two groups in a title bar.
+func chromeRule(c *ui.Context, p palette) ui.Element {
+	// The same weight as every other separator: it is what tells the app's
+	// name from the state beside it, not an ornament.
+	return ui.Box(c).Width(1).Height(18).Shrink(0).Background(p.divider)
+}
+
+// sidebarItem is a sidebar item whose icon is not the accent. MyGo draws every
+// sidebar glyph in the theme's accent (ui/sidebar.go: `iconColor := t.Accent`),
+// which spends the accent on decoration and leaves nothing to say which page
+// is current. The colour is read from the theme as the item is built, so a copy
+// of the theme with the accent set to the muted ink gives the glyphs their
+// place back; the item that is current is built outside the copy and keeps the
+// accent, which is now the only thing it means there.
+func sidebarItem(c *ui.Context, id string, icon *ui.SVG, label string, current bool) ui.Element {
+	if current {
+		return ui.SidebarItem(c, id, icon, label)
 	}
-	return b
+	full := c.Theme()
+	muted := *full
+	muted.Accent = full.TextMuted
+	c.SetTheme(&muted)
+	item := ui.SidebarItem(c, id, icon, label)
+	c.SetTheme(full)
+	return item
 }
 
-// columnRule separates two accounts in the matrix. AlignSelf(Stretch) makes it
-// as tall as the row's other children, so the columns read as columns down the
-// whole matrix and not only inside one cell.
-func columnRule(c *ui.Context, p palette) ui.Element {
-	return ui.Box(c).Width(1).Background(p.divider).AlignSelf(ui.Stretch)
-}
-
-// hairline separates blocks inside a card.
+// hairline separates blocks inside a card. It is the divider and not the
+// border: a rule between two rows is what makes a list a table, and the border
+// is a surface's own edge, which sits back. One is read, the other is only
+// noticed, so they are two weights and not one.
 func hairline(c *ui.Context, p palette) ui.Element {
-	return ui.Box(c).FillWidth().Height(1).Background(p.border)
+	return ui.Box(c).FillWidth().Height(1).Background(p.divider)
 }
 
 // dot shows a small level indicator.
@@ -264,13 +441,26 @@ func dot(c *ui.Context, color ui.Color) ui.Element {
 // pill is a short status label in a tinted capsule.
 func pill(c *ui.Context, p palette, text string, t tone) ui.Element {
 	color := p.toneColor(t)
+	ink := p.toneInk(t)
 	return ui.Box(c).
 		Padding(3, 8).
 		Radius(999).
 		Background(color.Alpha(0.14)).
 		Children(func() {
-			ui.Text(c, text).FontSize(sizeLabel).FontWeight(600).LetterSpacing(0.2).TextColor(color).SingleLine()
+			ui.Text(c, text).FontSize(sizeLabel).FontWeight(600).LetterSpacing(0.2).TextColor(ink).SingleLine()
 		})
+}
+
+// toneInk is the tone as a label: a capsule sets it on a tint of the tone
+// itself, which costs contrast the tone does not pay on a plain card, so in
+// the light theme it is darkened until the label clears 4.5:1 there too.
+// The dark tones already clear it (the weakest is 4.76:1).
+func (p palette) toneInk(t tone) ui.Color {
+	c := p.toneColor(t)
+	if p.dark {
+		return c
+	}
+	return c.Mix(ui.RGB(0, 0, 0), 0.10)
 }
 
 // --- identity --------------------------------------------------------------
@@ -407,8 +597,12 @@ func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height floa
 	return ui.Box(c).
 		FillWidth().
 		Height(height).
-		Radius(height / 2).
+		Radius(height/2).
 		Background(p.track).
+		// The empty part of a bar is what says how much is left, so the bar
+		// carries an edge a reader can find: a tint alone measured 1.26:1 on a
+		// light card, which is a scale you have to guess at.
+		Border(1, p.trackEdge).
 		Clip().
 		Children(func() {
 			w := float32(0)
@@ -431,24 +625,13 @@ func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height floa
 		})
 }
 
-// labeledRow is a caption on the left and a control on the right, as
-// settings rows read. The control is built inside the row, so give it as a
-// function.
-func labeledRow(c *ui.Context, p palette, text string, control func()) ui.Element {
-	return ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
-		body(c, p, text)
-		ui.Box(c).Grow(1)
-		control()
-	})
-}
-
 // keyValue is one line of a details list: the caption, then the value, which
 // stays on one line, keeps its whole self in a tooltip, and reads as code
 // when it is a path.
 func keyValue(c *ui.Context, p palette, key, text string) ui.Element {
 	return ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Start).Children(func() {
-		label(c, p, key).Width(76).Padding(2, 0, 0, 0)
-		v := ui.Text(c, shortenPath(text)).FontSize(sizeSmall).Grow(1).SingleLine().Ellipsis("…").Tooltip(text).Selectable()
+		label(c, p, key).Width(labelColumn).Padding(2, 0, 0, 0)
+		v := ui.Text(c, shortenPath(text)).FontSize(sizeBody).Grow(1).SingleLine().Ellipsis("…").Tooltip(text).Selectable()
 		if looksLikePath(text) {
 			v.Font(p.mono).TextColor(p.t.TextMuted)
 		}
@@ -473,24 +656,28 @@ func (p palette) amountColor(w model.RateWindow) ui.Color {
 	return p.toneColor(windowTone(w))
 }
 
-// toneColor maps a level to the color that shows it.
+// toneColor maps a level to the color that shows it. These colors are text
+// (a window's number) as well as graphics (its bar and its dot), so each one
+// is chosen to clear WCAG's 4.5:1 for ordinary text on the surface it sits
+// on, which is stricter than the 3:1 graphics need; contrast_test.go holds
+// them to it.
 func (p palette) toneColor(t tone) ui.Color {
 	switch t {
 	case toneOK:
 		if p.dark {
 			return ui.Oklch(0.78, 0.16, 152)
 		}
-		return ui.Oklch(0.62, 0.15, 152)
+		return ui.Oklch(0.52, 0.15, 152)
 	case toneWarn:
 		if p.dark {
 			return ui.Oklch(0.82, 0.14, 78)
 		}
-		return ui.Oklch(0.68, 0.15, 62)
+		return ui.Oklch(0.54, 0.15, 62)
 	case toneCritical:
 		if p.dark {
 			return ui.Oklch(0.72, 0.17, 25)
 		}
-		return ui.Oklch(0.58, 0.20, 25)
+		return ui.Oklch(0.56, 0.20, 25)
 	default:
 		return p.t.TextMuted
 	}

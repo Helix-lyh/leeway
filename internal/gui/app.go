@@ -47,6 +47,7 @@ type App struct {
 	settingsTab int
 
 	toast  string
+	scrub  chartScrub
 	burned string // the window the burn warning last named, so it warns once
 
 	// spoken is what the next frame asks a screen reader to read out. The
@@ -57,10 +58,7 @@ type App struct {
 	// only changes when the window does.
 	clock func() time.Time
 
-	// arrival is the window's entrance, and settingsArrival the settings
 	// window's.
-	arrival         arrival
-	settingsArrival arrival
 
 	prompt  prompt
 	confirm confirm
@@ -175,6 +173,14 @@ func (a *App) Start(win *mygo.Window) {
 	}
 	go a.heartbeat()
 	a.captureWhenAsked()
+}
+
+// chartScrub is where the keyboard is reading a chart. A frame is built from
+// scratch every time, so this is app state: a chart that forgot would drop the
+// reader back at the newest observation on every frame.
+type chartScrub struct {
+	key string
+	at  int
 }
 
 // captureWhenAsked writes one PNG of the window and quits, when
@@ -294,9 +300,13 @@ func (a *App) Refresh(force bool) {
 			}
 			if ferr != "" {
 				a.fetchErr = ferr
-				a.say("探测失败：" + ferr)
+				// What is spoken and what is notified are the same sentence the
+				// page shows: a layer's own message is not written for a person,
+				// so it stays out of all three and lives in the tooltip.
+				said, _ := failureText("探测失败", ferr)
+				a.say(said)
 				if notify {
-					a.notifyFailure(ferr)
+					a.notifyFailure(said)
 				}
 			} else {
 				a.out = out
@@ -612,17 +622,21 @@ func (a *App) historyFor(providerID, account, windowID string) []history.Point {
 	return nil
 }
 
-// overview counts what the dashboard shows in its header.
+// overview counts what the dashboard shows in its header: how many providers
+// this machine has, and how the last probe went. A provider with a credential
+// on disk is one this machine has — counting it as 未配置 is what put "已找到
+// 凭据" on a row under a header that said the opposite — so it counts as 正常
+// until a probe says otherwise.
 func (a *App) overview() (ok, warn, missing int) {
 	for _, v := range a.providers() {
 		if !v.Enabled {
 			continue
 		}
-		switch v.Status {
-		case "ok":
-			ok++
-		case "error":
+		switch {
+		case v.Status == "error":
 			warn++
+		case v.Status == "ok" || v.hasSubscription():
+			ok++
 		default:
 			missing++
 		}
@@ -638,7 +652,8 @@ func (a *App) Use(providerID, account string) {
 		res, err := useAccount(providerID, account)
 		a.apply(func() {
 			if err != nil {
-				a.toast = "切换失败：" + err.Error()
+				log.Printf("gui: switch to %s/%s: %v", providerID, account, err)
+				a.toast, _ = failureText("切换失败", err.Error())
 				return
 			}
 			msg := "已切换 " + res.Provider + " 到 " + displayAccount(res.Account)
@@ -663,7 +678,8 @@ func (a *App) Logout(providerID, account string) {
 		msg, err := logoutAccount(providerID, account)
 		a.apply(func() {
 			if err != nil {
-				a.toast = "退出失败：" + err.Error()
+				log.Printf("gui: log out %s/%s: %v", providerID, account, err)
+				a.toast, _ = failureText("退出失败", err.Error())
 				return
 			}
 			a.toast = msg
@@ -676,7 +692,8 @@ func (a *App) Logout(providerID, account string) {
 func (a *App) SaveSettings() {
 	a.settings.LastPage = a.page
 	if err := a.settings.save(); err != nil {
-		a.toast = "设置保存失败：" + err.Error()
+		log.Printf("gui: settings save: %v", err)
+		a.toast, _ = failureText("设置保存失败", err.Error())
 		return
 	}
 	a.applyEnvironment()
@@ -690,7 +707,8 @@ func (a *App) ClearCache() {
 		err := auth.RemoveCookieCacheFile()
 		a.apply(func() {
 			if err != nil {
-				a.toast = "清除缓存失败：" + err.Error()
+				log.Printf("gui: clear the cookie cache: %v", err)
+				a.toast, _ = failureText("清除缓存失败", err.Error())
 				return
 			}
 			a.toast = "已清除 cookie 缓存"
@@ -702,7 +720,8 @@ func (a *App) ClearCache() {
 // Enable turns a provider on or off and probes again when it is turned on.
 func (a *App) Enable(providerID string, on bool) {
 	if err := setProviderEnabled(providerID, on); err != nil {
-		a.toast = "保存失败：" + err.Error()
+		log.Printf("gui: enable %s: %v", providerID, err)
+		a.toast, _ = failureText("保存失败", err.Error())
 		return
 	}
 	a.reloadConfig()

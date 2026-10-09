@@ -62,7 +62,6 @@ func (a *App) OpenSettings() {
 		w.Focus()
 		return
 	}
-	a.settingsArrival.at = time.Now()
 	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:           "leeway 设置",
 		Width:           settingsWidth,
@@ -109,15 +108,24 @@ func (a *App) Menu() *mygo.Menu {
 
 // --- the main window -------------------------------------------------------
 
+// pageBottomPad is the room the scroll keeps under the page: at the end of a
+// long page the last card stops this far above the viewport's bottom edge, so
+// the page's own padding still shows under it.
+const pageBottomPad = 40
+
 func (a *App) view(c *ui.Context) {
 	for _, text := range a.spoken {
 		c.Announce(text)
 	}
 	a.spoken = a.spoken[:0]
-	a.arrival.index = 0
 	p := a.theme(c)
 	if a.toast != "" {
-		// Toast announces itself to assistive technology.
+		// Toast announces itself to assistive technology, so it is held to the
+		// same rule as errorLine: what it shows is a sentence this codebase
+		// wrote. A library's own message goes to the log, which is where a
+		// reader who wants the exact error is already looking.
+		// The message is the ID, so saying the same thing twice replaces the
+		// toast instead of stacking a second copy of it.
 		c.Toast(a.toast)
 		a.toast = ""
 	}
@@ -144,11 +152,11 @@ func (a *App) view(c *ui.Context) {
 				ui.Scroll(c).
 					Grow(1).
 					FillHeight().
-					Padding(26, 32, 40, 32).
+					Padding(26, 32, pageBottomPad, 32).
 					Children(func() {
 						ui.Column(c).
 							FillWidth().
-							Gap(22).
+							Gap(space5).
 							Transition(pageMotion).
 							Children(func() { a.pageView(c, p) })
 					})
@@ -184,25 +192,29 @@ func (a *App) titleBarHeight(c *ui.Context) float32 {
 func (a *App) titleBar(c *ui.Context, p palette) {
 	tb := c.TitleBar()
 	height := a.titleBarHeight(c)
-	left := float32(18)
+	left := float32(space4)
 	if tb.Left > 0 {
-		left = tb.Left + 12
+		left = tb.Left + space3
 	}
 	ui.Row(c).
 		FillWidth().
 		Height(height).
-		Padding(0, 14, 0, left).
-		Gap(12).
+		Padding(0, space4, 0, left).
+		Gap(space3).
 		AlignItems(ui.Center).
 		DragWindow().
 		Material(glass.Glass{}).
 		Children(func() {
-			ui.Icon(c, iconApp).FontSize(15).TextColor(p.accent)
+			// The mark is ink, not accent: it is the app's name written
+			// twice, and the one accent in the frame belongs to the one
+			// action in it.
+			ui.Icon(c, iconApp).FontSize(sizeChrome).TextColor(p.t.Text)
 			ui.Text(c, "leeway").
-				FontSize(15).
+				FontSize(sizeChrome).
 				FontWeight(700).
-				LetterSpacing(-0.2)
-			ui.Box(c).Width(1).Height(18).Background(p.t.TextMuted.Alpha(0.28))
+				LetterSpacing(-0.2).
+				Shrink(0)
+			chromeRule(c, p)
 			a.titleState(c, p)
 			ui.Spacer(c)
 			if !a.lastAt.IsZero() && !a.fetching {
@@ -223,7 +235,9 @@ func (a *App) titleState(c *ui.Context, p palette) {
 	entries := []entry{
 		{ok, "正常", p.toneColor(toneOK)},
 		{bad, "失败", p.toneColor(toneCritical)},
-		{missing, "未配置", p.t.TextMuted.Alpha(0.5)},
+		// A count is text, so it is held to 4.5:1 like the rest: at 0.5 alpha
+		// it measured 2.02:1. The quiet one here is the tone, not the fade.
+		{missing, "未配置", p.t.TextMuted},
 	}
 	busy := a.fetching || a.fetchErr != ""
 	if a.fetching {
@@ -245,7 +259,7 @@ func (a *App) titleState(c *ui.Context, p palette) {
 				if entry.n > 0 {
 					spans = append([]ui.Span{{Text: fmt.Sprintf("%d ", entry.n), Weight: 600, Color: p.t.Text}}, spans...)
 				}
-				ui.RichText(c, spans...).FontSize(sizeSmall).SingleLine()
+				ui.RichText(c, spans...).FontSize(sizeBody).SingleLine()
 			})
 		}
 		if shown == 0 {
@@ -254,30 +268,38 @@ func (a *App) titleState(c *ui.Context, p palette) {
 	})
 }
 
-// titleActions is the refresh control and the settings button.
+// titleActions is the refresh control, the interval menu and the settings
+// button.
 func (a *App) titleActions(c *ui.Context, p palette) {
 	if a.fetching {
-		ui.Row(c).Gap(6).AlignItems(ui.Center).Padding(6, 8).Children(func() {
+		titleControl(ui.Row(c).Gap(space1).AlignItems(ui.Center)).Children(func() {
 			ui.Spinner(c).Size(14, 14)
 		})
-	} else if ui.Button(c, "").Label("刷新").Padding(6, 9).Radius(8).Children(func() {
-		ui.Icon(c, iconRefresh).FontSize(14)
+	} else if titleControl(ui.Button(c, "").Label("刷新")).Children(func() {
+		ui.Icon(c, iconRefresh).FontSize(iconBody)
 	}).Tooltip("刷新（⌘R）").Clicked() {
 		a.Refresh(true)
 	}
-	ui.MenuButton(c, refreshLabel(a.settings.IntervalSec), func(m *ui.Menu) {
+	titleControl(ui.MenuButton(c, refreshLabel(a.settings.IntervalSec), func(m *ui.Menu) {
 		for _, opt := range refreshOptions {
 			if m.Item(opt.label).Checked(a.settings.IntervalSec == opt.sec).Chosen() {
 				a.settings.IntervalSec = opt.sec
 				a.SaveSettings()
 			}
 		}
-	}).FontSize(sizeSmall).Tooltip("自动刷新")
-	if ui.Button(c, "").Label("设置").Padding(6, 9).Radius(8).Children(func() {
-		ui.Icon(c, iconSettings).FontSize(14)
+	})).Tooltip("自动刷新")
+	if titleControl(ui.Button(c, "").Label("设置")).Children(func() {
+		ui.Icon(c, iconSettings).FontSize(iconBody)
 	}).Tooltip("设置（⌘,）").Clicked() {
 		a.OpenSettings()
 	}
+}
+
+// titleControl is one control in the title bar: the refresh button, the
+// interval menu and the settings button share one padding and one corner, so
+// the row reads as a cluster rather than three buttons that happen to be near.
+func titleControl(e ui.Element) ui.Element {
+	return e.Padding(6, 10).Radius(radiusControl).FontSize(sizeBody)
 }
 
 var refreshOptions = []struct {
@@ -304,7 +326,7 @@ func refreshLabel(sec int) string {
 // the pages about the data itself.
 func (a *App) sidebarItems(c *ui.Context, p palette) {
 	ui.SidebarSection(c, "监控", nil, func() {
-		ui.SidebarItem(c, "overview", iconOverview, "总览")
+		sidebarItem(c, "overview", iconOverview, "总览", a.page == "overview")
 		// Only the subscriptions this machine actually has: a provider nobody
 		// has set up is a row to read once in the first-run guide, not a page
 		// to keep walking past.
@@ -333,8 +355,8 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 		}
 	})
 	ui.SidebarSection(c, "数据", nil, func() {
-		ui.SidebarItem(c, "history", iconHistory, "历史")
-		ui.SidebarItem(c, "about", iconAbout, "关于")
+		sidebarItem(c, "history", iconHistory, "历史", a.page == "history")
+		sidebarItem(c, "about", iconAbout, "关于", a.page == "about")
 	})
 }
 
@@ -344,7 +366,11 @@ func (p palette) statusColor(status string) ui.Color {
 		return p.t.Border
 	}
 	if status == "not_configured" {
-		return p.t.TextMuted.Alpha(0.45)
+		// The dot is the only mark a provider's state has in the sidebar, so
+		// it is a graphic carrying meaning and is held to 3:1, which a faded
+		// muted (1.87:1) did not reach. Grey still reads as "not configured"
+		// beside a green or a red dot.
+		return p.t.TextMuted
 	}
 	return p.toneColor(statusTone(status))
 }
@@ -361,6 +387,17 @@ func (a *App) pageView(c *ui.Context, p palette) {
 	default:
 		a.overviewPage(c, p)
 	}
+}
+
+// staleNote says that the numbers below it are the last ones that came back,
+// for the case where the probe that would have refreshed them failed. A cached
+// value otherwise reads exactly like a live one, and the age of the data is a
+// title bar away from the number it is about.
+func staleNote(a *App) string {
+	if a.fetchErr == "" || a.lastAt.IsZero() {
+		return ""
+	}
+	return "下面是 " + agoText(a.lastAt, a.now()) + "的数据"
 }
 
 // pageHead is the title, subtitle and actions every page starts with.
@@ -389,16 +426,48 @@ func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string,
 	})
 }
 
-// tinyButton is a compact action inside a card.
-func tinyButton(c *ui.Context, label string) ui.Element {
-	return ui.Button(c, label).Padding(5, 9).Radius(7).FontSize(sizeSmall)
+// failureText is what a failure says: the app's sentence, and — when the
+// message underneath is one of ours, written for a person to read — that
+// message. A message with no Chinese in it is a library's error text, which
+// goes on the tooltip instead: it names the failure, it does not explain it,
+// and what fixes it is the button beside the line.
+func failureText(sentence, message string) (string, string) {
+	if message == "" {
+		return sentence, ""
+	}
+	// One that leads with our words and trails a machine's — "写 Cursor
+	// keychain 失败：exit status 51" — is split at that last colon, so the
+	// sentence stays ours and the tail goes to the tooltip.
+	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) {
+		return joinNonEmpty([]string{sentence, message[:i]}, " · "), strings.TrimSpace(message[i+len("："):])
+	}
+	if !hasCJK(message) || looksLikeAMachine(message) {
+		return sentence, message
+	}
+	return joinNonEmpty([]string{sentence, message}, " · "), ""
 }
 
-// errorLine shows why a probe failed, without shouting.
-func errorLine(c *ui.Context, p palette, text string) ui.Element {
+// looksLikeAMachine reports whether a message carries a machine's own
+// formatting rather than a person's words: a path, or the "…: no such file or
+// directory" shape an OS error has. Language alone does not tell them apart —
+// macOS localises its errors, so "打开 … 被拒绝" is a machine's message in
+// Chinese — but its paths and its punctuation give it away.
+func looksLikeAMachine(message string) bool {
+	return strings.ContainsAny(message, `/:\\`) || strings.Contains(message, "exit status")
+}
+
+// errorLine is a failure the window is reporting. The sentence is the app's
+// and the detail is whatever the layer underneath said — a Go error string,
+// usually — which goes on the tooltip and never in the sentence's place: a
+// window is not a log, and "unexpected EOF" in front of a reader explains
+// nothing. What fixes the failure is a button beside this line, not a string.
+func errorLine(c *ui.Context, p palette, text, detail string) ui.Element {
 	return ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Start).Children(func() {
-		ui.Icon(c, iconAlert).FontSize(13).TextColor(p.toneColor(toneCritical)).Padding(1, 0, 0, 0)
-		ui.Text(c, text).FontSize(sizeSmall).TextColor(p.toneColor(toneCritical)).Grow(1)
+		ui.Icon(c, iconAlert).FontSize(iconSmall).TextColor(p.toneColor(toneCritical)).Padding(1, 0, 0, 0)
+		line := ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).Grow(1)
+		if detail != "" && detail != text {
+			line.Tooltip(detail)
+		}
 	})
 }
 
@@ -472,8 +541,8 @@ func deltaText(points []history.Point, w model.RateWindow) string {
 func accountActions(c *ui.Context, a *App, p palette, providerID, account string) ui.Element {
 	ready := accountSwitchReady(a, providerID, account)
 	session := accountUsesSession(a, providerID, account)
-	return ui.ButtonBase(c).Label("账号操作").Padding(5, 8).Radius(7).Cursor(ui.CursorPointer).
-		Children(func() { ui.Icon(c, iconMore).FontSize(15).TextColor(p.t.TextMuted) }).
+	return btnSmall(ui.ButtonBase(c).Label("账号操作")).Cursor(ui.CursorPointer).
+		Children(func() { ui.Icon(c, iconMore).FontSize(sizeChrome).TextColor(p.t.TextMuted) }).
 		Menu(func(m *ui.Menu) {
 			if canSwitchTo(providerID, ready) {
 				if m.Item("让本机用它").Chosen() {
@@ -503,13 +572,13 @@ func removeAccountLabel(session bool) string {
 
 // loginActions opens the sheet that gives a provider credentials.
 func loginActions(c *ui.Context, a *App, providerID, account string) ui.Element {
-	return ui.MenuButton(c, loginButtonLabel(providerID), func(m *ui.Menu) {
+	return btnSmall(ui.MenuButton(c, loginButtonLabel(providerID), func(m *ui.Menu) {
 		for _, method := range loginMethods(providerID) {
 			if m.Item(method.label).Chosen() {
 				method.open(a, providerID, account)
 			}
 		}
-	}).Padding(5, 10).Radius(7).FontSize(sizeSmall)
+	}))
 }
 
 type loginMethod struct {
@@ -609,7 +678,7 @@ func accountUsesSession(a *App, providerID, account string) bool {
 func providerHint(id string) string {
 	switch id {
 	case "deepseek", "opencode-go", "commandcode":
-		return "还没有 API key。填上之后 leeway 用它探测用量。"
+		return "还没有 API key。"
 	case "cursor":
 		return "还没有 cursor 私有会话。先用官方 cursor-agent 登录。"
 	case "grok":

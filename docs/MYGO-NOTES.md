@@ -97,9 +97,10 @@ ui.Column(c).Fill().Children(func() {                 // 根 Column：高度 = �
 
 ### 1.2 `AlignSelf(Stretch)` 覆盖父 Row 的 `AlignItems`，但只在交叉轴上
 
-多账号矩阵列间那条贯通竖线就是它（`internal/gui/theme.go:250`–`255`）：
+多账号矩阵列间那条贯通竖线就是它（现在那条线由 `page_matrix.go` 的 `Dividers(1, p.divider)` 画，见 1.4；这个手法本身仍然有效）：
 
 ```go
+// columnRule 是当时矩阵列间那条竖线的写法（后来矩阵改用 Dividers，这个 helper 已删）
 // columnRule separates two accounts in the matrix. AlignSelf(Stretch) makes it
 // as tall as the row's other children, so the columns read as columns down the
 // whole matrix and not only inside one cell.
@@ -212,7 +213,7 @@ win := mygo.NewWindow(mygo.WindowOptions{
 - inspector（`ui/inspector*.go`）能看到每个元素的盒子和"为什么是这个盒子"。
 - 元素自己的盒子：`Element.Bounds()` 返回**上一帧**的盒子（`ui/api_gen.go:3242`–`3247`）；
   本帧的盒子在绘制回调里拿：`Element.Draw(func(p *ui.Painter, r ui.Rect){...})`
-  （`ui/api_gen.go:2783`）。本仓库的 `bar()`/点阵就是这么画的（`internal/gui/theme.go:408`–`436`）。
+  （`ui/api_gen.go:2783`）。本仓库的 `bar()`/点阵就是这么画的（`internal/gui/theme.go` 的 `bar()`）。
 
 ## 2. 渲染与测试
 
@@ -260,6 +261,16 @@ something moves.** 另外窗口被遮住时，动画会被挂起（`ui/runtime.g
   所以可点的 label 要唯一、可读（见 3.1）。
 - **同一父节点下两个元素给了同一个 `Key` 会 panic**（`ui/frame.go:140`–`143` 的说明，
   `docs/ui/testing.md`）。测试里遇到 panic 先查 `Key`。
+- **`Find` 返回的是窗口绝对坐标，不是"某个容器内的坐标"。** 量"页面到底了没有"时最容易错：
+  标题栏下面那一行的高度是 `winH - titleBarHeight(c)`，**那是高度，不是 y**。滚动区的视口在窗口
+  坐标里是 `y ∈ [titleBarMin, winH]`，下沿就是 `winH`。曾经 `TestTheEndOfALongPageIsReachable`
+  写成 `viewport := mainHeight - titleBarMin`（= 646）再拿去当 y 用，于是它要求的留白比设计多
+  2 DIP，**恰好以 0 DIP 余量通过**；字号一变大就翻红，看着像"滚动到底还差 32 DIP"，其实是判据
+  的坐标系错了。实测：`Find("leeway")` ≈ `y=18`、`Find("总览")` ≈ `y=96`（都是窗口坐标），
+  而滚动到底时最后一张卡的下边缘画在 `y=660`，下面 40 DIP 全是背景——`Padding` 的下边距一直
+  是好的。判据改成 `mainHeight - pageBottomPad`（`view.go` 里同一个常量）之后余量 12 DIP，
+  并且仍能抓住真正的回归（把 `Row.Height(winH - titleBarHeight)` 写回 `winH`、或去掉
+  `FillHeight()`、或让页面列自己超出盒子，都会重新翻红）。
 
 ### 2.3 菜单项不在元素树里，但**能测**——用 `Tester.Menu()`
 
@@ -375,31 +386,30 @@ ui.Column(c).FillWidth().Gap(22).Children(func() {   // 这之后创建的元素
 各页面的 `func (a *App) xxxPage(c *ui.Context, p palette)`。
 
 **可测性也是设计约束**：纯图标按钮一定要给 `Label`，否则测试点不到——
-`internal/gui/theme.go:240`–`245` 的 `iconButton` 强制要一个 `label`；
-`internal/gui/view.go:263` 是 `ui.Button(c, "").Label("刷新")`。
+窗口里每个纯图标按钮都在建的时候自己给了 `Label`（例如 `internal/gui/view.go` 的 `ui.Button(c, "").Label("刷新")`）——MyGo 的 `Button` 不强制，漏了就只有测试点不到。
 
 ### 3.2 本项目 theme 约定（`internal/gui/theme.go` 一处说了算）
 
-- 双层卡片：`card()` 就是 `shell()`（`internal/gui/theme.go:181`–`214`）——外层托盘
+- 卡片是三层（`internal/gui/theme.go` 的 `card()`/`shell()`）：两者是同一块板子，差别只在吃不吃悬停——外层托盘
   `Padding(3).Radius(19).Background(p.bezel).Border(1, p.border)`，内层
   `Padding(18).Gap(14).Radius(16).Background(p.card)`，悬停时两者各换一档色（`p.bezelHi`/`p.cardHi`），
   整体套 `panelMotion`。页面只调 `card(c, p, fn)`。
 - 细分隔线：`hairline()` = `ui.Box(c).FillWidth().Height(1).Background(p.border)`
-  （`internal/gui/theme.go:257`–`260`）；列间竖线是 `columnRule()`（见 1.2）。
-- 小圆点：`dot()` = `ui.Box(c).Size(8,8).Radius(4).Background(color)`（`internal/gui/theme.go:262`–`265`）。
-- 颜色全走 `palette`（`internal/gui/theme.go:18`–`76`），深浅各一套，`t.Dark` 判断；
+  （`internal/gui/theme.go` 的 `hairline()`）；列间竖线用容器自带的 `Dividers`（见 1.2）。
+- 小圆点：`dot()` = `ui.Box(c).Size(8,8).Radius(4).Background(color)`（`internal/gui/theme.go` 的 `dot()`）。
+- 颜色全走 `palette`（`internal/gui/theme.go` 的 `paletteOf()`），深浅各一套，`t.Dark` 判断；
   构造用 `ui.RGBA`（`ui/color.go:29`）、`ui.Hex`（`ui/color.go:33`）、`ui.Oklch`（`ui/widecolor.go:18`），
   `Mix`/`Alpha` 派生。**力度是量出来的**：`border` 浅色 7% 黑 / 深色 10% 白，
   `divider`（列竖线）浅色 **18% 黑** / 深色 **26% 白**——比 `border` 重一档才看得出来
-  （`internal/gui/theme.go:54`–`55`、`:68`–`69`）。
+  （`internal/gui/theme.go` 的 `paletteOf()`（`border`/`divider` 两档））。
 - 主题写回：`c.Theme()` 拿当前主题，改一份再 `c.SetTheme(&t)`
-  （`internal/gui/theme.go:79`–`90`；mygo 侧 `ui/api_gen.go:403`–`411`）。
+  （`internal/gui/theme.go` 的 `paletteOf()`；mygo 侧 `ui/api_gen.go:403`–`411`）。
   深浅色由应用级开关决定：`mygo.Theme.SetSource(mygo.ThemeLight/Dark/System)`
   （`internal/gui/view.go:82`–`91`；mygo 侧 `modules.go:224`–`226`、`:249`）。
-- 字号/字重集中在 `internal/gui/theme.go:97`–`105`（六个尺寸），数字一律
+- 字号/字重集中在 `internal/gui/theme.go` 的字号常量（`sizeDisplay`…`sizeChrome`）（六个尺寸），数字一律
   `FontFeatures("tnum")` 等宽。
-- 无障碍：标题用 `Role(ui.RoleHeading).Level(1|2)`（`internal/gui/theme.go:120`–`134`），
-  装饰性元素 `Role(ui.RoleNone)`（`internal/gui/theme.go:343`）。
+- 无障碍：标题用 `Role(ui.RoleHeading).Level(1|2)`（`internal/gui/theme.go` 的 `title()`/`section()`），
+  装饰性元素 `Role(ui.RoleNone)`（`internal/gui/theme.go` 的装饰性图标调用点）。
 
 ### 3.3 图标：两种来源，两套 API（别混）
 
@@ -412,7 +422,7 @@ func icon(svg string) *ui.SVG { return ui.MustParseSVG([]byte(svg)) }
 var iconRefresh = icon(`<svg … viewBox="0 0 24 24" stroke="currentColor">…</svg>`)
 
 // 画：
-ui.Icon(c, iconRefresh).FontSize(15).TextColor(p.t.TextMuted)   // internal/gui/theme.go:242
+ui.Icon(c, iconRefresh).FontSize(15).TextColor(p.t.TextMuted)   // 见 internal/gui/view.go 的刷新按钮
 ```
 
 `ui.Icon(c, s *SVG)` 收的是 `*ui.SVG`（`ui/api_gen.go:1069`–`1076`），`FontSize` 决定它多大
@@ -437,49 +447,57 @@ func providerMark(id string) *ui.Bitmap {
     return b
 }
 
-// 画（internal/gui/theme.go:319-323）：
+// 画（见 internal/gui/theme.go 的 `icon()`）：
 e.Children(func() { ui.Image(c, b).Size(size, size) })   // ui/widgets.go:534，收 *Bitmap 或 *SVG
 ```
 
 来源和加工方式记在 `internal/gui/icons/SOURCES.md`（七个 provider 各自的官方地址，
 `resources/provider-icons.py` 统一裁成 256px 圆角方块）。**provider 图标必须用官方素材**
 （用户明确要求），没有素材时退回"专属色相 + 首字母"，并有
-`TestEveryProviderHasItsOwnIcon`（`internal/gui/gui_test.go:879`）盯着不让退路悄悄发生（退路本身在 `internal/gui/theme.go:324`–`341`）。
+`TestEveryProviderHasItsOwnIcon`（`internal/gui/gui_test.go:879`）盯着不让退路悄悄发生（退路本身在 `internal/gui/theme.go` 的 `providerIcon()`）。
 
 ### 3.4 动效：过渡用 `ElementTransition`，入场用 `AnimationFrame`
 
 - 页面/卡片过渡：`Element.Transition(ui.ElementTransition{...})`（`ui/transition.go:17`–`71`），
   字段 `Duration`（0 = 200ms）、`Ease`（nil = `ui.EaseOut`）、`Position/Size/Colors`、
   `Enter`/`Exit *ui.Motion`（`X/Y/Opacity/Collapse`）。本仓库三个预设：
-  `pageMotion`（只淡入，`internal/gui/view.go:164`–`167`）、
-  `cardMotion`（只收色，160ms，`internal/gui/theme.go:216`–`221`）、
-  `panelMotion`（收色 + 上浮 8px 落位，240ms，`internal/gui/theme.go:226`–`232`）。
+  `pageMotion`（只淡入）、`stateMotion`（只收色，140ms，指针下的状态）、
+  `panelMotion`（收色 + 上浮 8px 落位，240ms）。**一个元素只能挂一条过渡**，后挂的覆盖先挂的
+  （`ui/transition.go:255`–`258`：`r.t = u.t // the element's last Transition counts`），
+  所以卡片是三层：最外层只落位，bezel 和表面各挂 `stateMotion` 收色（`internal/gui/theme.go`）。
+  `Opacity` 会沿着绘制树相乘（`ui/paint.go:120`–`128` 每层 `p.opacity *= e.opacity`），
+  所以挂在最外层也能让整张卡淡入。
   自定义缓动就是一个 `ui.Easing`（`func(t float32) float32`，`ui/widgets.go:114`）：
-  `easeGlide` = `1 - (1-t)^3.4`（`internal/gui/theme.go:234`–`237`）。
+  `easeGlide` = `1 - (1-t)^3.4`（`internal/gui/theme.go` 的 `easeGlide`）。
+- **自己设 `FontSize` 就等于关掉了系统的文字大小**：`ui.Theme.FontSize` 会被 `TextScale` 乘，
+  但 `Element.FontSize(v)` 是绝对值。要么别自己设，要么把尺寸做成变量、每帧按
+  `c.Preferences().TextScale` 重算一次（本仓库的 `scaleType()`）；后者不用改 40 个调用点。
+- **`MaxLines(1)` 不阻止换行，`SingleLine()` 才阻止**：宽度不够时 `MaxLines` 只是限制行数，
+  文字会在极窄的格子里**一字一行**竖着排（本仓库的合并行在 780px 下就是这样塌的）。要「截断成
+  省略号、绝不堆叠」就用 `SingleLine()`；宽的那部分再包一层 `Grow(1)+Clip()` 让它是唯一让步的。
+- **命中可以交给布局，画笔只负责画**：`Element.Hovered()` 是一行等宽隐形格子就能做的事——
+  一行 `Grow(1).FillHeight()` 的空盒子，谁 `Hovered()` 谁就把下标写进闭包变量；图用
+  `DrawOver` 画（它在该元素的子元素之后绘制，拿到的 rect 就是整行），闭包在**绘制时**才读那个
+  变量，所以构建顺序不影响结果。比自己做命中测试省事得多（uix 的 linechart 同法）。
+  注意：隐形格子会参与命中，压在可点的卡片上时要验证卡片本身还点得开。
+- **谁负责写这个时间字段**：本仓库曾有一套入场动画，它读一个 `at` 字段；主窗口从来没人写这个
+  字段，所以动画静默失效（测试里手动写了，看起来是好的）。这类「谁负责写」的问题只能回到生产
+  路径上看。教训有两层：一是**测试自己填状态会让死代码看起来是活的**；二是修好之后要重新判断
+  这个效果该不该存在——补上锚点会让第一帧整页透明，而监控工具的第一帧必须是答案，于是整套
+  删掉比修好更对。
 - 值动画：`Element.Animate(key, target, d) float32` / `AnimateWith(key, target, d, ease)`
-  （`ui/api_gen.go:871`–`882`）——首帧直接返回 target（所以第一次显示不会假装从 0 数上来），
-  自己会保持帧率。本仓库 `numberMotion = 520ms`（`internal/gui/theme.go:376`–`:394`），
-  数字和它下面的条共用（`internal/gui/theme.go:419`）。
-- 手写入场（第一帧按顺序错开）：在**帧内**读时间、按进度设样式，并调
-  `c.AnimationFrame()` 让引擎继续出帧（`ui/api_gen.go:247`），
-  尊重 `c.Preferences().ReduceMotion`：
-
-  ```go
-  // internal/gui/arrival.go:37-56（节选）
-  holder := ui.Column(c).FillWidth()
-  if !ar.at.IsZero() && !c.Preferences().ReduceMotion {
-      if p := arrivalProgress(now.Sub(ar.at), ar.index); p < 1 {
-          c.AnimationFrame()
-          holder.Margin((1-p)*arrivalRise, 0, 0, 0).Opacity(p)
-      }
-  }
-  ar.index++
-  return holder.Children(block)
-  ```
-
-  **为什么要包一层 holder**：卡片自己带 `panelMotion`，它进入时会**写**元素的 opacity，
-  把入场设的透明度盖掉（`internal/gui/arrival.go:29`–`36` 的注释，第一版就这么静默失效的）。
-  另一个坑：`Margin(0,0,x,0)` 是下边距，只把后一块往下推，不会把本块抬起来——要用上边距。
+  （`ui/api_gen.go` 的 `Element.Animate`）——首帧直接返回 target（所以第一次显示不会假装从 0 数上来），
+  自己会保持帧率。本仓库 `numberMotion = 520ms`（`internal/gui/theme.go`），数字和它下面的条共用。
+- 手写动画（在**帧内**读时间、按进度设样式，并调 `c.AnimationFrame()` 让引擎继续出帧，
+  `ui/api_gen.go:247`）：本仓库**现在没有这种代码**，入场编排已经整段删掉（见下条）。要写的话
+  两个坑还在：**被包的元素如果自带过渡，它进入时会写自己的 opacity，把外层设的透明度盖掉**
+  （`panelMotion` 就会），所以要包一层不带过渡的 holder；`Margin(0,0,x,0)` 是**下**边距，只把后
+  一块往下推，不会把本块抬起来——要抬本块用上边距。
+- **入场编排：本仓库删掉了，别再照着老配方加回来。** 曾经有一套「每块晚 55ms 起步、上浮 10 DIP
+  淡入」（`internal/gui/arrival.go`，已删除）：第一帧整页透明，监控工具打开先什么都不给看，
+  评审规则把「监控工具上的错落入场」直接列为 instant-fail。删掉的理由和两个坑（每块的时间戳字段
+  没人写 = 静默死掉的动画；卡片过渡覆盖外层 opacity）记在 `docs/GUI.md`「没有入场动画」一节，
+  能钉的只有「第一帧已经有数字」（`TestOverviewRendersEveryProvider`）；动效本身写不出会失败的断言。
 - `plugins/glass`（`plugins/glass/glass.go:29` 的 `type Glass`）**不是动画**，是背景模糊材质：`ui.Column(c).Material(glass.Glass{})`
   （`internal/gui/view.go:143`、`:198`），给标题栏和侧栏做"玻璃 chrome"。
 
@@ -565,7 +583,7 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 | # | 现象 | 原因 | 正确写法 | 证据 |
 |---|---|---|---|---|
 | 1 ✏️ | 标题栏下面的滚动区比看得见的区域高出正好一个标题栏，页面最后一截滚不到；改成显式高度才正常 | **不是"按窗口解析"，是按父容器的 content box 解析**（实测：300 宽的父容器加 `Padding(20)`，子元素 `FillWidth()` 只有 260 宽）。所以父容器的 content box 比可视区高多少，视口就高多少；父容器高度是 auto（或 `Scroll` 内部，内容高度 `inf`）时百分比解析不出来，静默退化成 auto，滚动容器长到内容高度、根本滚不动 | 要"剩下的高度"就自己算：`_, winH := c.Size()` + `Row.Height(winH - titleBarHeight(c))`；在 Column 里也可以只用 `Grow(1)`（flex 的 shrink 会收回来） | mygo `ui/element.go:56`–`66`、`ui/layout.go:61`–`66`、`ui/layout.go:455`–`457`、`ui/layout.go:513`–`565`、`docs/ui/layout.md:33`–`36`；本仓库 `internal/gui/view.go:128`–`156`、`:173`–`182`；实测 300 ✓ / 338.7 ✗ / 954 ✗ |
-| 2 ✅ | `AlignSelf(ui.Stretch)` 能让 1px 的 Box 跟整行一样高 | `selfAlign` 先看元素自己的 `self`，再退回父容器的 `align`；Stretch 沿交叉轴拉伸 | `ui.Box(c).Width(1).Background(p.divider).AlignSelf(ui.Stretch)` | mygo `ui/layout.go:810`–`820`；本仓库 `internal/gui/theme.go:250`–`255`；实测 0..119 vs 什么都没有 |
+| 2 ✅ | `AlignSelf(ui.Stretch)` 能让 1px 的 Box 跟整行一样高 | `selfAlign` 先看元素自己的 `self`，再退回父容器的 `align`；Stretch 沿交叉轴拉伸 | `ui.Box(c).Width(1).Background(p.divider).AlignSelf(ui.Stretch)` | mygo `ui/layout.go:810`–`820`；本仓库 `internal/gui/page_matrix.go` 的 `Dividers` 用同一手法；实测 0..119 vs 什么都没有 |
 | 3 ✏️ | 空的预测行没有留下多余高度 | Stretch **不是**不生效：它填的是**这一行的行高**（最高兄弟的高度）；行里没有任何元素有内在高度时行高才是 0。另外 Stretch 只管交叉轴——Column 里管宽度，不管高度 | 行高靠兄弟撑；要固定行高就写 `Height`；Column 里别指望 Stretch 变高 | mygo `ui/layout.go:627`–`644`（`ln.cross` 取行内最大）、`ui/layout.go:637`–`643`（有确定高度就不拉伸）；实测 Row 兄弟 60 高 → 线 0..59 |
 | 4 ✅ | 往 Row 里插 1px 分隔线后每列变窄约 10px | `Gap` 加在**每一对相邻子元素**之间，插一个线多出两个 gap | 能接受就接受；想省宽度用容器自带的 `Dividers(width, color)`，它画在已有 gap 中间、不占宽度 | mygo `ui/api_gen.go:3070`、`ui/api_gen.go:2680`–`2686`、`ui/layout.go:516`–`522`、`docs/ui/layout.md:23`–`25`；实测 `[0 138 276]` vs `[0 143 286]` |
 | 5 ✏️ | 长文本会把列撑开 | 真正的原因是 Row 子元素的**自动最小宽度 = min-content**（`intrinsic(c, false)`），它让 flex 分配不均、最后一列被挤成窄条 | 每一列都写 `Grow(1).MinWidth(0)`，再用 `SingleLine()`/`MaxLines(n)` 把文字收进去 | mygo `ui/layout.go:554`–`564`；本仓库 `internal/gui/page_matrix.go:65`、`:78`；实测 183.3/116.7/0 vs 100/100/100（最后一列被顶出窗口）|
@@ -575,14 +593,14 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 | 9 ✏️ | 无人值守截图只能拿到开机那一帧 | 准确说法是**帧只在有事时重建**（输入、`Update`、`Invalidate`、有东西在动），被遮住时动画还会挂起；没有输入就没有页面切换 | 要看别的页面就在测试里 `ui.NewTester`，或人工点；`LEEWAY_GUI_CAPTURE` 只够自检首屏 | mygo `ui/doc.go`、`docs/ui/transitions.md`（末句）、`ui/runtime.go:470`–`480`；本仓库 `internal/gui/app.go:183`–`198` |
 | 10 ✅ | 测试入口 | — | `ui.NewTester(view, w, h)`；另有 `Find`/`Menu`/`ChooseMenuItem`/`SetTitleBar`/`SetPreferences`/`Announcements`/`Scroll`/`Key`/`Type` 等 | mygo `ui/headless.go`、`docs/ui/testing.md`；本仓库 `internal/gui/gui_test.go:372`、`:570` |
 | 11 ✏️ | 菜单测不到 | **菜单项确实不在元素树里**（`Texts()`/`HasText()` 看不到），但 headless 宿主记下了弹出的菜单，`Tester.Menu()` 能列出、`ChooseMenuItem()` 能选。原始那次失败的真实原因是 `Find("配置 key")` 命中的按钮被滚动区裁掉了（`Rect` 的 `W=H=0`），点了个空气 | 端到端用 `Click` → `Menu()` → `ChooseMenuItem(path…)`；"菜单该有什么"仍然适合抽成纯函数单测 | mygo `ui/api_gen.go:2592`–`2632`、`:315`–`:352`、`ui/headless.go:120`–`122`、`:268`–`:325`、`ui/runtime.go:804`–`837`、`docs/ui/testing.md`（Menus）；本仓库 `internal/gui/view.go:505`–`513`、`:521`–`:549`、`internal/gui/gui_test.go:1297`；实测 `{W:0 H:0}` 与 `menu: ["粘贴 API key…"]` |
-| 12 ✅ | `Click` 匹配的是控件 label | `Find`/`Click` 精确匹配元素的 text 或 `Label`，重复时取第一个 | 可点的控件都要唯一、可读的 label：`MenuButton(c, loginButtonLabel(id), …)`、`ButtonBase(c).Label("账号操作")` | mygo `ui/headless.go:227`–`264`、`ui/runtime.go:824`–`837`、`docs/ui/testing.md`；本仓库 `internal/gui/view.go:505`、`internal/gui/theme.go:241` |
+| 12 ✅ | `Click` 匹配的是控件 label | `Find`/`Click` 精确匹配元素的 text 或 `Label`，重复时取第一个 | 可点的控件都要唯一、可读的 label：`MenuButton(c, loginButtonLabel(id), …)`、`ButtonBase(c).Label("账号操作")` | mygo `ui/headless.go:227`–`264`、`ui/runtime.go:824`–`837`、`docs/ui/testing.md`；本仓库 `internal/gui/view.go:505`、`internal/gui/theme.go` 的 `chrome()` |
 | 13 ✏️ | 没有文字测量 API，只能渲染 PNG 数像素 | **有公开 API**：`Context.MeasureText(width, spans...)`、`Painter.MeasureText`；元素盒子有 `Bounds()`（上一帧）和 `Draw` 回调的 `Rect`（本帧） | 先量：`w, _ := c.MeasureText(0, ui.Span{Text: s, Size: sizeBody})`，跟可用宽度比；数像素只留给整图比对（`meanDifference`） | mygo `ui/richtext.go:219`–`232`、`ui/richtext.go:15`–`33`、`ui/api_gen.go:2783`、`ui/api_gen.go:3242`–`3247`；本仓库 `internal/gui/gui_test.go:1276`–`1288`、`resources/screens.py` |
-| 14 ✏️ | `MaxLines(n)`/`SingleLine()` 的行为 | mygo 行为本身确认：`MaxLines(n)` 最多 n 行、超出加省略号；`SingleLine()` = `single + maxLines(1)`；`Ellipsis(s)` 换省略号；`NoWrap()` 不折行也不加省略号。**"渲染时把完整文本放进提示里"不是 mygo 干的**，是本仓库自己挂的 `Tooltip`。而且 mygo **没有**公开"是否被截断"的信号 | 窄列里主动写短；需要悬停看全文就自己 `.Tooltip(全文)`；判断放不放得下用 `MeasureText` | mygo `ui/api_gen.go:3041`–`3055`、`internal/text/layout.go:67`–`70`、`:228`–`229`、`:787`–`798`；本仓库 `internal/gui/theme.go:454`、`internal/gui/settingsview.go:262`–`264`；实测 ink 行数：不限 62 / `SingleLine()` 13 / `MaxLines(1)` 13 / `MaxLines(2)` 26（正好 n×13）|
+| 14 ✏️ | `MaxLines(n)`/`SingleLine()` 的行为 | mygo 行为本身确认：`MaxLines(n)` 最多 n 行、超出加省略号；`SingleLine()` = `single + maxLines(1)`；`Ellipsis(s)` 换省略号；`NoWrap()` 不折行也不加省略号。**"渲染时把完整文本放进提示里"不是 mygo 干的**，是本仓库自己挂的 `Tooltip`。而且 mygo **没有**公开"是否被截断"的信号 | 窄列里主动写短；需要悬停看全文就自己 `.Tooltip(全文)`；判断放不放得下用 `MeasureText` | mygo `ui/api_gen.go:3041`–`3055`、`internal/text/layout.go:67`–`70`、`:228`–`229`、`:787`–`798`；本仓库 `internal/gui/theme.go` 的 `keyValue()`、`internal/gui/settingsview.go:262`–`264`；实测 ink 行数：不限 62 / `SingleLine()` 13 / `MaxLines(1)` 13 / `MaxLines(2)` 26（正好 n×13）|
 | 15 ✅ | `ui.Context` 是 builder | `newElement` 挂到 `c.parent`；`Children` 换父再换回；元素身份 = 父 + 序号 + kind | 每个构造函数都传 `c`；`Children(func(){…})` 分块；`ui.Spacer(c)` 占剩余空间；跨帧身份要跟着数据就用 `Key` | mygo `ui/context.go:191`–`221`、`ui/element.go:476`–`499`、`ui/api_gen.go:1871`–`1872` |
-| 16 ✅ | 本项目设计系统 | 都在 `internal/gui/theme.go` | `card()`=`shell()`（托盘 + 内层卡）、`hairline()`、`dot()`、`columnRule()`；颜色全走 `palette`（`ui.RGBA`/`Hex`/`Oklch`），`t.Dark` 分深浅 | 本仓库 `internal/gui/theme.go:181`–`214`、`:257`–`265`、`:18`–`76` |
-| 17 ✏️ | 图标用官方素材 + `//go:embed` | 来源对，**API 写错了**：`ui.Icon(c, …)` 收的是 `*ui.SVG`（内联 Lucide 路径），不是 PNG 字节；嵌入的 PNG 走 `ui.DecodeBitmap` → `*ui.Bitmap` → `ui.Image(c, b)` | 界面图标：`ui.MustParseSVG` + `ui.Icon(c, svg).FontSize(n).TextColor(c)`；provider 图标：`//go:embed icons/*.png` + `ui.DecodeBitmap` + `ui.Image(c, bmp).Size(s,s)` | mygo `ui/svg.go:51`–`88`、`ui/bitmap.go:38`–`50`、`ui/api_gen.go:1080`–`1092`；本仓库 `internal/gui/icons.go:10`–`12`、`:56`–`66`、`internal/gui/theme.go:319`–`323`、`internal/gui/icons/SOURCES.md` |
-| 18 ✅ | 列分隔线要比 hairline 重一档 | 实测力度：`border` 浅 7% 黑 / 深 10% 白，`divider` 浅 18% 黑 / 深 26% 白 | 竖线用 `p.divider`，卡片内细分隔用 `p.border` | 本仓库 `internal/gui/theme.go:54`–`55`、`:68`–`69` |
-| 19 ✏️ | 入场动画与主题 API 的写法 | 机制确认：帧内读时间 + 设 `Opacity`/`Margin` + `c.AnimationFrame()` 续帧 + 尊重 `ReduceMotion`；过渡是 `ui.ElementTransition`。**`mygo/plugins/glass` 与淡入无关**，它是背景模糊材质 | 入场包一层 holder（卡片自己的过渡会覆盖 opacity）；`Margin` 用上边距；过渡预设放一处（`pageMotion`/`cardMotion`/`panelMotion`） | mygo `ui/api_gen.go:247`、`ui/transition.go:17`–`71`、`ui/api_gen.go:871`–`882`、`:114`、`plugins/glass/glass.go:29`；本仓库 `internal/gui/arrival.go:37`–`56`、`internal/gui/theme.go:216`–`237`、`internal/gui/view.go:164`–`167` |
+| 16 ✅ | 本项目设计系统 | 都在 `internal/gui/theme.go` | `card()`=`shell()`（托盘 + 内层卡）、`hairline()`、`dot()`、`chromeRule()`；列间竖线用 `Dividers`；颜色全走 `palette`（`ui.RGBA`/`Hex`/`Oklch`），`t.Dark` 分深浅 | 本仓库 `internal/gui/theme.go` 的 `card()`/`shell()`/`hairline()`/`dot()`/`paletteOf()` |
+| 17 ✏️ | 图标用官方素材 + `//go:embed` | 来源对，**API 写错了**：`ui.Icon(c, …)` 收的是 `*ui.SVG`（内联 Lucide 路径），不是 PNG 字节；嵌入的 PNG 走 `ui.DecodeBitmap` → `*ui.Bitmap` → `ui.Image(c, b)` | 界面图标：`ui.MustParseSVG` + `ui.Icon(c, svg).FontSize(n).TextColor(c)`；provider 图标：`//go:embed icons/*.png` + `ui.DecodeBitmap` + `ui.Image(c, bmp).Size(s,s)` | mygo `ui/svg.go:51`–`88`、`ui/bitmap.go:38`–`50`、`ui/api_gen.go:1080`–`1092`；本仓库 `internal/gui/icons.go:10`–`12`、`:56`–`66`、`internal/gui/theme.go` 的 `icon()`、`internal/gui/icons/SOURCES.md` |
+| 18 ✅ | 列分隔线要比 hairline 重一档 | 实测力度：`border` 浅 7% 黑 / 深 10% 白，`divider` 浅 18% 黑 / 深 26% 白 | 竖线用 `p.divider`，卡片内细分隔用 `p.border` | 本仓库 `internal/gui/theme.go` 的 `paletteOf()`（`border`/`divider` 两档） |
+| 19 ✏️ | 动效与主题 API 的写法 | 过渡是 `ui.ElementTransition`，**一个元素一条过渡，后挂的赢**；值动画 `Animate` 首帧直接返回目标；**`mygo/plugins/glass` 与淡入无关**，它是背景模糊材质。手写入场需要帧内读时间 + `c.AnimationFrame()` 续帧 + 尊重 `ReduceMotion`——**本仓库已整段删除**（第一帧必须是答案） | 被包元素自带过渡会覆盖外层 opacity；`Margin` 用上边距；过渡预设放一处（`pageMotion`/`stateMotion`/`panelMotion`）；颜色是**构建期**读的，`SetTheme` 不是作用域（见 §3 末） | mygo `ui/api_gen.go:247`、`ui/transition.go:17`–`71`、`ui/api_gen.go` 的 `Element.Animate` 与 `Panel` 文档、`ui/context.go` 的 `SetTheme`、`plugins/glass/glass.go:29`；本仓库 `internal/gui/theme.go` 的 `panelMotion`/`pageMotion`/`stateMotion`、`internal/gui/view.go` 的页面切换 |
 | 20 ✅ | `mygo build` 出 `.app` + `.dmg` | 产物在 `<out>/<goos>-<goarch>/`，dmg 名是 `<Name> <Version>.dmg` | `go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build`；配置 `out`/`name`/`version` | mygo `cmd/mygo/build.go:22`–`52`、`:130`–`141`、`:213`–`:236`、`cmd/mygo/dmg.go:17`–`19`、`cmd/mygo/config.go:19`–`46`；本仓库 `mygo.json` |
 | 21 ✅ | 装完要删掉开发目录里的 `.app` | Spotlight 按 bundle id 索引；`.metadata_never_index`/`.noindex` 放在**子目录**无效（只在卷根生效） | 删掉 `build/darwin-arm64/leeway.app`，或把 `build/` 加进 Spotlight 隐私 | 实测：有标记的目录照样被 `mdfind` 找到（对照组也能找到）；本仓库 `build/darwin-arm64/` 只剩 dmg、`.gitignore:8` |
 | 22 ✅ | 校验手段 | — | `codesign --verify --deep --strict <app>`、`hdiutil verify <dmg>` | mygo `cmd/mygo/bundle.go:189`–`222`、`cmd/mygo/dmg.go:95`–`100`；实测两条都通过 |
@@ -600,7 +618,7 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 四个改动点，都是现有写法。假设要加"对比"页：
 
 ```go
-// 1) internal/gui/page_compare.go —— 新页面：pageHead + card，块用 arrival.hold 错开入场
+// 1) internal/gui/page_compare.go —— 新页面：pageHead + card，一块接一块直接写（没有入场动画）
 package gui
 
 import (
@@ -611,27 +629,23 @@ import (
 
 // comparePage 是……
 func (a *App) comparePage(c *ui.Context, p palette) {
-	a.arrival.hold(c, a.now(), func() {
-		pageHead(c, p, "对比", "把几个账号放在一起看", func() {
-			if ui.PrimaryButton(c, "刷新").Disabled(a.fetching).Clicked() {
-				a.Refresh(true)
-			}
-		})
+	pageHead(c, p, "对比", "把几个账号放在一起看", func() {
+		if ui.PrimaryButton(c, "刷新").Disabled(a.fetching).Clicked() {
+			a.Refresh(true)
+		}
 	})
-	a.arrival.hold(c, a.now(), func() {
-		card(c, p, func() {
+	card(c, p, func() {
 			section(c, p, "按窗口")
 			ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Start).Children(func() {
 				for i, v := range a.providers() {
 					if i > 0 {
 						columnRule(c, p)                       // 1px 竖线，靠 AlignSelf(Stretch) 贯通
 					}
-					ui.Column(c).Grow(1).MinWidth(0).Gap(7).Children(func() {  // 等宽可压缩列
-						ui.Text(c, v.DisplayName).FontSize(sizeBody).FontWeight(600).SingleLine()
-						muted(c, p, fmt.Sprintf("%d 个账号", len(v.Accounts)))
-					})
-				}
-			})
+				ui.Column(c).Grow(1).MinWidth(0).Gap(7).Children(func() {  // 等宽可压缩列
+					ui.Text(c, v.DisplayName).FontSize(sizeBody).FontWeight(600).SingleLine()
+					muted(c, p, fmt.Sprintf("%d 个账号", len(v.Accounts)))
+				})
+			}
 		})
 	})
 }
@@ -647,8 +661,10 @@ func (a *App) pageView(c *ui.Context, p palette) {
 	}
 }
 
-// 3) internal/gui/view.go:304 的 sidebarItems 里加一行（第一个参数就是 a.page 的值）
-ui.SidebarItem(c, "compare", iconCompare, "对比")     // iconCompare 在 icons.go 里用 icon(`<svg …>`) 定义
+// 3) internal/gui/view.go 的 sidebarItems 里加一行（第一个参数就是 a.page 的值）。
+//    用 sidebarItem() 而不是 ui.SidebarItem()：非当前页的图标不该是强调色，
+//    最后一个参数是「这一页是不是当前的」。
+sidebarItem(c, "compare", iconCompare, "对比", a.page == "compare")  // iconCompare 在 icons.go 里用 icon(`<svg …>`) 定义
 
 // 4) internal/gui/gui_test.go —— 内容 + 版式各一条
 func TestComparePageShowsEveryProvider(t *testing.T) {
@@ -664,7 +680,7 @@ func TestComparePageShowsEveryProvider(t *testing.T) {
 }
 ```
 
-要点：`a.arrival.hold(c, a.now(), …)` 一块一次（`internal/gui/page_overview.go:23` 起）；
+要点：**页面直接按顺序写块，不包任何入场 holder**（入场编排已删，见 §3）；
 `pageHead` 给页面标题和动作（`internal/gui/view.go:366`–`369`）；卡片一律 `card(c, p, fn)`；
 页面里所有"现在"都用 `a.now()`，测试把 `a.clock` 钉在 `pinned` 上才能出稳定快照
 （`internal/gui/app.go:58`–`60`、`internal/gui/gui_test.go:48`）。
@@ -677,7 +693,7 @@ if ui.PrimaryButton(c, "保存").Disabled(a.fetching).Clicked() {
 	a.settings.save()
 }
 
-// 纯图标按钮：必须给 Label，否则测试点不到（internal/gui/theme.go:240 的 iconButton 就是这么要求的）
+// 纯图标按钮：必须给 Label，否则测试点不到（窗口里每个纯图标按钮都自己给了 Label）
 ui.Button(c, "").Label("刷新").Padding(6, 9).Radius(8).Children(func() {
 	ui.Icon(c, iconRefresh).FontSize(15).TextColor(p.t.TextMuted)
 }).Clicked()
@@ -689,11 +705,11 @@ ui.MenuButton(c, loginButtonLabel(id), func(m *ui.Menu) {
 			method.open(a, id, account)
 		}
 	}
-}).Padding(5, 10).Radius(7).FontSize(sizeSmall)
+})  // 几何交给 btnSmall / btnLarge，不再各写各的
 
 // 数值 + 条：数字和条共用同一个 Animate，刷新时一起走
 value(c, p, amountText(w), p.amountColor(w))       // FontFeatures("tnum") 等宽数字
-bar(c, p, fraction, barColor(p, w), 7)             // internal/gui/theme.go:408
+bar(c, p, fraction, barColor(p, w), 7)             // internal/gui/theme.go 的 bar()
 
 // 需要量宽度再决定文案长短：在构建期量，别猜
 if w, _ := c.MeasureText(0, ui.Span{Text: label, Size: sizeBody}); w > columnWidth {
@@ -706,3 +722,73 @@ if w, _ := c.MeasureText(0, ui.Span{Text: label, Size: sizeBody}); w > columnWid
 1. **可点的东西必须有唯一、可读的 label**（`Find`/`Click` 精确匹配，见坑 12）。
 2. **放不下就自己写短或挂 `Tooltip`**，别指望 mygo 帮你排版（坑 13、14）。
 3. **列里的内容要能被压缩**：容器 `Grow(1).MinWidth(0)`，文字 `SingleLine()`/`MaxLines(n)`（坑 5）。
+
+## 主题：颜色是构建期读的，`SetTheme` 不是作用域
+
+`coreSidebarItem` 把每一项的图标写死成 `t.Accent`（`ui/sidebar.go:187` 一带的
+`iconColor := t.Accent`），外面没有参数可以改。想只改这一处的配色，利用「widget 的颜色是**构建时**
+从 `c.Theme()` 读进 node 的」这一点：套一份主题副本，构建完再换回来。
+
+```go
+full := c.Theme()          // *ui.Theme
+muted := *full             // 复制值，别改原对象
+muted.Accent = full.TextMuted
+c.SetTheme(&muted)
+item := ui.SidebarItem(c, id, icon, label)
+c.SetTheme(full)           // 必须还原
+```
+
+三个要点：
+
+1. `SetTheme` **不是作用域**：它改的是这一帧的 `c.theme`，还会顺手写 `c.root.bg` 和根文字样式
+   （`ui/context.go` 的 `SetTheme`），所以必须还原，否则整窗背景跟着变。
+2. 只影响**构建期**读色的 widget。`DrawOver`/`Draw` 回调里用 painter 的主题，那是**绘制期**的，
+   作用域已经退出，拿到的是原主题。
+3. 复制的是值（`*full`），不要在原 `*Theme` 上改字段——那会污染全局主题。
+
+同理可推：要问「这个颜色从哪来」，先分清它是构建期写进 node 的，还是绘制期从主题读的。
+
+## Toast 有 Title 和 Description（我们只用 Title）
+
+**本仓库的用法**：toast 只说应用自己写的那句话（`Title`）。`Description` 那一行 MyGo 画在
+`text.Alpha(0.75)`，而「库的原文不上屏」是 `failureText()` 立下的规矩，所以这里不填它：
+`failureText(sentence, message)` 的第二个返回值**恰好就是**库原文（带路径、冒号、`exit status`
+这类机器格式的，或者没有中文的，都不进句子），拿到就丢：**toast 那几条路**先 `log.Printf` 到
+stderr 再丢，要精确错误的人本来就在看终端；**凭据弹层那五条路**不写日志，原文只挂在
+`errorLine` 的 tooltip 上（tooltip 会作为元素描述读给辅助技术，所以那条路也没丢信息）。
+
+API 本身是 `c.Toast(text)`（简写，只有一行）与 `c.AddToast(ui.Toast{Title, Description, Type})`
+（两行，Description 小一号、75% 透明度）。**Description 不是「更详细的错误」的位置**：它是给
+「一句话说不完、但两句都值得看」的场合准备的，而错误原文两行都不该上屏。
+
+## `Tester.Frame()` 会 settle，比不出「在途帧」
+
+`Frame()` 内部 `settle()` 一直画到视图不再请求为止（最多 20 帧，`ui/headless.go:159-170`）。
+所以「首帧 vs 稳定帧」这类断言**两边都是稳定帧**：把 `panelMotion.Enter` 的 Y 从 8 改成 200、
+Duration 从 240ms 改成 2000ms，测试照样绿。要看在途帧，得有一个有帧上限的渲染入口，MyGo
+v0.3.4 没有。本仓库因此把那条测试的措辞改成它真能证明的事（首帧已经有数字）。
+
+## `Find` 返回第一个匹配
+
+给开关加 `.Label(name)` 之后，同一行里「文字标签」和「开关」同名，`Tester.Find(name)` 会命中先
+构建的那个（文字），量出来的是文字框不是开关的点击区。量点击区要么用 `Find` 拿到唯一名字
+（`NumberInput` 的 `Increase`/`Decrease` 就是唯一名字），要么按几何直接 `ClickAt` 探边界。
+
+## 焦点：`Focused()` 需要窗口有焦点，探针也可能测了个空
+
+两个坑，加起来能骗掉半天：
+
+1. `node.Focused()` 是 `hasState() && rt.focused == e.id && rt.windowFocused`
+   （`ui/input.go`）——**窗口自己没有焦点时它永远是 false**。headless 里要先
+   `tester.SetFocused(true)`，否则「元素能不能拿到焦点」这件事根本测不出来。
+2. `Tester.Focused(s)` 的语义是「显示 s 的元素**或它的容器**有焦点」，所以它不能证明
+   焦点在某个具体元素上。要判断「谁拿到了焦点」，用会被写入的那份状态（本仓库是
+   `a.scrub`），或者 `Find` 一个只有那个元素才有的名字。
+3. 还有一个更钝的坑：**探针跑在一个没有渲染出那个控件的 fixture 上**。总览的趋势图只在
+   `len(points) >= 2` 时构建，而默认 fixture 的 hero 卡里没有历史点——于是
+   「图不在 tab 顺序里」这个结论，其实是「图上根本没有图」。渲染快照能一眼看出这件事，
+   探针日志不能：先看快照里有没有那个东西，再去测它的行为。
+
+`Tester.Find` 走的是 `rt.labels`，只有 `label != ""`（或文本元素）且**未被判为 invisible**
+的节点才在里面，所以 `Find` 找不到一个带 label 的元素，等于说它在提交时被判成了 invisible
+（`ui/runtime.go` 的 `commitElement`），这本身就是一条线索。
