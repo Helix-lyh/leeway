@@ -11,3 +11,6 @@
 # Local config & caches (never commit credentials)
 /config.json
 .workbuddy/
+
+# Scratch worktrees
+/.worktrees/
