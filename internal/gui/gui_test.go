@@ -1366,6 +1366,14 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 		// and the path in it gives that away where the language does not.
 		{"open /Users/张三/Library/auth.json: no such file or directory", "切换失败", "open /Users/张三/Library/auth.json: no such file or directory"},
 		{"打开 /Users/张三/x 被拒绝", "切换失败", "打开 /Users/张三/x 被拒绝"},
+		{"Codex auth.json unreadable: open /Users/张三/.codex/auth.json: no such file", "切换失败", "Codex auth.json unreadable: open /Users/张三/.codex/auth.json: no such file"},
+		// Ours, with a path or a URL inside the sentence: those stay on
+		// screen. A rule that fired on any "/" hid them, and on the toast
+		// paths — which throw the detail away — that lost the sentence
+		// entirely.
+		{"没找到 cursor-agent CLI，先安装 https://cursor.com/cli", "切换失败 · 没找到 cursor-agent CLI，先安装 https://cursor.com/cli", ""},
+		{"请先导入 ~/.grok/auth.json", "切换失败 · 请先导入 ~/.grok/auth.json", ""},
+		{"找到 3 个 Cursor state.vscdb（/Users/x/Library/…/state.vscdb, /Users/x/.config/…/state.vscdb）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个", "切换失败 · 找到 3 个 Cursor state.vscdb（/Users/x/Library/…/state.vscdb, /Users/x/.config/…/state.vscdb）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个", ""},
 	} {
 		got, detail := failureText("切换失败", c.message)
 		if got != c.want || detail != c.detail {
@@ -1977,3 +1985,28 @@ func TestTheChartAnswersTheArrowKeys(t *testing.T) {
 
 // scrubLine is one observation as the caption reads it: "01-02 15:04 · 78%".
 var scrubLine = regexp.MustCompile(`\d\d-\d\d \d\d:\d\d · \d+(\.\d+)?%`)
+
+// The attention row has its own copy of the "is this ours or a machine's" rule
+// once: it asked only whether the message had Chinese in it, so an OS error
+// whose *path* was Chinese — the same shape that leaked into the failure line
+// — was drawn in the row as the provider's own words.
+func TestTheAttentionRowKeepsAMachinesPathOffTheRow(t *testing.T) {
+	a := testApp(t)
+	a.navigate("overview")
+	path := "open /Users/张三/.codex/auth.json: no such file or directory"
+	for i := range a.out.Providers {
+		if a.out.Providers[i].ID == "grok" {
+			a.out.Providers[i].Error = path
+			a.out.Providers[i].Accounts[0].Error = path
+		}
+	}
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if tester.HasText(path) {
+		t.Errorf("a machine's path is drawn as the row's own words; texts=%v", tester.Texts())
+	}
+	if !tester.HasText("探测失败 · cookie 已过期，重新登录") && !tester.HasText("探测失败") {
+		t.Errorf("the row lost the app's own sentence; texts=%v", tester.Texts())
+	}
+}

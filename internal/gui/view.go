@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
@@ -447,13 +448,36 @@ func failureText(sentence, message string) (string, string) {
 	return joinNonEmpty([]string{sentence, message}, " · "), ""
 }
 
-// looksLikeAMachine reports whether a message carries a machine's own
-// formatting rather than a person's words: a path, or the "…: no such file or
-// directory" shape an OS error has. Language alone does not tell them apart —
-// macOS localises its errors, so "打开 … 被拒绝" is a machine's message in
-// Chinese — but its paths and its punctuation give it away.
+// looksLikeAMachine reports whether a message is a machine's rather than a
+// person's: the "…: no such file or directory" shape an OS error has, a bare
+// exit status, or a path standing on its own. Language alone cannot tell them
+// apart — macOS localises its errors, so "打开 /Users/张三/x 被拒绝" is a
+// machine's message in Chinese — but the punctuation and the paths give it
+// away. A path *inside* one of our sentences is not one of these: "先安装
+// https://cursor.com/cli" and "先导入 ~/.grok/auth.json" are ours, and they
+// stay on screen.
 func looksLikeAMachine(message string) bool {
-	return strings.ContainsAny(message, `/:\\`) || strings.Contains(message, "exit status")
+	if strings.Contains(message, ": ") || strings.Contains(message, "exit status") {
+		return true
+	}
+	// Sentence punctuation is the other tell: a person wrote this, whatever
+	// paths are quoted inside it. Our own "找到 3 个 Cursor state.vscdb
+	// （/a, /b）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个" must stay on screen.
+	if strings.ContainsAny(message, "，。（）、；：？！——…") {
+		return false
+	}
+	if strings.HasPrefix(message, "/") || strings.HasPrefix(message, "~") {
+		return true
+	}
+	for i := 1; i+1 < len(message); i++ {
+		if message[i] != '/' || (message[i-1] != ' ' && message[i-1] != '"' && message[i-1] != '\'') {
+			continue
+		}
+		if unicode.IsLetter(rune(message[i+1])) {
+			return true
+		}
+	}
+	return false
 }
 
 // errorLine is a failure the window is reporting. The sentence is the app's
