@@ -80,7 +80,7 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 
 // heroCard is the provider the page leads with, at twice the size of the
 // others: its mark, its numbers, and a bar you can read across the room.
-func (a *App) heroCard(c *ui.Context, p palette, v providerView) *ui.Element {
+func (a *App) heroCard(c *ui.Context, p palette, v providerView) ui.Element {
 	return shell(c, p, func() {
 		ui.Row(c).FillWidth().Gap(14).AlignItems(ui.Center).Children(func() {
 			mark(c, p, v.ID, v.DisplayName, 46, v.Status)
@@ -221,7 +221,7 @@ func barColor(p palette, w model.RateWindow) ui.Color {
 }
 
 // overviewCard is one provider's summary in the grid under the lead card.
-func (a *App) overviewCard(c *ui.Context, p palette, v providerView) *ui.Element {
+func (a *App) overviewCard(c *ui.Context, p palette, v providerView) ui.Element {
 	return shell(c, p, func() {
 		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
 			mark(c, p, v.ID, v.DisplayName, 32, v.Status)
@@ -296,7 +296,7 @@ func accountHint(id string, av accountView) string {
 
 // attentionCard lists what needs a hand: providers that failed, that have no
 // credentials yet, or that are switched off.
-func (a *App) attentionCard(c *ui.Context, p palette, list []providerView) *ui.Element {
+func (a *App) attentionCard(c *ui.Context, p palette, list []providerView) ui.Element {
 	return shell(c, p, func() {
 		section(c, p, "需要处理")
 		for i := range list {
@@ -344,7 +344,7 @@ func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
 
 // attentionLine is the reason a provider needs a hand: the app's own sentence,
 // then whatever the provider said, in its own words.
-func attentionLine(c *ui.Context, p palette, v providerView) *ui.Element {
+func attentionLine(c *ui.Context, p palette, v providerView) ui.Element {
 	reason := attentionReason(v)
 	detail := providerError(v)
 	if detail == "" || detail == reason {

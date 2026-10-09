@@ -29,7 +29,7 @@ type arrival struct {
 // The block goes inside an element of the entrance's own: a card carries a
 // transition that brings it in as a page changes, and that would write over
 // the fade this sets.
-func (ar *arrival) hold(c *ui.Context, now time.Time, block func()) *ui.Element {
+func (ar *arrival) hold(c *ui.Context, now time.Time, block func()) ui.Element {
 	holder := ui.Column(c).FillWidth()
 	// A window that never opened, or a desktop asking for less motion: the
 	// block is at its place from the first frame.

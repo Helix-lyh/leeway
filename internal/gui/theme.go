@@ -102,7 +102,7 @@ const (
 )
 
 // hero is the number the page leads with.
-func hero(c *ui.Context, p palette, text string, color ui.Color) *ui.Element {
+func hero(c *ui.Context, p palette, text string, color ui.Color) ui.Element {
 	return ui.Text(c, text).
 		FontSize(sizeHero).
 		FontWeight(600).
@@ -114,7 +114,7 @@ func hero(c *ui.Context, p palette, text string, color ui.Color) *ui.Element {
 
 // title is a page's or a provider's name, and the top of the page for
 // assistive technology, which navigates by headings.
-func title(c *ui.Context, p palette, text string) *ui.Element {
+func title(c *ui.Context, p palette, text string) ui.Element {
 	return ui.Text(c, text).
 		FontSize(sizeTitle).
 		FontWeight(650).
@@ -126,12 +126,12 @@ func title(c *ui.Context, p palette, text string) *ui.Element {
 
 // section is a card's title: the same look as a label, one rank under the
 // page's title.
-func section(c *ui.Context, p palette, text string) *ui.Element {
+func section(c *ui.Context, p palette, text string) ui.Element {
 	return label(c, p, text).Role(ui.RoleHeading).Level(2)
 }
 
 // value is a window's number on a card.
-func value(c *ui.Context, p palette, text string, color ui.Color) *ui.Element {
+func value(c *ui.Context, p palette, text string, color ui.Color) ui.Element {
 	return ui.Text(c, text).
 		FontSize(sizeValue).
 		FontWeight(600).
@@ -142,7 +142,7 @@ func value(c *ui.Context, p palette, text string, color ui.Color) *ui.Element {
 }
 
 // label is a caption above or beside a group: small, spaced, muted.
-func label(c *ui.Context, p palette, text string) *ui.Element {
+func label(c *ui.Context, p palette, text string) ui.Element {
 	return ui.Text(c, text).
 		FontSize(sizeLabel).
 		FontWeight(600).
@@ -152,12 +152,12 @@ func label(c *ui.Context, p palette, text string) *ui.Element {
 }
 
 // body is ordinary running text.
-func body(c *ui.Context, p palette, text string) *ui.Element {
+func body(c *ui.Context, p palette, text string) ui.Element {
 	return ui.Text(c, text).FontSize(sizeBody).TextColor(p.t.Text)
 }
 
 // muted is ordinary text that should not shout.
-func muted(c *ui.Context, p palette, text string) *ui.Element {
+func muted(c *ui.Context, p palette, text string) ui.Element {
 	return ui.Text(c, text).FontSize(sizeSmall).TextColor(p.t.TextMuted)
 }
 
@@ -165,7 +165,7 @@ func muted(c *ui.Context, p palette, text string) *ui.Element {
 
 // shadowSoft is the two-layer shadow panels cast: a tight one for the edge
 // and a wide one for the lift.
-func shadowSoft(e *ui.Element, p palette) *ui.Element {
+func shadowSoft(e ui.Element, p palette) ui.Element {
 	if p.dark {
 		return e.Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.5)).
 			Shadow(0, 6, 18, -6, ui.RGBA(0, 0, 0, 0.45))
@@ -175,14 +175,14 @@ func shadowSoft(e *ui.Element, p palette) *ui.Element {
 }
 
 // card is the surface every panel sits on: the tray, without the hover.
-func card(c *ui.Context, p palette, fn func()) *ui.Element {
+func card(c *ui.Context, p palette, fn func()) ui.Element {
 	return shell(c, p, fn)
 }
 
 // shell is a card in a tray: an outer bezel with a hairline, the surface
 // inside it, and one soft shadow under the whole thing, so a panel reads as
 // a plate set into the window rather than as a rectangle drawn on it.
-func shell(c *ui.Context, p palette, fn func()) *ui.Element {
+func shell(c *ui.Context, p palette, fn func()) ui.Element {
 	outer := ui.Column(c).
 		FillWidth().
 		Padding(3).
@@ -234,7 +234,7 @@ func easeGlide(t float32) float32 {
 }
 
 // iconButton is a compact round action with one icon in it.
-func iconButton(c *ui.Context, p palette, label string, ic *ui.SVG, on func()) *ui.Element {
+func iconButton(c *ui.Context, p palette, label string, ic *ui.SVG, on func()) ui.Element {
 	b := ui.Button(c, "").Label(label).Padding(7).Radius(999).Children(func() {
 		ui.Icon(c, ic).FontSize(15).TextColor(p.t.TextMuted)
 	})
@@ -247,22 +247,22 @@ func iconButton(c *ui.Context, p palette, label string, ic *ui.SVG, on func()) *
 // columnRule separates two accounts in the matrix. AlignSelf(Stretch) makes it
 // as tall as the row's other children, so the columns read as columns down the
 // whole matrix and not only inside one cell.
-func columnRule(c *ui.Context, p palette) *ui.Element {
+func columnRule(c *ui.Context, p palette) ui.Element {
 	return ui.Box(c).Width(1).Background(p.divider).AlignSelf(ui.Stretch)
 }
 
 // hairline separates blocks inside a card.
-func hairline(c *ui.Context, p palette) *ui.Element {
+func hairline(c *ui.Context, p palette) ui.Element {
 	return ui.Box(c).FillWidth().Height(1).Background(p.border)
 }
 
 // dot shows a small level indicator.
-func dot(c *ui.Context, color ui.Color) *ui.Element {
+func dot(c *ui.Context, color ui.Color) ui.Element {
 	return ui.Box(c).Size(8, 8).Radius(4).Background(color)
 }
 
 // pill is a short status label in a tinted capsule.
-func pill(c *ui.Context, p palette, text string, t tone) *ui.Element {
+func pill(c *ui.Context, p palette, text string, t tone) ui.Element {
 	color := p.toneColor(t)
 	return ui.Box(c).
 		Padding(3, 8).
@@ -306,7 +306,7 @@ func providerHue(id string) float32 {
 // its last probe as a small dot at the corner. A provider we have no icon for
 // falls back to its initial on a tint of its own hue, which is at least ours
 // rather than someone else's mark drawn wrong.
-func mark(c *ui.Context, p palette, id, name string, size float32, status string) *ui.Element {
+func mark(c *ui.Context, p palette, id, name string, size float32, status string) ui.Element {
 	e := ui.Column(c).
 		Size(size, size).
 		Radius(size*0.26).
@@ -387,7 +387,7 @@ func windowValue(w model.RateWindow) float64 {
 
 // tweenValue eases a value the way its bar does. host is the element the
 // animation state hangs on, key tells two numbers on one host apart.
-func tweenValue(host *ui.Element, key string, v float64) float64 {
+func tweenValue(host ui.Element, key string, v float64) float64 {
 	return float64(host.Animate(key, float32(v), numberMotion))
 }
 
@@ -402,7 +402,7 @@ func tweenText(w model.RateWindow, v float64) string {
 	return amountText(w)
 }
 
-func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height float32) *ui.Element {
+func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height float32) ui.Element {
 	f := float32(math.Max(0, math.Min(fraction, 1)))
 	return ui.Box(c).
 		FillWidth().
@@ -434,7 +434,7 @@ func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height floa
 // labeledRow is a caption on the left and a control on the right, as
 // settings rows read. The control is built inside the row, so give it as a
 // function.
-func labeledRow(c *ui.Context, p palette, text string, control func()) *ui.Element {
+func labeledRow(c *ui.Context, p palette, text string, control func()) ui.Element {
 	return ui.Row(c).FillWidth().AlignItems(ui.Center).Gap(12).Children(func() {
 		body(c, p, text)
 		ui.Box(c).Grow(1)
@@ -445,7 +445,7 @@ func labeledRow(c *ui.Context, p palette, text string, control func()) *ui.Eleme
 // keyValue is one line of a details list: the caption, then the value, which
 // stays on one line, keeps its whole self in a tooltip, and reads as code
 // when it is a path.
-func keyValue(c *ui.Context, p palette, key, text string) *ui.Element {
+func keyValue(c *ui.Context, p palette, key, text string) ui.Element {
 	return ui.Row(c).FillWidth().Gap(12).AlignItems(ui.Start).Children(func() {
 		label(c, p, key).Width(76).Padding(2, 0, 0, 0)
 		v := ui.Text(c, shortenPath(text)).FontSize(sizeSmall).Grow(1).SingleLine().Ellipsis("…").Tooltip(text).Selectable()
