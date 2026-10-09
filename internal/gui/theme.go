@@ -240,7 +240,11 @@ func section(c *ui.Context, p palette, text string) ui.Element {
 // chrome is the wordmark, a column head, a dialog's title: between a card's
 // number and its captions.
 func chrome(c *ui.Context, p palette, text string) ui.Element {
-	return ui.Text(c, text).FontSize(sizeChrome).FontWeight(700).SingleLine()
+	// Column heads are words, but the same style carries the lead card's
+	// footer money — a number that changes under the reader — so the digits
+	// are one width: without it five equal-length amounts measured 45.97 to
+	// 57.55 px and the row moved whenever a digit changed shape.
+	return ui.Text(c, text).FontSize(sizeChrome).FontWeight(700).SingleLine().FontFeatures("tnum")
 }
 
 // value is a window's number on a card.

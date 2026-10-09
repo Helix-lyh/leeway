@@ -120,7 +120,11 @@ func burnAlarmLine(c *ui.Context, p palette, points []history.Point, w model.Rat
 	if text == "" {
 		return
 	}
-	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2)
+	// Two lines are what a card row can hold, and a sentence that needs three
+	// has to say so: the mark is the ellipsis, and the whole sentence is on the
+	// tooltip — a matrix column is 98px wide at the window's own minimum, which
+	// is not enough for "刚重置：78% → 12%，额度已恢复".
+	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2).Ellipsis("…").Tooltip(text)
 }
 
 // burnAlarmInColumn draws the projection the way a matrix column can hold it:
@@ -135,7 +139,7 @@ func burnAlarmInColumn(c *ui.Context, p palette, who string, points []history.Po
 	if who != "" {
 		text = who + "：" + text
 	}
-	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).MaxLines(2)
+	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).MaxLines(2).Ellipsis("…").Tooltip(text)
 }
 
 // resetDrop is what the newest reset in a series fell from and to. A reset can
@@ -176,7 +180,7 @@ func resetNote(c *ui.Context, p palette, points []history.Point) {
 	if text == "" {
 		return
 	}
-	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2)
+	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2).Ellipsis("…").Tooltip(text)
 }
 
 func sign(v float64) int {
