@@ -1377,7 +1377,10 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 func TestAFailedSheetKeepsTheLibrarysWordsOffTheSentence(t *testing.T) {
 	a := testApp(t)
 	a.openSessionFile("grok", "work")
-	a.prompt.path = filepath.Join(t.TempDir(), "not-there.json")
+	// The path carries a Chinese directory name on purpose: macOS localises its
+	// errors, so the message underneath has Chinese in it too, and the sheet
+	// must still say the failure in the app's own words.
+	a.prompt.path = filepath.Join(t.TempDir(), "文档", "not-there.json")
 	// The sheet's failure path without the goroutine a window needs: the file
 	// is read and the message split exactly as `submitPrompt` does it, so the
 	// assertion below is about the split and not about a race.
