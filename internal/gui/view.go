@@ -339,6 +339,9 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 			}
 			listed++
 			item := ui.SidebarItem(c, "provider:"+view.ID, nil, view.DisplayName)
+			// The dot's shape and colour are the mark; the word rides on the
+			// row so a keyboard or screen-reader user reads the state too.
+			item = item.Tooltip(view.DisplayName + " · " + statusLabel(view.Status, view.firstCred()))
 			item.Children(func() {
 				// Every provider listed here has at least one subscription, so
 				// the count is always worth showing: a row without a number
@@ -347,8 +350,8 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 					ui.Badge(c, fmt.Sprintf("%d", n))
 				}
 				// A dot means leeway has something to say: green is fine, red
-				// is not.
-				dot(c, p.statusColor(view.Status))
+				// is not, and a ring means it has not answered yet.
+				statusDot(c, p, view.Status)
 			})
 		}
 		if listed == 0 {
