@@ -49,7 +49,7 @@ leeway use grok home
 
 go test ./...
 
-go run github.com/egoist/mygo/cmd/mygo@v0.2.16 build      # 窗口产物：.app + .dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build      # 窗口产物：.app + .dmg
 LEEWAY_GUI_SNAPSHOT=/tmp/shots go test ./internal/gui/    # 渲染快照，人眼过版式
 LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app   # 真窗口截图自检
 ```

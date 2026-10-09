@@ -49,7 +49,7 @@ leeway use grok home
 
 go test ./...
 
-go run github.com/egoist/mygo/cmd/mygo@v0.2.16 build      # 窗口产物：.app + .dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build      # 窗口产物：.app + .dmg
 LEEWAY_GUI_SNAPSHOT=/tmp/shots go test ./internal/gui/    # 渲染快照，人眼过版式
 LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app   # 真窗口截图自检
 ```
@@ -159,4 +159,3 @@ CLI 与窗口共用 `internal/config`、`internal/fetch`、`internal/history`、
 - [ ] diff 保持解决当前问题所需的最小充分范围
 - [ ] 删除非必要防御后，核心逻辑仍然正确完整
 <!-- code-generation-rules:end -->
-

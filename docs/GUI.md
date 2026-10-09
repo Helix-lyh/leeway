@@ -202,8 +202,8 @@ codex / kimi）按钮写「登录」，只有 key 用来查额度/余额的（de
 ## 构建与打包
 
 ```sh
-go run github.com/egoist/mygo/cmd/mygo@v0.2.16 build     # .app + .dmg
-go run github.com/egoist/mygo/cmd/mygo@v0.2.16 build -skip-dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build     # .app + .dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build -skip-dmg
 ```
 
 `mygo.json` 里的 `main` 必须写成 `./cmd/leeway-gui`：MyGo 用 `go list` 解析它，
