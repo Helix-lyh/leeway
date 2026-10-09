@@ -1362,11 +1362,26 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 		{"cookie 已过期，重新登录", "切换失败 · cookie 已过期，重新登录", ""},
 		// A machine's alone: the sentence is ours and the tooltip has it.
 		{"unexpected EOF", "切换失败", "unexpected EOF"},
+		// A quoted path is the OS naming a file it could not open, and it is
+		// the machine's whole message even when a shell command trails it: the
+		// colon split must not pull the OS's own sentence back on screen.
+		{`无法打开"/Users/张三/auth.json"：没有那个文件或目录：exit status 1`, "切换失败", `无法打开"/Users/张三/auth.json"：没有那个文件或目录：exit status 1`},
+		// Our half, then a library's: the split is what keeps the English tail
+		// out of the sentence (switcher.go writes this shape with %w).
+		{"读取 /Users/张三/.codex/auth.json 失败：no such file or directory", "切换失败 · 读取 /Users/张三/.codex/auth.json 失败", "no such file or directory"},
+		{"打开 Cursor state.vscdb：unable to open database file", "切换失败 · 打开 Cursor state.vscdb", "unable to open database file"},
 		// A machine's in Chinese: a localised OS error is still a machine's,
 		// and the path in it gives that away where the language does not.
 		{"open /Users/张三/Library/auth.json: no such file or directory", "切换失败", "open /Users/张三/Library/auth.json: no such file or directory"},
 		{"打开 /Users/张三/x 被拒绝", "切换失败", "打开 /Users/张三/x 被拒绝"},
 		{"Codex auth.json unreadable: open /Users/张三/.codex/auth.json: no such file", "切换失败", "Codex auth.json unreadable: open /Users/张三/.codex/auth.json: no such file"},
+		// Ours, ending on the path it names, or naming its tool in Latin: a
+		// path in the middle of a Chinese sentence with no Latin anywhere is
+		// the OS's shape, but these are not that shape and must stay readable.
+		{`kimi 账号 "work" 的会话文件不在 /Users/张三/.leeway/sessions/kimi-work`, `切换失败 · kimi 账号 "work" 的会话文件不在 /Users/张三/.leeway/sessions/kimi-work`, ""},
+		{"无法写入 /Users/me/auth.json", "切换失败 · 无法写入 /Users/me/auth.json", ""},
+		{"没有找到 cursor-agent：/opt/homebrew/bin 里没有它", "切换失败 · 没有找到 cursor-agent：/opt/homebrew/bin 里没有它", ""},
+		{"cookie 已过期: 请重新登录", "切换失败 · cookie 已过期: 请重新登录", ""},
 		// Ours, with a path or a URL inside the sentence: those stay on
 		// screen. A rule that fired on any "/" hid them, and on the toast
 		// paths — which throw the detail away — that lost the sentence

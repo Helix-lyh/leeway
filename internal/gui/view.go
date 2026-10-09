@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
@@ -436,19 +437,43 @@ func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string,
 // goes on the tooltip instead: it names the failure, it does not explain it,
 // and what fixes it is the button beside the line.
 func failureText(sentence, message string) (string, string) {
+	message = strings.TrimSpace(message)
 	if message == "" {
 		return sentence, ""
+	}
+	// A quoted path is how an OS names a file it could not open, in Chinese
+	// too — 无法打开"/Users/张三/auth.json"：没有那个文件或目录 — and such a
+	// message is the machine's whole, wherever its colons fall.
+	if hasQuotedPath(message) {
+		return sentence, message
 	}
 	// One that leads with our words and trails a machine's — "写 Cursor
 	// keychain 失败：exit status 51" — is split at that last colon, so the
 	// sentence stays ours and the tail goes to the tooltip.
-	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) && looksLikeAMachine(message[i+len("："):]) {
+	if i := strings.LastIndex(message, "："); i > 0 && hasCJK(message[:i]) && tailIsAMachine(message[i+len("："):]) {
 		return joinNonEmpty([]string{sentence, message[:i]}, " · "), strings.TrimSpace(message[i+len("："):])
 	}
 	if !hasCJK(message) || looksLikeAMachine(message) {
 		return sentence, message
 	}
 	return joinNonEmpty([]string{sentence, message}, " · "), ""
+}
+
+// hasQuotedPath is the shape an OS uses to name the file it could not open:
+// the path inside quotes, in either script's quotes.
+func hasQuotedPath(message string) bool {
+	return strings.Contains(message, `"/`) || strings.Contains(message, `"~`) ||
+		strings.Contains(message, "“/") || strings.Contains(message, "“~")
+}
+
+// tailIsAMachine reports whether what follows a colon is a machine's words: a
+// phrase with no Chinese in it, like "exit status 51" or "no such file or
+// directory". Our own tails are Chinese — "官方 CLI 没写出令牌", "写入 64 字节，
+// 读回 32 字节" — and those belong in the sentence with the head that leads to
+// them.
+func tailIsAMachine(tail string) bool {
+	tail = strings.TrimSpace(tail)
+	return tail != "" && !hasCJK(tail) && len(strings.Fields(tail)) >= 2
 }
 
 // looksLikeAMachine reports whether a message is a machine's rather than a
@@ -460,24 +485,65 @@ func failureText(sentence, message string) (string, string) {
 // https://cursor.com/cli" and "先导入 ~/.grok/auth.json" are ours, and they
 // stay on screen.
 func looksLikeAMachine(message string) bool {
-	if strings.Contains(message, ": ") || strings.Contains(message, "exit status") {
+	if hasQuotedPath(message) {
 		return true
 	}
-	// A quoted path is how an OS names a file it could not open, and it is
-	// quoted in Chinese too: 无法打开"/Users/张三/auth.json"：没有那个文件或目录.
-	if strings.Contains(message, `"/`) || strings.Contains(message, `"~`) ||
-		strings.Contains(message, "“/") || strings.Contains(message, "“~") {
+	// The "…: no such file or directory" shape, in either colon. The tail has
+	// to be a machine's: "cookie 已过期: 请重新登录" is ours and stays.
+	if i := strings.LastIndex(message, "："); i > 0 && tailIsAMachine(message[i+len("："):]) {
 		return true
 	}
-	// Sentence punctuation is the other tell: a person wrote this, whatever
-	// paths are quoted inside it. Our own "找到 3 个 Cursor state.vscdb
-	// （/a, /b）——用 LEEWAY_CURSOR_STATE_DB 指定要写哪一个" must stay on screen.
-	if strings.ContainsAny(message, "，。（）、；：？！——…") {
-		return false
+	if i := strings.LastIndex(message, ": "); i >= 0 && tailIsAMachine(message[i+2:]) {
+		return true
+	}
+	if strings.Contains(message, "exit status") {
+		return true
 	}
 	if strings.HasPrefix(message, "/") || strings.HasPrefix(message, "~") {
 		return true
 	}
+	if !hasCJK(message) {
+		// "stat /Users/x failed": no Chinese at all, a path standing on its
+		// own. The path has to start a word, or every URL would count.
+		return hasBarePath(message)
+	}
+	// Chinese with a path in the *middle* of it, and no Latin anywhere outside
+	// that path, is an OS error: macOS writes 打开 /Users/张三/x 被拒绝. One of
+	// ours either ends on the path — "请先导入 ~/.grok/auth.json", "kimi 账号
+	// "work" 的会话文件不在 /Users/…" — or names its tool in Latin letters:
+	// "找到 3 个 Cursor state.vscdb（/a, /b）——用 LEEWAY_CURSOR_STATE_DB 指定
+	// 要写哪一个", "拒绝删除 /Users/…：不在 leeway 会话目录里". Those stay.
+	words := strings.Fields(message)
+	for i, word := range words {
+		if strings.HasPrefix(word, "/") || strings.HasPrefix(word, "~") {
+			if i < len(words)-1 && !latinOutsidePaths(words) {
+				return true
+			}
+			continue
+		}
+	}
+	return false
+}
+
+// latinOutsidePaths reports whether a message names anything in Latin letters
+// other than a path.
+func latinOutsidePaths(words []string) bool {
+	for _, word := range words {
+		if strings.HasPrefix(word, "/") || strings.HasPrefix(word, "~") {
+			continue
+		}
+		for _, r := range word {
+			if r < utf8.RuneSelf && unicode.IsLetter(r) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasBarePath reports a path that starts a word, which is how an OS names one
+// and how a URL does not.
+func hasBarePath(message string) bool {
 	for i := 1; i+1 < len(message); i++ {
 		if message[i] != '/' || (message[i-1] != ' ' && message[i-1] != '"' && message[i-1] != '\'') {
 			continue
@@ -497,7 +563,9 @@ func looksLikeAMachine(message string) bool {
 func errorLine(c *ui.Context, p palette, text, detail string) ui.Element {
 	return ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Start).Children(func() {
 		ui.Icon(c, iconAlert).FontSize(iconSmall).TextColor(p.toneColor(toneCritical)).Padding(1, 0, 0, 0)
-		line := ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).Grow(1)
+		// Focusable so the detail is not pointer-only: MyGo shows a keyboard
+		// tooltip as soon as the focus ring is visible.
+		line := ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).Grow(1).Focusable()
 		if detail != "" && detail != text {
 			line.Tooltip(detail)
 		}

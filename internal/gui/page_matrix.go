@@ -81,7 +81,7 @@ func (a *App) matrixHead(c *ui.Context, p palette, v providerView, av accountVie
 		// it does not compete with what the column says.
 		// The column is named by the account; a narrow column cuts it, so the
 		// whole name hangs off the label the way every other cut string does.
-		chrome(c, p, displayAccount(av.Name)).MinWidth(20).Tooltip(displayAccount(av.Name))
+		chrome(c, p, displayAccount(av.Name)).MinWidth(20).Focusable().Tooltip(displayAccount(av.Name))
 		ui.Spacer(c)
 		matrixActions(c, a, p, v.ID, av.Name)
 	})
