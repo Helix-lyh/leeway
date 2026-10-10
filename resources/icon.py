@@ -1,34 +1,72 @@
 #!/usr/bin/env python3
-"""Draw resources/icon.png.
+"""Build resources/icon.png from resources/icon-brush.png.
 
-The mark is a brush stroke wound into a spiral, solid where it is spent and
-coming apart into threads where it is not — 尾, the tail, which is what leeway
+    python3 resources/icon.py          # needs Pillow and numpy
+
+## What the mark is
+
+A brush stroke wound into a spiral: solid where the quota is spent, coming apart
+into hairs and thrown sparks where it is not — 尾, the tail, which is what leeway
 means: the length you have not had to spend yet.
 
-Why a spiral and not a quota bar. A quota bar is a line, and an icon that
-redraws the app's own progress bar is an icon of a UI component, which is
-exactly what Apple's HIG says not to ship ("prefer illustrations to photos and
-avoid replicating UI components"). Winding the line up says the half of the
-product a bar cannot: quota comes round again, it resets, it cycles. The solid
-head is the part used; the threads are the part still open.
+Why a spiral and not a quota bar. A quota bar is a line, and an icon that redraws
+the app's own progress bar is an icon of a UI component, which is exactly what
+Apple's HIG says not to ship ("prefer illustrations to photos and avoid
+replicating UI components"). Winding the line up says the half of the product a
+bar cannot: quota comes round again, it resets, it cycles. A progress bar is a
+line, so this is not a change of subject — it is the same element, wound up.
 
-Why the threads rather than a dotted line. A dotted continuation was tried and
-drawn correctly, and at 16px its dashes read as the teeth of a gear. Threads
-that fan and thin read as one bold stroke at 16px and as fur at 512px.
+## Where each half comes from
 
-macOS geometry: a 1024 canvas, an 824 superellipse body centred in it, corner
-exponent 5 (Apple's squircle, not a rounded rectangle). The plate is one clean
-vertical ramp — no glow, no bevel — and the mark is measured and re-centred on
-its own ink, because a spiral with a tail is not symmetric. Everything is drawn
-at 4x and scaled down, which is what keeps the edges clean.
+The brush surface — flying white, stray hairs, the sparks thrown off the tip —
+is a render from an image model. Hand-written code draws a stroke that is
+*shaped* like a dry brush but never actually *behaves* like one: the streaks sit
+in a comb, the hairs in a fan. That texture is what `icon-brush.png` supplies,
+and it is the one thing worth taking from a model.
 
-    python3 resources/icon.py
+Everything else stays in code, because it is the part a model does not do
+reliably: the plate, the squircle, the violet ramp, and above all the placement.
+`icon-brush.png` is white ink on flat black, which is what makes luminance a
+usable mask.
+
+## Placement: solved, not measured
+
+The tempting approach is to measure some "centre" of the mark and move that to
+the middle of the canvas. It does not work, and each definition fails its own
+way. The **bounding box** centre tracks the mark's reach, so one hair trailing to
+a corner drags the body away from the middle. The **centre of gravity** tracks
+the mark's weight, and a long faint tail carries enough weight to pull the body
+off the other way. The **eye of the spiral** is not a hole at all: a spiral is
+open, so flooding in from the border runs straight through it.
+
+What the eye reads is the **reach** — a mark whose sparks sweep far to the upper
+right looks off-centre even when its weight is dead centre. So the centre is not
+measured, it is solved for: over every candidate position, find the worst pixel,
+the one that reaches furthest once the shape of the icon body is accounted for,
+and choose the position that makes that worst pixel as close as possible. That is
+the Chebyshev centre of the mark in the squircle's own norm, and it balances the
+reach and maximises the size in the same step — which is why the scale falls out
+of the same number instead of being guessed separately.
+
+## Geometry
+
+macOS: a 1024 canvas with an 824 superellipse body centred in it, corner
+exponent 5 (Apple's squircle, not a rounded rectangle), transparent margins.
+MyGo's `pngToICNS` only resizes — it does no masking — so the squircle has to be
+baked in here.
+
+Everything runs at 4x and is scaled down, which is what keeps the edges clean.
 """
 
 import math
-import random
+import pathlib
 
+import numpy as np
 from PIL import Image, ImageDraw
+
+HERE = pathlib.Path(__file__).parent
+SOURCE = HERE / "icon-brush.png"
+TARGET = HERE / "icon.png"
 
 S = 4096  # working canvas, 4x the 1024 the bundle wants
 CANVAS = 1024
@@ -38,51 +76,24 @@ VIOLET_TOP = (124, 92, 255)
 VIOLET_BOTTOM = (74, 34, 217)
 WHITE = (255, 255, 255)
 
-# The stroke. How bold this can be is not a taste decision, it is arithmetic:
-# the squircle is 412px from the centre on the axes, so R1 + WIDTH/2 has to stay
-# under about 380, and the turns have to fit inside that. More turns therefore
-# force a thinner stroke — 1.6 turns caps the width near 100, 1.1 turns allows
-# 145. A bolder stroke is worth more than an extra half turn.
-R0, R1 = 102, 307
-TURNS = 1.10
-WIDTH = 145
-START = -math.pi / 2
-TAPER = 0.80  # how much thinner each thread gets by its end; the head is
-              # unaffected, because the taper only begins at the split
-# 飞白: the stroke is bristles, not a ribbon. A duty below 1 leaves a fine gap
-# between them along the whole stroke, the way a dry brush does, instead of the
-# stroke only coming apart at its end. The gaps close up into solid tone as the
-# icon is scaled down, which is what keeps 16px clean.
-DUTY = 0.78
-# Per thread: where it stops, where it starts to come away from the others, and
-# how far it spreads. Every length is different and the lengths step down
-# monotonically, so the tips trace a taper rather than a guillotine cut; the
-# steps vary, and the split points are staggered, so the threads come apart one
-# after another instead of along one straight seam. That is the difference
-# between fur and a comb — the order is in the envelope, the scatter is in the
-# detail.
-THREAD_SPEC = (
-    # end    split  fan
-    (0.992, 0.52, 1.00),
-    (0.962, 0.47, 1.08),
-    (0.936, 0.50, 0.96),
-    (0.900, 0.45, 1.06),
-    (0.858, 0.54, 1.00),
-)
-# 散毛: hairs that escape the brush. These are single hairs, not strokes — a
-# few pixels wide against a 145px body. Thicker than this and they stop reading
-# as hairs and start competing with the stroke they came off.
-#   from, to, how far out it drifts by the end, thickness
-STRAY_SPEC = (
-    (0.88, 1.00, 26, 4.0),
-    (0.92, 1.02, 32, 3.0),
-    (0.85, 0.95, 17, 5.0),
-)
-# 墨点: ink the brush threw off. Random, but from a fixed seed — an icon that
-# redraws itself differently every run is not a build artifact.
-INK_SEED = 7
-INK_PER_TIP = 6
-FLING = 88  # how far a fleck can travel before it has spent its momentum
+# Thresholds for turning the render's luminance into an ink mask.
+#
+# The floor sits above the model's JPEG ringing: set it too low and the faint
+# halo of compression artefacts around the mark is lifted along with the ink,
+# which makes the result look hazy and scattered rather than drawn.
+INK_FLOOR = 0.30
+INK_CEIL = 0.85
+# Ink fainter than this does not count when solving the placement. Where the
+# brush ran out, the hair tip fades to almost nothing; shrinking the whole mark
+# so that an invisible tip stays inside the shape costs far more than letting it
+# fade out at the edge.
+VISIBLE = 40
+# How much of the icon body the mark may fill.
+FILL = 0.90
+# A high percentile rather than the strict maximum, so one stray speck cannot
+# decide the layout for everything else. The few pixels this lets overhang are
+# the faintest ones, and the clip below trims them.
+ROBUST = 99.5
 
 
 def superellipse(canvas, body, n, steps=8192):
@@ -109,181 +120,108 @@ def vertical_gradient(size, top, bottom):
 
 
 def plate():
-    body = superellipse(S, BODY, N)
+    """The icon body: one clean vertical ramp, no glow and no bevel."""
     img = vertical_gradient(S, VIOLET_TOP, VIOLET_BOTTOM).convert("RGBA")
     out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    out.paste(img, (0, 0), body)
+    out.paste(img, (0, 0), superellipse(S, BODY, N))
     return out
 
 
-def arc(cx, cy, r, a0, a1, steps=40):
-    return [(cx + r * math.cos(a0 + (a1 - a0) * i / steps),
-             cy + r * math.sin(a0 + (a1 - a0) * i / steps))
-            for i in range(steps + 1)]
+def squircle_radius(angles):
+    """How far the icon body reaches at a given polar angle.
 
-
-def band(dr, wf, t0, t1, steps=900):
-    """One thread, as a closed polygon between two offset curves.
-
-    The cap at each end is a half-disc centred on the centreline, swept from the
-    OUTER edge (angle a) through the tangent to the INNER edge (a+pi). Sweeping
-    a +/- pi/2 instead centres the half-disc on a and reaches neither edge; the
-    polygon then self-intersects and even-odd fill bites a semicircular notch
-    out of every thread end.
+    The body is a superellipse |x/a|^5 + |y/a|^5 = 1. Parametrised as
+    x = a|cos t|^0.4, y = a|sin t|^0.4, the polar angle satisfies
+    tan(theta) = |tan t|^0.4, so inverting gives |tan t| = |tan(theta)|^2.5.
+    Getting that exponent wrong is easy and quiet: it is exact on the axes and at
+    45 degrees, where the numbers are memorable, and wrong by tens of pixels
+    everywhere between them.
     """
-    cx = cy = CANVAS / 2
-    n = max(4, int(steps * (t1 - t0)))
-    outer, inner = [], []
-    for i in range(n + 1):
-        t = t0 + (t1 - t0) * i / n
-        r = R0 + (R1 - R0) * t + dr(t)
-        a = START + 2 * math.pi * TURNS * t
-        half = WIDTH * wf(t) / 2
-        ca, sa = math.cos(a), math.sin(a)
-        outer.append((cx + (r + half) * ca, cy + (r + half) * sa))
-        inner.append((cx + (r - half) * ca, cy + (r - half) * sa))
-
-    def end(t):
-        r = R0 + (R1 - R0) * t + dr(t)
-        a = START + 2 * math.pi * TURNS * t
-        return cx + r * math.cos(a), cy + r * math.sin(a), a, WIDTH * wf(t) / 2
-
-    x1, y1, a1, h1 = end(t1)
-    x0, y0, a0, h0 = end(t0)
-    return (outer + arc(x1, y1, h1, a1, a1 + math.pi)
-            + inner[::-1] + arc(x0, y0, h0, a0 + math.pi, a0 + 2 * math.pi))
+    a = BODY / 2 / S * CANVAS
+    t = np.arctan(np.abs(np.tan(angles)) ** 2.5)
+    return np.hypot(a * np.abs(np.cos(t)) ** 0.4, a * np.abs(np.sin(t)) ** 0.4)
 
 
-def circle(cx, cy, r, steps=28):
-    return [(cx + r * math.cos(2 * math.pi * i / steps),
-             cy + r * math.sin(2 * math.pi * i / steps)) for i in range(steps)]
+def ink_ramp(lum):
+    """Luminance to ink, as a ramp rather than a cut.
 
-
-def speck(cx, cy, r, rng, stretch=1.0, angle=0.0):
-    """One fleck of ink, optionally streaked along `angle`.
-
-    Mostly a lumpy blob with at most a couple of short burrs. Giving every
-    vertex a spike produces a symmetrical star, and a field of stars reads as
-    glitter, not as ink. Stretching the fleck along the direction it was thrown
-    is what turns a scatter of dots into something that looks flung.
+    Deliberately soft. Where the brush ran dry there is genuinely less ink, and
+    letting that through as thinner paint is what a dry brush looks like; a hard
+    threshold would delete the flying white, which is the whole reason to use a
+    render here at all.
     """
-    n = rng.randint(5, 8)
-    spiked = set(rng.sample(range(n), rng.randint(0, 2)))
-    ca, sa = math.cos(angle), math.sin(angle)
-    pts = []
-    for i in range(n):
-        a = 2 * math.pi * i / n + rng.uniform(-0.14, 0.14)
-        base = r * rng.uniform(0.55, 1.15)
-        ring, offs = [base], [0.0]
-        if i in spiked:
-            ring = [base, base * rng.uniform(1.5, 2.1), base]
-            offs = [-0.09, 0.0, 0.09]
-        for rr, da in zip(ring, offs):
-            lx = rr * stretch * math.cos(a + da)
-            ly = rr * math.sin(a + da)
-            pts.append((cx + lx * ca - ly * sa, cy + lx * sa + ly * ca))
-    return pts
+    card = float(np.median(np.concatenate([lum[0], lum[-1], lum[:, 0], lum[:, -1]])))
+    span = max(1e-6, INK_CEIL - INK_FLOOR)
+    return np.clip((lum - card - INK_FLOOR) / span * 255.0, 0, 255)
 
 
-def stray(from_t, to_t, drift, thickness):
-    """A hair that leaves the stroke. It starts inside the stroke, so it only
-    becomes visible once it has drifted past the edge — which is how a hair
-    actually comes off a brush."""
-    span = to_t - from_t
+def worst_reach(cx, cy, xs, ys):
+    """The furthest any visible pixel reaches, in units of the icon body.
 
-    def dr(t):
-        f = max(0.0, min(1.0, (t - from_t) / span))
-        return drift * f * f
-
-    def wf(t):
-        return thickness / WIDTH
-
-    return band(dr, wf, from_t, to_t)
-
-
-def ink_specks(spec=THREAD_SPEC):
-    """Ink thrown off the tips of the threads, as polygons.
-
-    Each fleck leaves along its tip's own tangent — the direction the stroke was
-    actually travelling — so the spray sweeps with the rotation instead of
-    spraying evenly in all directions. Flecks are dense and large just off the
-    tips and thin out, spread out and streak out with distance, which is what
-    reads as force rather than as decoration. Random, from a fixed seed.
+    Measuring against the body's own radius rather than plain distance is what
+    lets the flat sides of the squircle take the ink that the corners cannot.
     """
-    rng = random.Random(INK_SEED)
-    n = len(spec)
-    pitch = WIDTH / n
-    mid = (n - 1) / 2
-    k = (R1 - R0) / (2 * math.pi * TURNS)
-    polys = []
-    for i, (end, split, fan) in enumerate(spec):
-        r = R0 + (R1 - R0) * end + (i - mid) * pitch * fan
-        a = START + 2 * math.pi * TURNS * end
-        ca, sa = math.cos(a), math.sin(a)
-        vx, vy = k * ca - r * sa, k * sa + r * ca
-        norm = math.hypot(vx, vy) or 1.0
-        vx, vy = vx / norm, vy / norm
-        tipx, tipy = CANVAS / 2 + r * ca, CANVAS / 2 + r * sa
-        for _ in range(INK_PER_TIP):
-            d = rng.uniform(0.0, 1.0) ** 1.5 * FLING
-            spread = 5.0 + d * 0.42
-            polys.append(speck(tipx + vx * d - vy * rng.gauss(0.0, spread),
-                               tipy + vy * d + vx * rng.gauss(0.0, spread),
-                               rng.uniform(3.0, 10.0) * (1.0 - d / FLING * 0.50) / 2,
-                               rng,
-                               1.0 + d / FLING * 2.3,
-                               math.atan2(vy, vx)))
-    return polys
+    d = np.maximum(np.hypot(xs - cx, ys - cy), 1e-6)
+    ang = np.arctan2(ys - cy, xs - cx)
+    return float(np.percentile(d / squircle_radius(ang), ROBUST))
 
 
-def mark(spec=THREAD_SPEC):
-    """The whole mark as polygons.
+def solve_placement(xs, ys):
+    """The position that best balances how far the mark reaches.
 
-    Only the stroke is measured for centring. The ink is thrown off it and the
-    hairs trail from it, so letting them into the measurement would allow one
-    stray fleck to drag the whole spiral off centre.
+    The objective is a maximum over an unknown pixel, so it is not smooth and
+    there is no gradient worth following. A grid that shrinks cannot get stuck
+    the way a descent can.
     """
-    n = len(spec)
-    pitch = WIDTH / n
-    mid = (n - 1) / 2
-    body = []
-    for i, (end, split, fan) in enumerate(spec):
-        off = (i - mid) * pitch
+    keep = max(1, len(xs) // 20000)
+    sx, sy = xs[::keep], ys[::keep]
 
-        def dr(t, off=off, split=split, fan=fan):
-            return off * fan * max(0.0, min(1.0, (t - split) / (1.0 - split)))
+    cx, cy = float(xs.mean()), float(ys.mean())
+    best = worst_reach(cx, cy, sx, sy)
+    for step in (12.0, 3.0, 1.0, 0.25):
+        while True:
+            improved = False
+            for ax in (cx - step, cx, cx + step):
+                for ay in (cy - step, cy, cy + step):
+                    v = worst_reach(ax, ay, sx, sy)
+                    if v < best - 1e-9:
+                        best, cx, cy, improved = v, ax, ay, True
+            if not improved:
+                break
+    return cx, cy, FILL / best
 
-        def wf(t, split=split):
-            f = max(0.0, min(1.0, (t - split) / (1.0 - split)))
-            return (DUTY / n) * (1.0 - TAPER * f)
 
-        body.append(band(dr, wf, 0.0, end))
+def mark():
+    """The ink, already placed: a 1024 alpha mask the size of the canvas."""
+    rgb = np.asarray(Image.open(SOURCE).convert("RGB"), dtype=np.float64)
+    lum = (0.2126 * rgb[:, :, 0] + 0.7152 * rgb[:, :, 1] + 0.0722 * rgb[:, :, 2]) / 255.0
+    ramp = ink_ramp(lum)
 
-    xs = [p[0] for poly in body for p in poly]
-    ys = [p[1] for poly in body for p in poly]
-    dx = CANVAS / 2 - (min(xs) + max(xs)) / 2
-    dy = CANVAS / 2 - (min(ys) + max(ys)) / 2
+    ys, xs = np.nonzero(ramp >= VISIBLE)
+    xs, ys = xs.astype(np.float64), ys.astype(np.float64)
+    cx, cy, scale = solve_placement(xs, ys)
 
-    shifted = [[(x + dx, y + dy) for x, y in poly] for poly in body]
-    for from_t, to_t, drift, thickness in STRAY_SPEC:
-        shifted.append([(x + dx, y + dy)
-                        for x, y in stray(from_t, to_t, drift, thickness)])
-    for poly in ink_specks(spec):
-        shifted.append([(x + dx, y + dy) for x, y in poly])
-    return shifted
+    h, w = ramp.shape
+    placed = Image.new("L", (CANVAS, CANVAS), 0)
+    scaled = Image.fromarray(ramp.astype(np.uint8), "L").resize(
+        (max(1, round(w * scale)), max(1, round(h * scale))), Image.LANCZOS)
+    placed.paste(scaled,
+                 (round(CANVAS / 2 - cx * scale), round(CANVAS / 2 - cy * scale)))
+
+    # Clip to the body. The placement solve lets the faintest few pixels
+    # overhang its own threshold, and alpha_composite keeps the ink's own alpha
+    # wherever the plate is transparent — so without this, stray hairs land as
+    # white specks outside the rounded body.
+    return Image.composite(placed, Image.new("L", (CANVAS, CANVAS), 0),
+                           superellipse(CANVAS, round(BODY / S * CANVAS), N))
 
 
 def main():
-    canvas = plate()
     ink = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(ink)
-    for poly in mark():
-        draw.polygon([(x / CANVAS * S, y / CANVAS * S) for x, y in poly], fill=WHITE)
-    canvas.alpha_composite(ink)
-
-    canvas.resize((CANVAS, CANVAS), Image.LANCZOS).save("resources/icon.png")
-    for size in (256, 128, 32, 16):
-        canvas.resize((size, size), Image.LANCZOS).save(f"/tmp/icon-{size}.png")
+    ink.paste(WHITE, (0, 0), mark().resize((S, S), Image.LANCZOS))
+    art = plate()
+    art.alpha_composite(ink)
+    art.resize((CANVAS, CANVAS), Image.LANCZOS).save(TARGET)
 
 
 if __name__ == "__main__":
