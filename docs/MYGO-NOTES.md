@@ -24,7 +24,7 @@
 
   ```sh
   go mod download github.com/egoist/mygo        # 缓存里没有就先拉一次
-  M=$(go env GOMODCACHE)/github.com/egoist/mygo@v0.3.4
+  M=$(go env GOMODCACHE)/github.com/egoist/mygo@v0.4.0
   ls "$M/docs/ui"
   go doc github.com/egoist/mygo/ui.Element      # 或 go doc -all github.com/egoist/mygo/ui
   ```
@@ -83,7 +83,7 @@ ui.Column(c).Fill().Children(func() {                 // 根 Column：高度 = �
 })
 ```
 
-`titleBarHeight` 取"自己内容高度或桌面要求的更多"（`internal/gui/view.go:173`–`182`，`titleBarMin = 54`），
+`titleBarHeight` 取"自己内容高度或桌面要求的更多"（`internal/gui/view.go`，`titleBarMin = 40`，与 `TitleBarHeight` / 红绿灯 `{14,13}` 对齐），
 来源是 `c.TitleBar()`（`ui/api_gen.go:420`，`docs/ui/windows.md` 的 Title bars 一节）。
 
 三条可复用的结论：
@@ -511,8 +511,8 @@ e.Children(func() { ui.Image(c, b).Size(size, size) })   // ui/widgets.go:534，
 ### 4.1 `mygo build`
 
 ```sh
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build        # 平台默认 = 本机 darwin/arm64
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build -skip-dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build        # 平台默认 = 本机 darwin/arm64
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build -skip-dmg
 ```
 
 配置在 `mygo.json`（`name`/`identifier`/`version`/`main`/`out`/`copyright`；
@@ -520,7 +520,7 @@ go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build -skip-dmg
 
 ```
 build/darwin-arm64/leeway.app
-build/darwin-arm64/leeway 0.1.0.dmg        # dmgFileName = "<Name> <Version>.dmg"
+build/darwin-arm64/leeway 0.2.0.dmg        # dmgFileName = "<Name> <Version>.dmg"
 ```
 
 依据：`cmd/mygo/build.go:22`–`52`（命令说明）、`:130`–`141`（`<out>/<goos>-<goarch>` 与 staging 后替换）、
@@ -531,7 +531,7 @@ build/darwin-arm64/leeway 0.1.0.dmg        # dmgFileName = "<Name> <Version>.dmg
 `CFBundleShortVersionString`（`cmd/mygo/bundle.go:79`–`83`），Finder/关于本机读的是它。
 `internal/gui/view.go:19` 的 `Version` 常量是进程内自报的版本（`cmd/leeway-gui/main.go` 的
 `mygo.App.SetVersion`），两边要一起改。实测 `/Applications/leeway.app` 的 plist：
-`CFBundleIdentifier = dev.helixliu.leeway`、`CFBundleShortVersionString = 0.1.0`。
+`CFBundleIdentifier = dev.helixliu.leeway`、`CFBundleShortVersionString = 0.2.0`。
 
 ### 4.2 装完删掉开发目录里的 `.app`，否则 Spotlight 有两份
 
@@ -559,7 +559,7 @@ guarded（.metadata_never_index + .noindex）→ …/guarded/guardprobe222.app  
 
 ```sh
 codesign --verify --deep --strict --verbose=1 /Applications/leeway.app
-hdiutil verify "build/darwin-arm64/leeway 0.1.0.dmg"
+hdiutil verify "build/darwin-arm64/leeway 0.2.0.dmg"
 ```
 
 实测两条都通过：`valid on disk` / `satisfies its Designated Requirement`，

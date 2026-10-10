@@ -18,8 +18,8 @@ go build -o leeway ./cmd/leeway
 GUI 走 [MyGo](https://github.com/egoist/mygo)（纯 Go、无 cgo），要出 `.app` / `.dmg` 得用它的构建器：
 
 ```sh
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build      # build/darwin-arm64/leeway.app + leeway 0.1.0.dmg
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build -skip-dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build      # build/darwin-arm64/leeway.app + leeway 0.2.0.dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build -skip-dmg
 ```
 
 窗口和 CLI 是同一个探测核心、同一份配置：GUI 只多一个 `~/.config/leeway/gui.json`。

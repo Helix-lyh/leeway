@@ -4,6 +4,7 @@
 |---|---|
 | [DESIGN.md](DESIGN.md) | 架构、数据模型、里程碑 |
 | [GUI.md](GUI.md) | 窗口界面：入口、页面、设置、构建与自检 |
+| [PULSE-AESTHETIC.md](PULSE-AESTHETIC.md) | Pulse（MyGo）实机美学参考；截图在 [`ref/pulse/`](ref/pulse/) |
 | [MYGO-NOTES.md](MYGO-NOTES.md) | 窗口用到的 MyGo 用法、坑与出处（改布局/测试/构建前先读） |
 | [UI-MIGRATION.md](UI-MIGRATION.md) | UI 换栈（mygo→Flutter）与 Android/iOS 出端可行性调研 |
 | [HISTORY-DELTA.md](HISTORY-DELTA.md) | 相邻探测差与 history 走势 |

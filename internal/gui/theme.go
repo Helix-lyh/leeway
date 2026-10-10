@@ -16,26 +16,36 @@ import (
 // Colors are written in Oklch so they stay perceptually even across the
 // light and dark themes, and so the accent can use the wide gamut of a
 // recent Mac's display.
+//
+// Accent vs nav (Pulse fork): accent stays brand violet for primary buttons
+// and the focus ring. Sidebar selection is a separate system-blue pill
+// (navSelected / navSelectedText) — not the violet, and not MyGo's gray
+// SurfacePressed wash. Chart wells use chartWell, a recessed fill under
+// card for other pages to seat sparklines without a border.
 type palette struct {
-	t         *ui.Theme
-	dark      bool
-	canvas    ui.Color // the window's floor
-	canvasTop ui.Color // and its ceiling, where the accent tint sits
-	card      ui.Color // a panel's surface
-	cardHi    ui.Color // that surface, with the state layer over it
-	sheet     ui.Color // a modal, which has to stay legible over the page
-	border    ui.Color // hairlines
-	divider   ui.Color // the rule between two account columns, which has to read as one line
-	hairline  ui.Color // a rule that only groups: a whisper, not a boundary
-	track     ui.Color // a bar's empty part
-	rule      ui.Color // a line the caption points at, which has to hold over every band it crosses
-	grid      ui.Color // the scale behind a chart: quiet on the card, but never as loud as the data
-	markTile  ui.Color // the tile under a mark the provider publishes alone
-	tileEdge  ui.Color // and the hairline that keeps it off a dark card
-	markShade ui.Color // the shadow a provider mark sits on
-	money     ui.Color // a window with no level: money, which is data and not an action
-	accent    ui.Color
-	mono      string
+	t               *ui.Theme
+	dark            bool
+	canvas          ui.Color // the window's floor
+	canvasTop       ui.Color // and its ceiling, where the accent tint sits
+	card            ui.Color // a panel's surface
+	cardHi          ui.Color // that surface, with the hover state layer over it
+	cardPress       ui.Color // and with the stronger press layer — under the text, not over it
+	chartWell       ui.Color // recessed seat for charts/dot grids inside a card (slightly under card)
+	sheet           ui.Color // a modal, which has to stay legible over the page
+	border          ui.Color // hairlines
+	divider         ui.Color // the rule between two account columns, which has to read as one line
+	hairline        ui.Color // a rule that only groups: a whisper, not a boundary
+	track           ui.Color // a bar's empty part
+	rule            ui.Color // a line the caption points at, which has to hold over every band it crosses
+	grid            ui.Color // the scale behind a chart: quiet on the card, but never as loud as the data
+	markTile        ui.Color // the tile under a mark the provider publishes alone
+	tileEdge        ui.Color // and the hairline that keeps it off a dark card
+	markShade       ui.Color // the shadow a provider mark sits on
+	money           ui.Color // a window with no level: money, which is data and not an action
+	accent          ui.Color // brand violet — buttons / focus; not sidebar selection
+	navSelected     ui.Color // Pulse blue pill fill for the current sidebar row
+	navSelectedText ui.Color // label/icon on that pill (white; ≥4.5:1)
+	mono            string
 }
 
 func paletteOf(t *ui.Theme) palette {
@@ -45,16 +55,23 @@ func paletteOf(t *ui.Theme) palette {
 	// one row, not as a row and an exception.
 	p.markTile = ui.Hex("#0b0b0e")
 	p.tileEdge = ui.RGBA(255, 255, 255, 0.12)
+	// System blue deepened one step from #007aff / #0a84ff so white labels
+	// clear 4.5:1 on the pill (stock #007aff measures ~4.02:1).
+	p.navSelected = ui.Hex("#0071e3")
+	p.navSelectedText = ui.RGB(255, 255, 255)
 	if t.Dark {
-		p.canvas = ui.Hex("#0d0d11")
-		p.canvasTop = ui.Oklch(0.20, 0.035, 285)
-		p.card = ui.RGBA(255, 255, 255, 0.055)
+		// Pulse dark spirit: canvas ≈ #141416, card ≈ #1f1f23 (~1.12:1 lift).
+		p.canvas = ui.Hex("#141416")
+		p.canvasTop = ui.Oklch(0.22, 0.028, 285)
+		p.card = ui.Hex("#1f1f23")
 		p.cardHi = p.card.Mix(t.Text, stateHover)
+		p.cardPress = p.card.Mix(t.Text, statePress)
+		p.chartWell = ui.Hex("#1a1a1d") // recessed vs card; for spark/dot seats
 		p.sheet = ui.RGBA(28, 28, 34, 0.98)
 		p.border = ui.RGBA(255, 255, 255, 0.18)
 		p.divider = ui.RGBA(255, 255, 255, 0.36)
 		p.hairline = ui.RGBA(255, 255, 255, 0.10)
-		p.track = ui.RGBA(255, 255, 255, 0.14)
+		p.track = ui.RGBA(255, 255, 255, 0.08)
 		p.markShade = ui.RGBA(0, 0, 0, 0.45)
 		p.money = ui.Oklch(0.72, 0.09, 255)
 		p.accent = ui.Oklch(0.72, 0.17, 285)
@@ -67,11 +84,13 @@ func paletteOf(t *ui.Theme) palette {
 		p.canvasTop = ui.Oklch(0.975, 0.016, 285)
 		p.card = ui.RGBA(255, 255, 255, 0.82)
 		p.cardHi = p.card.Mix(t.Text, stateHover)
+		p.cardPress = p.card.Mix(t.Text, statePress)
+		p.chartWell = ui.RGBA(0, 0, 0, 0.04) // slight recess under the light card
 		p.sheet = ui.RGBA(255, 255, 255, 0.98)
 		p.border = ui.RGBA(0, 0, 0, 0.16)
 		p.divider = ui.RGBA(0, 0, 0, 0.44)
 		p.hairline = ui.RGBA(20, 18, 40, 0.10)
-		p.track = ui.RGBA(0, 0, 0, 0.10)
+		p.track = ui.RGBA(0, 0, 0, 0.06)
 		p.markShade = ui.RGBA(20, 18, 40, 0.16)
 		p.money = ui.Oklch(0.52, 0.09, 255)
 		p.accent = ui.Oklch(0.55, 0.20, 285)
@@ -347,19 +366,35 @@ func shadowSoft(e ui.Element, p palette) ui.Element {
 // card is the surface a panel that only holds content sits on: the tray,
 // without the hover. A surface that lightens under the pointer is promising a
 // click it does not have, so only the cards that answer the pointer are
-// shell().
+// shell() or openCard().
 func card(c *ui.Context, p palette, fn func()) ui.Element {
-	return shellSurface(c, p, false, fn)
+	return shellSurface(c, p, shellOpts{}, fn)
 }
 
-// shell is a card that answers the pointer: one surface and one soft shadow,
-// with its fill lifting under the pointer. There is no edge to lift, because
-// there is no edge: the panel is told from the canvas by its fill.
+// shell is a card that answers the pointer with a hover fill, but is not
+// itself a button. History cards use this; cards that open a provider go
+// through openCard, which owns the press as well.
 func shell(c *ui.Context, p palette, fn func()) ui.Element {
-	return shellSurface(c, p, true, fn)
+	return shellSurface(c, p, shellOpts{hover: true}, fn)
 }
 
-func shellSurface(c *ui.Context, p palette, interactive bool, fn func()) ui.Element {
+// openCard is a shell that is the target: label, click, hover, and press all
+// live on the same surface. Pressed() marks an element clickable, so it is
+// only asked on a surface that already has OnClick — never on a child, and
+// never on a history shell that only hovers. The press fill is the state
+// layer under the text (meiro StateFill / MyGo Button), not a DrawOver wash
+// on top of it: DrawOver is paintAfterFn and would darken the words by 10%.
+func openCard(c *ui.Context, p palette, label string, open func(), fn func()) ui.Element {
+	return shellSurface(c, p, shellOpts{hover: true, label: label, open: open}, fn)
+}
+
+type shellOpts struct {
+	hover bool
+	label string
+	open  func()
+}
+
+func shellSurface(c *ui.Context, p palette, opt shellOpts, fn func()) ui.Element {
 	// One surface, not a plate in a tray. The tray used to be a second rounded
 	// rectangle three DIP inside the card's edge, filled with a darkening tint
 	// and outlined with a hairline: at 1040 that is a 1px line plus a 3px
@@ -376,7 +411,20 @@ func shellSurface(c *ui.Context, p palette, interactive bool, fn func()) ui.Elem
 			Gap(space3).
 			Radius(radiusTray).
 			Background(p.card)
-		if interactive && surface.Hovered() {
+		if opt.open != nil {
+			surface.Label(opt.label).
+				Role(ui.RoleButton).
+				Cursor(ui.CursorPointer).
+				Focusable().
+				OnClick(opt.open)
+			// Pressed before hovered: meiro StateFill (m3/button.go:100-108).
+			switch {
+			case surface.Pressed():
+				surface.Background(p.cardPress)
+			case surface.Hovered():
+				surface.Background(p.cardHi)
+			}
+		} else if opt.hover && surface.Hovered() {
 			// The pointer lays the state layer on the surface, as meiro's
 			// cards do. It used to lift the fill from card to cardHi, which
 			// over the canvas is two units: the tray's hairline was what a
@@ -423,6 +471,18 @@ func btnSmall(e ui.Element) ui.Element {
 	return e.Padding(5, 10).Radius(radiusControl).FontSize(sizeBody)
 }
 
+// ghostFill lays the state layer under a quiet control's ink (meiro StateFill
+// on a transparent container → content.Alpha(op)). DrawOver of the same tint
+// is paintAfterFn and would sit on the words.
+func ghostFill(e ui.Element, p palette) {
+	switch {
+	case e.Pressed():
+		e.Background(p.t.Text.Alpha(statePress))
+	case e.Hovered():
+		e.Background(p.t.Text.Alpha(stateHover))
+	}
+}
+
 func btnLarge(e ui.Element) ui.Element {
 	return e.Padding(7, 14).Radius(radiusControl).FontSize(sizeBody)
 }
@@ -431,27 +491,61 @@ func btnLarge(e ui.Element) ui.Element {
 func chromeRule(c *ui.Context, p palette) ui.Element {
 	// The same weight as every other separator: it is what tells the app's
 	// name from the state beside it, not an ornament.
-	return ui.Box(c).Width(1).Height(18).Shrink(0).Background(p.hairline)
+	return ui.Box(c).Width(1).Height(14).Shrink(0).Background(p.hairline)
 }
 
-// sidebarItem is a sidebar item whose icon is not the accent. MyGo draws every
-// sidebar glyph in the theme's accent (ui/sidebar.go: `iconColor := t.Accent`),
-// which spends the accent on decoration and leaves nothing to say which page
-// is current. The colour is read from the theme as the item is built, so a copy
-// of the theme with the accent set to the muted ink gives the glyphs their
-// place back; the item that is current is built outside the copy and keeps the
-// accent, which is now the only thing it means there.
-func sidebarItem(c *ui.Context, id string, icon *ui.SVG, label string, current bool) ui.Element {
-	if current {
-		return ui.SidebarItem(c, id, icon, label)
-	}
+// sidebarItem is a navigation row. Unselected glyphs stay muted (MyGo paints
+// every SidebarItem icon as t.Accent). Selected rows are a Pulse blue pill:
+// MyGo only fills Accent when the row is chosen *and* focused, and otherwise
+// uses gray SurfacePressed — so the current row temporarily swaps Accent /
+// AccentText / SurfacePressed to the nav pill colors, then forces the fill
+// and label ink so focus never falls back to the gray wash.
+func sidebarItem(c *ui.Context, p palette, id string, icon *ui.SVG, label string, current bool) ui.Element {
+	return paintSidebarNav(c, p, id, icon, label, current)
+}
+
+// paintSidebarNav builds a SidebarItem with Pulse nav selection (or quiet
+// unselected glyphs). Provider rows call this too so a selected account page
+// gets the same blue pill.
+func paintSidebarNav(c *ui.Context, p palette, id string, icon *ui.SVG, label string, current bool) ui.Element {
 	full := c.Theme()
+	if current {
+		nav := *full
+		// Unfocused chosen uses SurfacePressed + iconColor=Accent; focused
+		// chosen uses Accent fill + AccentText ink/icon. White Accent makes
+		// the unfocused icon readable; Background() after forces the blue
+		// fill even if MyGo painted Accent (white) for the focused case.
+		nav.Accent = p.navSelectedText
+		nav.AccentText = p.navSelectedText
+		nav.SurfacePressed = p.navSelected
+		c.SetTheme(&nav)
+		item := ui.SidebarItem(c, id, icon, label).
+			Background(p.navSelected).
+			TextColor(p.navSelectedText)
+		c.SetTheme(full)
+		return item
+	}
 	muted := *full
 	muted.Accent = full.TextMuted
 	c.SetTheme(&muted)
 	item := ui.SidebarItem(c, id, icon, label)
 	c.SetTheme(full)
 	return item
+}
+
+// sidebarLive is the right-aligned remaining-quota (or count) on a sidebar
+// row: muted Pulse typography, tabular figures. On the blue pill the ink
+// flips to navSelectedText so it stays ≥4.5:1.
+func sidebarLive(c *ui.Context, p palette, text string, selected bool) ui.Element {
+	ink := p.t.TextMuted
+	if selected {
+		ink = p.navSelectedText
+	}
+	return ui.Text(c, text).
+		FontSize(sizeBody).
+		FontFeatures("tnum").
+		TextColor(ink).
+		SingleLine()
 }
 
 // hairline separates blocks inside a card. It is the divider and not the
@@ -631,22 +725,17 @@ func tweenText(w model.RateWindow, v float64) string {
 	return amountText(w)
 }
 
-// meter is a window's quota bar: how full it is, the color its level earns, and
-// — for a window measured in percent — the two levels that color changes at,
-// cut out of the fill as a 1px gap. The gap is the empty track showing through,
-// which is the only mark that is legible on both sides of itself: every ink
-// that reads on the track (2.9–4.0:1) disappeared on the fill (1.0–2.2:1),
-// while the track on the fill measures 3.7–5.7:1. The fill is flat for the
-// same reason: the gradient that used to lighten its leading end left the
-// edge the bar is read by at 2.66:1 against the track in the light theme,
-// under the 3:1 a graphic needs.
+// meter is a window's quota bar in the Pulse style: a soft full-width track
+// (p.track, no stroke) plus the coloured fill. At 0% the track still marks the
+// lane — fill-only left an empty hole. Level marks stay 1px gaps in the fill
+// (track showing through). No rim: a stroked capsule read as a grey border.
 //
 // It carries its value to assistive technology as a meter with a range rather
 // than as a picture, so the bar is readable without seeing it. It is not given
 // a label: the window's name and its number are already published as text in
 // the same row, and a label would put this box in the frame's text registry,
-// where every ink inside it is held to 4.5:1 — which no saturated fill on a
-// track can meet, because the two are a graphic pair at 3:1.
+// where every ink inside it is held to 4.5:1 — which no saturated fill can
+// meet as text, because the two are a graphic pair at 3:1.
 func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Element {
 	fraction, ok := windowFraction(w)
 	if !ok {
@@ -657,19 +746,12 @@ func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Elem
 		FillWidth().
 		Height(height).
 		Radius(height / 2).
-		Background(p.track).
-		// No edge. A bar is a fill on a track, and the track is what says how
-		// much is left — motrix, codex-monitor and vitals all draw it that way.
-		// The edge this used to carry was the darkest line on the page, and the
-		// reading it protected is in text anyway: the number above the bar, and
-		// the same percentage in the sidebar. A tint at 1.26:1 on a light card
-		// is not a scale you guess at when it is six pixels of a filled pill.
 		Role(ui.RoleMeter)
 	switch {
 	// A provider can report past its own limit (codex and cursor pass the API
-	// value through) and the fill is clamped to the track, so the published
-	// value is clamped with it: a bar that announces 140 in a 0-100 range
-	// contradicts the range it declares and the bar it draws.
+	// value through) and the fill is clamped to the bar's width, so the
+	// published value is clamped with it: a bar that announces 140 in a 0-100
+	// range contradicts the range it declares and the bar it draws.
 	case w.UsedPercent != nil:
 		e.Range(0, 100, float64(f)*100)
 	case w.Used != nil && w.Limit != nil:
@@ -677,21 +759,20 @@ func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Elem
 	}
 	fill := e.Animate("fill", f, numberMotion)
 	marks := meterMarks(w)
-	e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-		// DrawOver is not clipped by the element's own Clip(), so the pill is
-		// cut here by hand.
-		inner := r
-		if inner.W <= 0 || inner.H <= 0 {
+	ink := barColor(p, w)
+	e.Draw(func(pt *ui.Painter, r ui.Rect) {
+		if r.W <= 0 || r.H <= 0 {
 			return
 		}
-		pt.Clip(inner, inner.H/2, func() {
-			full := inner.W * fill
+		pt.Clip(r, r.H/2, func() {
+			pt.Fill(r, p.track, 0)
+			full := r.W * fill
 			if full <= 0 {
 				return
 			}
 			from := float32(0)
 			for _, edge := range append(append([]float32{}, marks...), 1) {
-				to := edge * inner.W
+				to := edge * r.W
 				if from >= full {
 					break
 				}
@@ -703,7 +784,7 @@ func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Elem
 					end = to - 1 // a level is a gap, not ink
 				}
 				if end > from {
-					pt.Fill(ui.Rect{X: inner.X + from, Y: inner.Y, W: end - from, H: inner.H}, barColor(p, w), 0)
+					pt.Fill(ui.Rect{X: r.X + from, Y: r.Y, W: end - from, H: r.H}, ink, 0)
 				}
 				from = to
 			}

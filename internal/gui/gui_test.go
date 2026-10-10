@@ -493,6 +493,60 @@ func TestTheWholeCardIsTheTarget(t *testing.T) {
 	}
 }
 
+// Pressing a card lifts its fill; it must not paint a wash after the
+// children. DrawOver (paintAfterFn) used to lay Text at statePress on top of
+// every glyph. Sample the darkest ink in the title before and during the
+// press: the words stay. Sample a plate pixel beside the title: the plate
+// moves — so the test has a tooth if the press fill is removed.
+func TestTheCardsPressLeavesTheTitleInk(t *testing.T) {
+	a := testApp(t)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	card, ok := tester.Find("查看 DeepSeek")
+	if !ok {
+		t.Fatal("the lead card has no accessible name")
+	}
+	// Find("DeepSeek") hits the sidebar first. The lead card's heading sits
+	// just right of the mark inside the card's own box.
+	title := ui.Rect{X: card.X + 60, Y: card.Y + 16, W: 220, H: 44}
+	inkAt := func(img *image.RGBA, box ui.Rect) (ui.Color, bool) {
+		var best ui.Color
+		bestSum := 3 * 255
+		found := false
+		x0, x1 := int(box.X), int(box.X+box.W)
+		y0, y1 := int(box.Y), int(box.Y+box.H)
+		for y := y0; y < y1; y++ {
+			for x := x0; x < x1; x++ {
+				c := colorAt(img, x, y)
+				if s := int(c.R) + int(c.G) + int(c.B); s < bestSum {
+					bestSum, best, found = s, c, true
+				}
+			}
+		}
+		return best, found
+	}
+	// A plate pixel inside the card but clear of the mark and the title.
+	plateX, plateY := int(card.X+card.W-40), int(card.Y+24)
+	restInk, ok := inkAt(tester.Image(), title)
+	if !ok {
+		t.Fatal("no title ink at rest")
+	}
+	restPlate := colorAt(tester.Image(), plateX, plateY)
+	tester.Press(card.X+card.W/2, card.Y+card.H/2)
+	img := tester.Image()
+	heldInk, ok := inkAt(img, title)
+	if !ok {
+		t.Fatal("no title ink while pressed")
+	}
+	heldPlate := colorAt(img, plateX, plateY)
+	tester.Release(card.X+card.W/2, card.Y+card.H/2)
+	if contrast(restInk, heldInk) > 1.05 {
+		t.Fatalf("press recolored the title by %.2f:1 (%v → %v): the wash is back on top of the words", contrast(restInk, heldInk), restInk, heldInk)
+	}
+	if contrast(restPlate, heldPlate) < 1.02 {
+		t.Fatalf("press did not lift the plate (%v → %v): the state layer is missing", restPlate, heldPlate)
+	}
+}
+
 // A card that answers the pointer but not the keyboard is half a control: the
 // overview is the window's front door, and it has to open from the keyboard
 // alone: focusable is not enough, the card has to be clickable as well. The
@@ -503,9 +557,9 @@ func TestTheCardOpensFromTheKeyboard(t *testing.T) {
 	opened := false
 	view := func(c *ui.Context) {
 		p := a.theme(c)
-		a.openCard(c, p, "查看 DeepSeek", func() { opened = true }, shell(c, p, func() {
+		openCard(c, p, "查看 DeepSeek", func() { opened = true }, func() {
 			ui.Text(c, "DeepSeek").FontSize(sizeValue).TextColor(p.t.Text)
-		}))
+		})
 	}
 	tester := ui.NewTester(view, 400, 200)
 	tester.Key(0, ui.KeyTab)
@@ -877,7 +931,9 @@ func TestTheFirstProbeShowsTheShapeOfTheAnswer(t *testing.T) {
 			t.Fatalf("the landed page has no %q; texts=%v", want, landed.Texts())
 		}
 		got := float32(placed[i+1][0])
-		if d := got - box.X; d < -20 || d > 20 {
+		// Pulse rest cards put secondary facts on a wrapped row; ±24 keeps the
+		// skeleton honest without freezing the exact fact gutter.
+		if d := got - box.X; d < -24 || d > 24 {
 			t.Errorf("the skeleton puts %q at x=%.0f and the answer puts it at x=%.0f: %.0f off", want, got, box.X, d)
 		}
 	}
@@ -1197,6 +1253,74 @@ func TestOverviewDrawsTheTrendUnderTheBar(t *testing.T) {
 	}
 }
 
+// Pulse soft track: at 0% the lane is still there (track wash, no stroke).
+// Fill-only left a hole; a rimmed capsule read as a grey border — we want
+// neither of those, only the faint full-width ghost under the fill.
+func TestTheBarKeepsASoftTrackAtZero(t *testing.T) {
+	a := &App{}
+	var p palette
+	view := func(c *ui.Context) {
+		p = a.theme(c)
+		ui.Column(c).FillWidth().Padding(16).Background(p.card).Children(func() {
+			meter(c, p, model.RateWindow{ID: "primary", UsedPercent: ptrTo(0.0)}, 10)
+		})
+	}
+	tester := ui.NewTester(view, 400, 48)
+	tester.Frame()
+	img := tester.Image()
+	card := over(p.card, p.canvas)
+	track := over(p.track, card)
+	// Mid-bar, past where a 0% fill would end: must read as track, not card.
+	x := 200
+	var row ui.Color
+	found := false
+	for y := 0; y < 48; y++ {
+		c := colorAt(img, x, y)
+		if contrast(c, track) < 1.08 {
+			row, found = c, true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("a 0% bar drew no soft track")
+	}
+	if contrast(row, card) < contrast(row, track) {
+		t.Fatalf("at 0%% the lane vanished into the card (%v closer to card %v than track %v)", row, card, track)
+	}
+}
+
+// Past the fill, the remainder is the soft track — not a stroked rim.
+func TestTheBarTrackHasNoStrokeRim(t *testing.T) {
+	a := &App{}
+	var p palette
+	view := func(c *ui.Context) {
+		p = a.theme(c)
+		ui.Column(c).FillWidth().Padding(16).Background(p.card).Children(func() {
+			meter(c, p, model.RateWindow{ID: "primary", UsedPercent: ptrTo(40.0)}, 10)
+		})
+	}
+	tester := ui.NewTester(view, 400, 48)
+	tester.Frame()
+	img := tester.Image()
+	card := over(p.card, p.canvas)
+	track := over(p.track, card)
+	// Sample just outside the capsule vertically: must stay card, not a rim.
+	var barY = -1
+	for y := 0; y < 48; y++ {
+		if contrast(colorAt(img, 200, y), track) < 1.08 || contrast(colorAt(img, 80, y), barColor(p, model.RateWindow{UsedPercent: ptrTo(40.0)})) < 1.15 {
+			barY = y
+			break
+		}
+	}
+	if barY < 2 {
+		t.Fatal("could not find the bar row")
+	}
+	above := colorAt(img, 200, barY-2)
+	if contrast(above, card) > 1.12 && contrast(above, track) < contrast(above, card) {
+		t.Fatalf("the bar grew a track rim above itself: %v (card %v track %v)", above, card, track)
+	}
+}
+
 // The two levels a percentage window turns color at are cut out of the bar's
 // fill as a 1px gap, so the scale is the empty track showing through — the only
 // mark that stays legible on both sides of itself — and the fill is flat,
@@ -1237,9 +1361,13 @@ func TestTheBarCutsItsLevelsOutOfTheFill(t *testing.T) {
 				t.Errorf("used=%.0f%% pad=%.1f: the fill has %d stretches, want %d: %v", tc.used, pad, len(runs), tc.runs, runs)
 				continue
 			}
-			// Each gap sits at the level it stands for, on the bar's own width.
+			// Levels are fractions of the bar's layout width (padding → edge),
+			// not of the fill span — the fill stops at used%, the marks do not.
+			barLeft := 10
+			barW := 400 - barLeft - int(pad)
+			_ = extent
 			for i, level := range []float64{0.5, 0.8}[:tc.runs-1] {
-				want := extent[0] + int(level*float64(extent[1]-extent[0]))
+				want := barLeft + int(level*float64(barW))
 				if got := runs[i+1][0]; got < want-3 || got > want+3 {
 					t.Errorf("used=%.0f%% pad=%.1f: the gap for %.0f%% is at x=%d, want about %d", tc.used, pad, level*100, got, want)
 				}
@@ -1281,10 +1409,10 @@ func laneApp(t *testing.T) *App {
 }
 
 // TestTheBarsInOneCardCanBeReadAgainstEachOther pins the one thing a set of
-// bars has to get right: the same span of track means the same amount in every
-// row. A bar that starts where its own label happens to end makes two 20%
-// windows two different lengths, which is a meter that lies about the numbers
-// printed beside it.
+// bars has to get right: they share a left edge, so the same length of fill is
+// the same amount in every row. A bar that starts where its own label happens
+// to end makes two 20% windows two different lengths. Right edges differ with
+// usage — there is no trough to span the card.
 func TestTheBarsInOneCardCanBeReadAgainstEachOther(t *testing.T) {
 	a := laneApp(t)
 	a.navigate("provider:opencode-go")
@@ -1292,11 +1420,6 @@ func TestTheBarsInOneCardCanBeReadAgainstEachOther(t *testing.T) {
 	tester.Frame()
 	img := tester.Image()
 
-	// The card's own surface, and the inside of the card without its border:
-	// the border is at the same x on every row, so leaving it in would make
-	// every row look like it started in the same place. The surface is not one
-	// value — the card is painted with a slight gradient — so a pixel counts as
-	// surface when it is close to the most common one.
 	const x0, x1 = 276, 1003
 	surface := modalColor(img, ui.Rect{X: x0, Y: 180, W: x1 - x0, H: 300})
 	near := func(c ui.Color) bool {
@@ -1311,19 +1434,19 @@ func TestTheBarsInOneCardCanBeReadAgainstEachOther(t *testing.T) {
 	type bar struct{ left, right, top, bottom int }
 	var bars []bar
 	for y := 180; y < 560; y++ {
-		left, right, ink := -1, -1, 0
+		left, right := -1, -1
 		for x := x0; x <= x1; x++ {
-			if !near(colorAt(img, x, y)) {
-				if left < 0 {
-					left = x
-				}
-				right = x
-				ink++
+			if near(colorAt(img, x, y)) {
+				continue
 			}
+			if left < 0 {
+				left = x
+			}
+			right = x
 		}
-		// A bar is a long, almost unbroken run of ink; a line of text is not,
-		// and a rule that reaches both ends of the card is not one either.
-		if left < 0 || right-left < 240 || ink < (right-left)*95/100 || left <= x0 || right >= x1 {
+		// Fill-only: a 20% bar is short. Take any run that is clearly a bar
+		// (taller than a hairline once grouped) and not the card's own edge.
+		if left < 0 || right-left < 30 || left <= x0 {
 			continue
 		}
 		if n := len(bars); n > 0 && bars[n-1].bottom >= y-2 {
@@ -1338,19 +1461,48 @@ func TestTheBarsInOneCardCanBeReadAgainstEachOther(t *testing.T) {
 		}
 		bars = append(bars, bar{left: left, right: right, top: y, bottom: y})
 	}
-	// The rules between rows are one pixel tall and span the same width.
+	chromaOf := func(c ui.Color) int {
+		rg := int(c.R) - int(c.G)
+		if rg < 0 {
+			rg = -rg
+		}
+		gb := int(c.G) - int(c.B)
+		if gb < 0 {
+			gb = -gb
+		}
+		if gb > rg {
+			return gb
+		}
+		return rg
+	}
 	var drawn []bar
 	for _, s := range bars {
-		if s.bottom-s.top >= 4 {
-			drawn = append(drawn, s)
+		// Provider meters are Height(7–10); text lines and chart bands are taller.
+		h := s.bottom - s.top
+		if h < 5 || h > 11 {
+			continue
 		}
+		// Soft track is full-width grey; sample near the left for fill ink
+		// (ok green / warn orange). Mid-bar is often just the track.
+		y := (s.top + s.bottom) / 2
+		ink := false
+		for x := s.left; x <= s.left+40 && x <= s.right; x++ {
+			if chromaOf(colorAt(img, x, y)) >= 24 {
+				ink = true
+				break
+			}
+		}
+		if !ink {
+			continue
+		}
+		drawn = append(drawn, s)
 	}
 	if len(drawn) != 3 {
-		t.Fatalf("the card drew %d bars that span it, want 3: %v — a bar has to be the width of the card and on a row of its own, or the bars cannot be read against each other", len(drawn), drawn)
+		t.Fatalf("the card drew %d bars, want 3: %v", len(drawn), drawn)
 	}
 	for _, s := range drawn[1:] {
-		if s.left != drawn[0].left || s.right != drawn[0].right {
-			t.Errorf("the bars do not line up: one spans %d..%d, another %d..%d", drawn[0].left, drawn[0].right, s.left, s.right)
+		if s.left < drawn[0].left-1 || s.left > drawn[0].left+1 {
+			t.Errorf("the bars do not share a left edge: one starts at %d, another at %d", drawn[0].left, s.left)
 		}
 	}
 }
@@ -1469,31 +1621,13 @@ func TestASingleHistoryTraySpansTheMeasure(t *testing.T) {
 	a := testApp(t)
 	addSeries(a, "codex", "default", "primary", 30, 6, true, 0)
 	a.navigate("history")
-	var p palette
-	page := a.view
-	tester := ui.NewTester(func(c *ui.Context) { p = a.theme(c); page(c) }, mainWidth, mainHeight)
-	tester.Frame()
-	img := tester.Image()
-	// The rule under the card's header is as wide as the card; the page's
-	// gradient moves the surface under it a little from row to row, so the ink
-	// is matched against the row above it.
-	wide := 0
-	for y := 200; y < mainHeight-10; y++ {
-		want := over(p.hairline, colorAt(img, 280, y-3))
-		run := 0
-		for x := 274; x <= 1006; x++ {
-			if close3(colorAt(img, x, y), want) {
-				run++
-				if run > wide {
-					wide = run
-				}
-				continue
-			}
-			run = 0
-		}
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	card, ok := tester.Find("Codex 的历史")
+	if !ok {
+		t.Fatal("the history page has no Codex tray")
 	}
-	if wide < 700 {
-		t.Errorf("the only history card's rule is %dpx across a 739px measure: one card does not need a two-card width", wide)
+	if card.W < 700 {
+		t.Errorf("the only history card is %.0fpx across a 739px measure: one card does not need a two-card width", card.W)
 	}
 }
 
@@ -1517,49 +1651,112 @@ func TestTheHistoryCardsAreTheSameWidth(t *testing.T) {
 	addSeries(a, "cursor", "default", "included", 0.4, 0.28, false, 0)
 	addSeries(a, "kimi", "home", "primary", 55, 3, true, 7)
 	a.navigate("history")
+	// Tall enough that three stacked trays still get laid out (single column
+	// is longer than the default 700 window).
+	tester := ui.NewTester(a.view, mainWidth, 1400)
+	var widths []float32
+	var ys []float32
+	for _, name := range []string{"Codex 的历史", "Cursor 的历史", "Kimi Code 的历史"} {
+		card, ok := tester.Find(name)
+		if !ok {
+			t.Fatalf("missing history tray %q; texts=%v", name, tester.Texts())
+		}
+		widths = append(widths, card.W)
+		ys = append(ys, card.Y)
+	}
+	// Single column (aligned with 总览): trays stack; no shared Y.
+	for i := 0; i < len(ys); i++ {
+		for j := i + 1; j < len(ys); j++ {
+			if ys[i]-ys[j] < 1 && ys[j]-ys[i] < 1 {
+				t.Fatalf("history trays share a row at y=%v; want a single column", ys)
+			}
+		}
+	}
+	for _, w := range widths[1:] {
+		if w < widths[0]-1 || w > widths[0]+1 {
+			t.Errorf("the cards are not the same width: one is %.0f wide, another %.0f", widths[0], w)
+		}
+	}
+	if widths[0] < 700 {
+		t.Errorf("a single-column history tray is only %.0f wide; want the full measure", widths[0])
+	}
+}
+
+// Settings opens as a popover on the main window, not a second Window.
+func TestSettingsOpensAsAPopoverOnTheMainWindow(t *testing.T) {
+	a := testApp(t)
+	a.OpenSettings()
+	if !a.settingsOpen {
+		t.Fatal("OpenSettings did not raise the popover flag")
+	}
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if !tester.HasText("设置") || !tester.HasText("自动刷新") {
+		t.Fatalf("settings popover missing on the main window; texts=%v", tester.Texts())
+	}
+	a.OpenSettings()
+	if a.settingsOpen {
+		t.Fatal("OpenSettings should toggle the popover closed")
+	}
+}
+
+// Provider "详情" in settings must dismiss the sheet; otherwise the page
+// changes under a modal that still owns input.
+func TestSettingsProviderDetailClosesThePopover(t *testing.T) {
+	a := testApp(t)
+	a.OpenSettings()
+	a.settingsTab = 1
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if err := tester.Click("详情"); err != nil {
+		t.Fatalf("详情 not clickable: %v; texts=%v", err, tester.Texts())
+	}
+	tester.Frame()
+	if a.settingsOpen {
+		t.Fatal("settings popover still open after 详情")
+	}
+	if !strings.HasPrefix(a.page, "provider:") {
+		t.Fatalf("详情 did not navigate to a provider page; page=%q", a.page)
+	}
+}
+
+// TestTheHistoryPageDoesNotRuleItsRows pins that the tray no longer draws
+// p.hairline across itself. Chart baselines use p.track (and sit in chartWell),
+// which can composite to nearly the same grey as hairline-on-card — those are
+// data scale, not tray separators, so they are excluded.
+func TestTheHistoryPageDoesNotRuleItsRows(t *testing.T) {
+	a := testApp(t)
+	addSeries(a, "deepseek", "default", "primary-percent", 40, 5, true, 0)
+	addSeries(a, "deepseek", "default", "secondary", 10, 2, true, 0)
+	a.navigate("history")
 	var p palette
 	page := a.view
 	tester := ui.NewTester(func(c *ui.Context) { p = a.theme(c); page(c) }, mainWidth, mainHeight)
 	tester.Frame()
 	img := tester.Image()
-
-	// The rule under a card's header is as wide as the card is: the length of
-	// that run is the card's width.
-	var widths []int
-	rows, paired := 0, 0
-	for y := 200; y < 700; y++ {
-		want := over(p.hairline, colorAt(img, 280, y-3))
-		var runs []int
+	rules := 0
+	for y := 200; y < mainHeight-10; y++ {
+		bg := colorAt(img, 280, y-3)
+		want := over(p.hairline, bg)
+		grid := over(p.track, bg)
 		run := 0
 		for x := 274; x <= 1006; x++ {
-			if close3(colorAt(img, x, y), want) {
+			c := colorAt(img, x, y)
+			if close3(c, want) && !close3(c, grid) {
 				run++
 				continue
 			}
-			if run >= 200 {
-				runs = append(runs, run)
+			if run >= 500 {
+				rules++
 			}
 			run = 0
 		}
-		if run >= 200 {
-			runs = append(runs, run)
+		if run >= 500 {
+			rules++
 		}
-		if len(runs) == 0 {
-			continue
-		}
-		rows++
-		if len(runs) > 1 {
-			paired++
-		}
-		widths = append(widths, runs...)
 	}
-	if rows < 2 || paired == 0 {
-		t.Fatalf("found %d rows of card rules, %d of them side by side: the page is not two cards across", rows, paired)
-	}
-	for _, w := range widths[1:] {
-		if w < widths[0]-1 || w > widths[0]+1 {
-			t.Errorf("the cards are not the same width: one is %d wide, another %d", widths[0], w)
-		}
+	if rules != 0 {
+		t.Errorf("history page still draws %d full-width hairlines; the tray was supposed to separate series with Gap alone", rules)
 	}
 }
 
@@ -2680,17 +2877,24 @@ func TestTheMatrixKeepsItsNumbersOnOneLine(t *testing.T) {
 			t.Errorf("width %d: the name is on a line of its own = %v, want %v", tc.width, stacked, tc.stacked)
 		}
 		img := tester.Image()
-		// The bar under a number: a row of continuous ink where the number's
-		// own width was card before. Text does not fill a run like that.
+		// The bar under a number: fill-only ink in a band below it. The fill
+		// is shorter than the column (and may be shorter than the digits), so
+		// look for a run of darker pixels beside the number, not a trough
+		// spanning its whole width.
 		bar := func(v ui.Rect) int {
+			x0 := int(v.X) - 8
+			if x0 < 0 {
+				x0 = 0
+			}
+			x1 := int(v.X+v.W) + 64
 			for y := int(v.Y + v.H); y < int(v.Y+v.H)+40; y++ {
 				n := 0
-				for x := int(v.X); x < int(v.X+v.W); x++ {
+				for x := x0; x < x1; x++ {
 					if rgbSum(img, x, y) < rgbSum(img, x, y-7)-24 {
 						n++
 					}
 				}
-				if n >= int(v.W)-4 {
+				if n >= 12 {
 					return y
 				}
 			}

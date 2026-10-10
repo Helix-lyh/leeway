@@ -10,28 +10,25 @@ import (
 // providerMatrix reads several subscriptions of one provider side by side: one
 // column per account, one block per window. Four accounts then answer "which
 // one is nearly out" on one screen, which a full card per account cannot.
+// Dense but calm: column dividers mark the grid; no zebra, no hairline between
+// window blocks, no outer table frame beyond the card surface.
 func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) ui.Element {
 	return card(c, p, func() {
 		// One Gap(0) column, with the vertical rhythm carried by each row's own
 		// padding: the rows then touch, so the rules between the columns meet
 		// and read as one line down the whole matrix.
 		ui.Column(c).FillWidth().Gap(0).Children(func() {
-			matrixRow(c, p, v, 0, space2, func(c *ui.Context, i int, av accountView) {
+			matrixRow(c, p, v, 0, space3, func(c *ui.Context, i int, av accountView) {
 				a.matrixHead(c, p, v, av)
 			})
 			for _, w := range matrixWindows(v) {
-				// One line across the whole card: a block boundary is a rule of
-				// the table, not a dash inside each column.
-				hairline(c, p)
-				// The window's name and its "已用" sit on the number's own line
-				// in the first column, like a row header: the header is one
-				// line instead of two, every column keeps that line for its
-				// number, and the rows still read across.
+				// Block boundary is padding alone — a full-width hairline would
+				// be a table rule Pulse does not draw between dense lanes.
 				inline := matrixColumnWidth(c, len(v.Accounts)) >= matrixInlineMin
-				matrixRow(c, p, v, space2, 0, func(c *ui.Context, i int, av accountView) {
+				matrixRow(c, p, v, space3, 0, func(c *ui.Context, i int, av accountView) {
 					a.matrixCell(c, p, v.ID, av, w, i == 0, inline)
 				})
-				matrixRow(c, p, v, 0, space2, func(c *ui.Context, i int, av accountView) {
+				matrixRow(c, p, v, 0, space3, func(c *ui.Context, i int, av accountView) {
 					if _, ok := accountWindow(av, w.ID); !ok {
 						return
 					}
@@ -111,9 +108,11 @@ func (a *App) matrixHead(c *ui.Context, p palette, v providerView, av accountVie
 func matrixActions(c *ui.Context, a *App, p palette, providerID, account string) ui.Element {
 	ready := accountSwitchReady(a, providerID, account)
 	session := accountUsesSession(a, providerID, account)
-	return btnSmall(ui.ButtonBase(c).Label("账号").Cursor(ui.CursorPointer).Children(func() {
+	btn := btnSmall(ui.ButtonBase(c).Label("账号").Cursor(ui.CursorPointer).Children(func() {
 		ui.Icon(c, iconMore).FontSize(sizeChrome).TextColor(p.t.TextMuted)
-	})).Menu(func(m *ui.Menu) {
+	}))
+	ghostFill(btn, p)
+	return btn.Menu(func(m *ui.Menu) {
 		for _, method := range loginMethods(providerID) {
 			if m.Item(method.label).Chosen() {
 				method.open(a, providerID, account)

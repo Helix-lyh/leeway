@@ -100,7 +100,13 @@ macOS chrome 用 `TitleBarHiddenInset`、`TitleBarHeight 40`、红绿灯 `{14,13
 meiro 的弹簧动效（MyGo 没有 spring，`Animate` 只有缓动函数）；MujicaUI 的「每帧重建整个
 `ui.Theme`」（我们只改需要改的字段，`paletteOf` 是纯函数）。
 
-## 5. 复核
+## 5. 闭源成品标杆
+
+[Pulse](https://pulse.egoist.dev/)（egoist，MyGo，无公开源码）是比开源语料更「做完」的一极：
+深色侧栏蓝 pill、三层灰无描边卡、点阵量图。规则与实机截图落在仓库内
+[`PULSE-AESTHETIC.md`](PULSE-AESTHETIC.md)、[`ref/pulse/`](ref/pulse/)，不依赖 `/tmp`。
+
+## 6. 复核
 
 ```sh
 ls /tmp/mygo-research/clones/            # 44 个 shallow clone

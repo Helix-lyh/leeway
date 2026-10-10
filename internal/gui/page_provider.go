@@ -23,7 +23,8 @@ func (a *App) providerViewOf(id string) providerView {
 }
 
 // providerPage is one provider in full: every account, every window, and what
-// can be done about each.
+// can be done about each. Pulse's detail pattern: page head, then hero metrics
+// and card sections — no decorative borders.
 func (a *App) providerPage(c *ui.Context, p palette, id string) {
 	v := a.providerViewOf(id)
 	sub := statusLabel(v.Status, v.firstCred())
@@ -31,7 +32,11 @@ func (a *App) providerPage(c *ui.Context, p palette, id string) {
 		sub += " · " + agoText(a.lastAt, a.now()) + "更新"
 	}
 	pageHeadMarked(c, p, v.ID, v.Status, v.DisplayName, sub, func() {
-		if btnLarge(ui.Button(c, "← 总览")).Clicked() {
+		back := btnLarge(ui.ButtonBase(c).Children(func() {
+			ui.Text(c, "← 总览").FontSize(sizeBody).TextColor(p.t.TextMuted)
+		})).Cursor(ui.CursorPointer)
+		ghostFill(back, p)
+		if back.Clicked() {
 			a.navigate("overview")
 		}
 		if btnLarge(ui.PrimaryButton(c, "刷新")).Disabled(a.fetching).Clicked() {
@@ -109,76 +114,144 @@ func sessionDirText() string {
 	return dir
 }
 
-// providerAccount is one account's card: identity, credentials, every window
-// with its history, and the actions that apply.
-func (a *App) providerAccount(c *ui.Context, p palette, v providerView, av accountView) ui.Element {
-	return card(c, p, func() {
-		ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
-			section(c, p, displayAccount(av.Name))
-			if av.Email != "" && av.Email != av.Name {
-				muted(c, p, av.Email)
+// providerAccount is one account: when it answered, a Pulse-like hero plate
+// plus a quieter card for the rest; otherwise one card with the state and the
+// actions that apply.
+func (a *App) providerAccount(c *ui.Context, p palette, v providerView, av accountView) {
+	switch {
+	case av.Status == "ok" && av.Snapshot != nil:
+		a.providerHero(c, p, v, av)
+		a.providerSupport(c, p, v, av)
+	default:
+		card(c, p, func() {
+			a.accountChrome(c, p, v, av)
+			switch {
+			case av.Status == "not_configured":
+				notConfiguredLine(c, p, v.ID, av)
+				if av.Error != "" {
+					text, detail := failureText("这个账号这次没有结果", av.Error)
+					errorLine(c, p, text, detail)
+				}
+			default:
+				if av.Error != "" {
+					text, detail := failureText("这个账号这次没有结果", av.Error)
+					errorLine(c, p, text, detail)
+				}
+				unconfiguredLine(c, p, "登录信息可能已失效：重新登录，或让 leeway 再读一次。")
 			}
-			if av.Plan != "" {
-				pill(c, p, av.Plan, toneNeutral)
-			}
-			ui.Spacer(c)
-			pill(c, p, statusLabel(av.Status, av.Cred), statusTone(av.Status))
-			loginActions(c, a, v.ID, av.Name)
-			accountActions(c, a, p, v.ID, av.Name)
 		})
+	}
+}
 
-		cred := av.Cred
-		if av.Expires != "" {
-			cred += " · " + av.Expires
+// accountChrome is the identity row every account plate shares: who it is,
+// how it stands, and the actions that apply — kebab stays secondary.
+func (a *App) accountChrome(c *ui.Context, p palette, v providerView, av accountView) {
+	ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
+		section(c, p, displayAccount(av.Name))
+		if av.Email != "" && av.Email != av.Name {
+			muted(c, p, av.Email)
 		}
-		if cred != "" {
-			ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
-				ui.Icon(c, iconKeyhole).FontSize(iconSmall).TextColor(p.t.TextMuted)
-				muted(c, p, cred)
+		if av.Plan != "" {
+			pill(c, p, av.Plan, toneNeutral)
+		}
+		ui.Spacer(c)
+		pill(c, p, statusLabel(av.Status, av.Cred), statusTone(av.Status))
+		loginActions(c, a, v.ID, av.Name)
+		more := accountActions(c, a, p, v.ID, av.Name)
+		ghostFill(more, p)
+	})
+	cred := av.Cred
+	if av.Expires != "" {
+		cred += " · " + av.Expires
+	}
+	if cred != "" {
+		ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
+			ui.Icon(c, iconKeyhole).FontSize(iconSmall).TextColor(p.t.TextMuted)
+			muted(c, p, cred)
+		})
+	}
+}
+
+// providerHero is the account's lead plate: identity, then the window closest
+// to its limit as a large number with supporting readings — Pulse detail's
+// hero stack, without a nested tray or decorative border.
+func (a *App) providerHero(c *ui.Context, p palette, v providerView, av accountView) {
+	snap := av.Snapshot
+	card(c, p, func() {
+		a.accountChrome(c, p, v, av)
+		if len(snap.Windows) == 0 {
+			if snap.Cost != nil && snap.Cost.Amount != nil {
+				a.costLine(c, p, snap)
+				return
+			}
+			unconfiguredLine(c, p, "服务商没有提供额度信息。")
+			return
+		}
+		lead := fullestWindow(snap.Windows)
+		points := a.historyFor(v.ID, av.Name, lead.ID)
+		a.heroWindow(c, p, v.ID, lead, heroFacts(v.ID, snap.Windows, lead, a.now()))
+		if len(points) >= 2 {
+			ui.Column(c).FillWidth().Gap(space2).Padding(space2).Radius(radiusControl).
+				Background(p.chartWell).Children(func() {
+				_, over := a.sparkline(c, p, "provider-trend:"+v.ID+"/"+lead.ID,
+					"用量走势："+windowTitle(v.ID, lead.ID, lead.Title),
+					points, p.toneColor(windowTone(lead)), 54, nil)
+				summary := joinNonEmpty([]string{chartScale(points), historyCaption(points)}, " · ")
+				muted(c, p, chartCaption(points, over, summary))
 			})
 		}
-		switch {
-		case av.Status == "ok" && av.Snapshot != nil:
-			a.snapshotDetail(c, p, v.ID, av)
-		case av.Status == "not_configured":
-			notConfiguredLine(c, p, v.ID, av)
-			if av.Error != "" {
-				text, detail := failureText("这个账号这次没有结果", av.Error)
-				errorLine(c, p, text, detail)
-			}
-		default:
-			if av.Error != "" {
-				text, detail := failureText("这个账号这次没有结果", av.Error)
-				errorLine(c, p, text, detail)
-			}
-			unconfiguredLine(c, p, "登录信息可能已失效：重新登录，或让 leeway 再读一次。")
+		resetNote(c, p, points)
+		// A lone window keeps cost on the hero so the page is still one answer.
+		if len(snap.Windows) == 1 {
+			a.costLine(c, p, snap)
 		}
 	})
 }
 
-// snapshotDetail draws one account's windows, cost and history.
-func (a *App) snapshotDetail(c *ui.Context, p palette, providerID string, av accountView) {
+// providerSupport holds the windows that are not the lead, and the cost when
+// more than one window already claimed the hero. Gap between plates — no rules.
+func (a *App) providerSupport(c *ui.Context, p palette, v providerView, av accountView) {
 	snap := av.Snapshot
+	if len(snap.Windows) == 0 {
+		return
+	}
+	lead := fullestWindow(snap.Windows)
+	var rest []model.RateWindow
 	for _, w := range snap.Windows {
-		a.windowRow(c, p, providerID, w, a.historyFor(providerID, av.Name, w.ID), 46)
-	}
-	if snap.Cost != nil && snap.Cost.Amount != nil {
-		line := money(*snap.Cost.Amount, snap.Cost.Currency)
-		if snap.Cost.Limit != nil {
-			line += fmt.Sprintf(" / %s", money(*snap.Cost.Limit, snap.Cost.Currency))
+		if w.ID != lead.ID {
+			rest = append(rest, w)
 		}
-		if d := snap.Cost.Delta; d != nil && d.Amount != nil && *d.Amount != 0 {
-			line += fmt.Sprintf("（比上次 %+.2f）", *d.Amount)
+	}
+	needCost := len(snap.Windows) > 1 && snap.Cost != nil && snap.Cost.Amount != nil
+	if len(rest) == 0 && !needCost {
+		return
+	}
+	card(c, p, func() {
+		for _, w := range rest {
+			a.windowRow(c, p, v.ID, w, a.historyFor(v.ID, av.Name, w.ID), 40)
 		}
-		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space3).Children(func() {
-			ui.Text(c, periodText(snap.Cost.Period)).FontSize(sizeBody).FontWeight(600).SingleLine()
-			ui.Spacer(c)
-			value(c, p, line, p.t.Text)
-		})
+		if needCost {
+			a.costLine(c, p, snap)
+		}
+	})
+}
+
+func (a *App) costLine(c *ui.Context, p palette, snap *model.Snapshot) {
+	if snap.Cost == nil || snap.Cost.Amount == nil {
+		return
 	}
-	if len(snap.Windows) == 0 && snap.Cost == nil {
-		unconfiguredLine(c, p, "服务商没有提供额度信息。")
+	line := money(*snap.Cost.Amount, snap.Cost.Currency)
+	if snap.Cost.Limit != nil {
+		line += fmt.Sprintf(" / %s", money(*snap.Cost.Limit, snap.Cost.Currency))
 	}
+	if d := snap.Cost.Delta; d != nil && d.Amount != nil && *d.Amount != 0 {
+		line += fmt.Sprintf("（比上次 %+.2f）", *d.Amount)
+	}
+	ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space3).Children(func() {
+		ui.Text(c, periodText(snap.Cost.Period)).FontSize(sizeBody).FontWeight(600).SingleLine()
+		ui.Spacer(c)
+		value(c, p, line, p.t.Text)
+	})
 }
 
 // historyCaption says what the sparkline covers.
@@ -251,9 +324,12 @@ func (a *App) windowRow(c *ui.Context, p palette, providerID string, w model.Rat
 		})
 		meter(c, p, w, 7)
 		if chart > 0 && len(points) >= 2 {
-			_, over := a.sparkline(c, p, "provider-trend:"+providerID+"/"+w.ID, "用量走势："+windowTitle(providerID, w.ID, w.Title), points, p.toneColor(windowTone(w)), float32(chart), nil)
-			summary := joinNonEmpty([]string{chartScale(points), historyCaption(points)}, " · ")
-			muted(c, p, chartCaption(points, over, summary))
+			ui.Column(c).FillWidth().Gap(space2).Padding(space2).Radius(radiusControl).
+				Background(p.chartWell).Children(func() {
+				_, over := a.sparkline(c, p, "provider-trend:"+providerID+"/"+w.ID, "用量走势："+windowTitle(providerID, w.ID, w.Title), points, p.toneColor(windowTone(w)), float32(chart), nil)
+				summary := joinNonEmpty([]string{chartScale(points), historyCaption(points)}, " · ")
+				muted(c, p, chartCaption(points, over, summary))
+			})
 		}
 		resetNote(c, p, points)
 	})

@@ -15,14 +15,20 @@ func icon(svg string) *ui.SVG { return ui.MustParseSVG([]byte(svg)) }
 // decreasing length — a quota bar, the one thing the mark must not be, since a
 // bar is a UI component and the window already draws the real one a row below.
 //
-// The spiral is resources/icon.py's, re-fitted for a glyph that has to survive
-// being rasterised at 16px beside the wordmark: 0.95 turns rather than the
-// icon's 1.10, so the counter stays open at that size, and one flick rather than
-// the icon's whole spread of hairs. The weight was picked by rendering
-// candidates through MyGo's own rasteriser and looking at them, not by preview —
-// resources/icon-glyph.py regenerates this path.
+// This is a trace of resources/icon.png's own ink, not a spiral drawn to look
+// like it. The first attempt drew its own spiral with the same start angle and a
+// chosen turn count, and it never matched: at this size the icon reads as a
+// solid pinwheel with one slot cut through it, and a hand-drawn glyph reads as a
+// thin outlined "6", because the ratio that decides which one you see — stroke
+// against the gap between turns — is a third knob to guess at. Tracing removes
+// the guessing. Change the icon, re-run resources/icon-glyph.py, and the two
+// agree again by construction.
+//
+// It is a path with fill="currentColor" rather than the icon bitmap: a violet
+// squircle tile beside the wordmark is a second app icon, and ui.Image cannot
+// tint, so a bitmap would take one file per theme.
 var (
-	iconApp      = icon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M13.53 11.41C13.8 11.4 14.62 11.2 15.16 11.34C15.71 11.47 16.35 11.77 16.81 12.21C17.27 12.65 17.72 13.31 17.92 14C18.12 14.68 18.19 15.56 18 16.33C17.82 17.1 17.4 17.98 16.81 18.61C16.22 19.25 15.35 19.86 14.45 20.14C13.55 20.43 12.41 20.55 11.41 20.34C10.4 20.14 9.27 19.64 8.44 18.93C7.6 18.22 6.8 17.16 6.39 16.06C5.97 14.95 5.78 13.55 5.96 12.31C6.14 11.07 6.68 9.67 7.49 8.61C8.3 7.55 10.25 6.4 10.81 5.95M10.81 5.95L13.12 3.56M10.81 5.95L11.15 4.64"/></svg>`)
+	iconApp      = icon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" fill-rule="evenodd"><path d="M11.28 1.68L8.4 3.6L9.12 2.4L8.4 2.16L5.04 6L5.04 4.56L3.36 7.2L3.36 8.64L2.4 9.12L2.88 13.92L2.4 15.36L4.32 18.24L6 19.92L9.36 21.36L9.36 22.32L12.72 22.32L14.64 21.36L15.12 22.32L16.08 21.84L18.72 19.2L20.16 16.32L20.16 13.92L19.2 11.52L17.52 9.84L14.16 8.88L12.96 9.6L15.6 10.32L17.28 12L17.76 13.44L17.28 15.84L14.64 18.48L12.72 18.96L10.8 18.48L7.68 15.84L6.72 13.44L6.72 10.56L7.68 8.16L9.84 6L13.2 4.56L17.04 5.04L18.96 4.56L21.6 6.24L19.44 4.08L16.56 3.12L17.04 2.16L11.76 1.68Z"/></svg>`)
 	iconOverview = icon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>`)
 	iconHistory  = icon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`)
 	iconAbout    = icon(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>`)

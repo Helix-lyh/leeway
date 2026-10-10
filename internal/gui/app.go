@@ -43,8 +43,8 @@ type App struct {
 
 	page string // "overview", "provider:<id>", "history", "about"
 
-	settingsWin *mygo.Window
-	settingsTab int
+	settingsOpen bool // settings popover over the main window (not a second window)
+	settingsTab  int
 
 	toast string
 	scrub chartScrub

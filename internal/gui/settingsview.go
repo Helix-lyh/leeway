@@ -1,10 +1,11 @@
 package gui
 
 import (
+	"log"
+
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
-	"log"
 )
 
 // formRow is a settings row: the label above its control, as docs/GUI.md asks
@@ -36,11 +37,75 @@ func toggleRow(c *ui.Context, p palette, name string, control func(name string))
 	})
 }
 
-// settingsView is the settings window: the same app state as the main window,
-// a second window of its own.
-// settingsSubtitle is the settings window's one line of context.
+// settingsSubtitle is the settings popover's one line of context.
 const settingsSubtitle = "窗口的设置存在 gui.json，与命令行的 config.json 分开"
 
+// settingsPopoverWidth / Height keep the sheet one size across tabs so the
+// frame does not jump when the segmented control changes.
+const (
+	settingsPopoverWidth  = 400
+	settingsPopoverHeight = 500
+)
+
+// settingsScrim is lighter than Modal's default 0.4 — the page should stay
+// readable behind the sheet (Pulse's glass popover spirit).
+const settingsScrim = 0.18
+
+// settingsSheet is the settings popover over the main window (DialogBase),
+// like Pulse's floating settings — not an independent Window.
+func (a *App) settingsSheet(c *ui.Context, p palette) {
+	if !a.settingsOpen {
+		return
+	}
+	open := true
+	ui.DialogBase(c, &open, func(backdrop, panel ui.Element) {
+		backdrop.Background(ui.RGBA(0, 0, 0, settingsScrim))
+		panel.
+			Width(settingsPopoverWidth).
+			Height(settingsPopoverHeight).
+			Padding(space4).
+			Radius(radiusTray).
+			Background(p.sheet).
+			Border(1, p.border).
+			Shadow(0, 18, 44, -8, ui.RGBA(12, 10, 30, 0.32)).
+			Shadow(0, 2, 6, 0, ui.RGBA(12, 10, 30, 0.10))
+		ui.Column(c).Fill().Gap(space3).Children(func() {
+			ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Shrink(0).Children(func() {
+				chrome(c, p, "设置").Shrink(0)
+				ui.Spacer(c)
+				settingsTabs(c, p, a)
+			})
+			muted(c, p, settingsSubtitle).
+				SingleLine().
+				Ellipsis("…").
+				Tooltip(settingsSubtitle).
+				Shrink(0)
+			ui.Scroll(c).FillWidth().Grow(1).Children(func() {
+				ui.Column(c).FillWidth().Gap(space4).Children(func() {
+					a.settingsTabBody(c, p)
+				})
+			})
+		})
+	})
+	if !open {
+		a.settingsOpen = false
+	}
+}
+
+// settingsTabBody is the selected settings tab's plate stack.
+func (a *App) settingsTabBody(c *ui.Context, p palette) {
+	switch a.settingsTab {
+	case 1:
+		a.settingsProviders(c, p)
+	case 2:
+		a.settingsData(c, p)
+	default:
+		a.settingsGeneral(c, p)
+	}
+}
+
+// settingsView is the settings content as a standalone page (tests, snapshots).
+// Production opens settingsSheet on the main window instead.
 func (a *App) settingsView(c *ui.Context) {
 	p := a.theme(c)
 	if a.toast != "" {
@@ -48,9 +113,12 @@ func (a *App) settingsView(c *ui.Context) {
 		a.toast = ""
 	}
 	tb := c.TitleBar()
-	left := float32(space4)
-	if tb.Left > 0 {
-		left = tb.Left + space3
+	left, right := tb.Left+titleBarPad, tb.Right+titleBarPad
+	if left < titleBarPad {
+		left = titleBarPad
+	}
+	if right < titleBarPad {
+		right = titleBarPad
 	}
 	ui.Column(c).
 		Fill().
@@ -59,100 +127,118 @@ func (a *App) settingsView(c *ui.Context) {
 			ui.Row(c).
 				FillWidth().
 				Height(a.titleBarHeight(c)).
-				Padding(0, space4, 0, left).
+				Padding(0, right, 0, left).
 				Gap(space3).
 				AlignItems(ui.Center).
 				DragWindow().
 				Material(glass.Glass{}).
 				Children(func() {
-					// The title is the window's name: it never gives up room.
-					// The line beside it is the only thing that may, and it
-					// gives it up on one line rather than wrapping the bar.
 					chrome(c, p, "设置").Shrink(0)
-					chromeRule(c, p)
-					// The one line in the window that has to give way when the
-					// system text is large: it says its whole sentence as a
-					// tooltip, so the truncation is never the end of it.
 					muted(c, p, settingsSubtitle).
 						SingleLine().
 						Ellipsis("…").
 						Tooltip(settingsSubtitle).
 						Focusable()
 					ui.Spacer(c)
-					ui.Tabs(c, &a.settingsTab, "通用", "服务商", "数据")
+					settingsTabs(c, p, a)
 				})
 			ui.Scroll(c).Grow(1).FillWidth().Padding(space5, space5, space6, space5).Children(func() {
 				ui.Column(c).FillWidth().Gap(space4).Children(func() {
-					switch a.settingsTab {
-					case 1:
-						a.settingsProviders(c, p)
-					case 2:
-						a.settingsData(c, p)
-					default:
-						a.settingsGeneral(c, p)
-					}
+					a.settingsTabBody(c, p)
 				})
 			})
 		})
 }
 
-// settingsGeneral is refresh, appearance and startup.
-func (a *App) settingsGeneral(c *ui.Context, p palette) {
-	card(c, p, func() {
-		section(c, p, "刷新")
-		formRow(c, p, "自动刷新", "自动刷新用 1 分钟内的结果；手动刷新一定会重新查询。", func() {
-			labels := make([]string, len(refreshOptions))
-			for i, o := range refreshOptions {
-				labels[i] = o.label
-			}
-			choice := refreshLabel(a.settings.IntervalSec)
-			if ui.Select(c, &choice, labels).Width(190).Changed() {
-				for _, o := range refreshOptions {
-					if o.label == choice {
-						a.settings.IntervalSec = o.sec
-						a.SaveSettings()
-					}
+// settingsTabs is the title-bar segmented control: a quiet capsule track with
+// the current tab as a lighter pill — Pulse's popover spirit, not boxed tabs.
+func settingsTabs(c *ui.Context, p palette, a *App) ui.Element {
+	labels := []string{"通用", "服务商", "数据"}
+	return ui.Row(c).Gap(space1).Padding(3).Radius(radiusCapsule).Background(p.track).Children(func() {
+		for i, name := range labels {
+			i, name := i, name
+			selected := a.settingsTab == i
+			tab := btnSmall(ui.ButtonBase(c).Children(func() {
+				ink := p.t.TextMuted
+				if selected {
+					ink = p.t.Text
 				}
+				ui.Text(c, name).FontSize(sizeBody).FontWeight(600).TextColor(ink).SingleLine()
+			})).Cursor(ui.CursorPointer)
+			if selected {
+				tab.Background(p.card)
+			} else {
+				ghostFill(tab, p)
 			}
-		})
-		formRow(c, p, "查询超时（秒）", "单个服务商的查询超时，等同于 LEEWAY_TIMEOUT。", func() {
-			secs := float64(a.settings.TimeoutSec)
-			field := ui.NumberInput(c, &secs, 5, 300, 5)
-			if field.Changed() {
-				a.settings.TimeoutSec = int(secs)
-				a.SaveSettings()
+			if tab.Clicked() && !selected {
+				a.settingsTab = i
 			}
-		})
-	})
-
-	card(c, p, func() {
-		section(c, p, "外观")
-		formRow(c, p, "主题", "", func() { appearancePicker(c, p, a) })
-		toggleRow(c, p, "打开窗口就查询", func(name string) { switchRow(c, &a.settings.OnOpenFetch, a, name) })
-		toggleRow(c, p, "查询失败时通知我", func(name string) { switchRow(c, &a.settings.NotifyOnError, a, name) })
-		if mygo.App.IsReady() && !mygo.NotificationsSupported() {
-			unconfiguredLine(c, p, "这个环境不支持系统通知（只在安装后的 .app 里可用）。")
 		}
 	})
+}
 
+// settingsGeneral is refresh, appearance and startup on one plate — sections
+// separated by Gap, not by stacked cards.
+func (a *App) settingsGeneral(c *ui.Context, p palette) {
 	card(c, p, func() {
-		section(c, p, "启动")
-		toggleRow(c, p, "开机自启", func(name string) {
-			on := mygo.App.IsReady() && mygo.App.OpenAtLogin()
-			if ui.Switch(c, &on).Label(name).Changed() && mygo.App.IsReady() {
-				if err := mygo.App.SetOpenAtLogin(on); err != nil {
-					log.Printf("窗口：设置开机自启失败：%v", err)
-					a.toast, _ = failureText("开机自启设置失败", err.Error())
+		ui.Column(c).FillWidth().Gap(space5).Children(func() {
+			ui.Column(c).FillWidth().Gap(space3).Children(func() {
+				section(c, p, "刷新")
+				formRow(c, p, "自动刷新", "自动刷新用 1 分钟内的结果；手动刷新一定会重新查询。", func() {
+					labels := make([]string, len(refreshOptions))
+					for i, o := range refreshOptions {
+						labels[i] = o.label
+					}
+					choice := refreshLabel(a.settings.IntervalSec)
+					if ui.Select(c, &choice, labels).Width(190).Changed() {
+						for _, o := range refreshOptions {
+							if o.label == choice {
+								a.settings.IntervalSec = o.sec
+								a.SaveSettings()
+							}
+						}
+					}
+				})
+				formRow(c, p, "查询超时（秒）", "单个服务商的查询超时，等同于 LEEWAY_TIMEOUT。", func() {
+					secs := float64(a.settings.TimeoutSec)
+					field := ui.NumberInput(c, &secs, 5, 300, 5)
+					if field.Changed() {
+						a.settings.TimeoutSec = int(secs)
+						a.SaveSettings()
+					}
+				})
+			})
+
+			ui.Column(c).FillWidth().Gap(space3).Children(func() {
+				section(c, p, "外观")
+				formRow(c, p, "主题", "", func() { appearancePicker(c, p, a) })
+				toggleRow(c, p, "打开窗口就查询", func(name string) { switchRow(c, &a.settings.OnOpenFetch, a, name) })
+				toggleRow(c, p, "查询失败时通知我", func(name string) { switchRow(c, &a.settings.NotifyOnError, a, name) })
+				if mygo.App.IsReady() && !mygo.NotificationsSupported() {
+					unconfiguredLine(c, p, "这个环境不支持系统通知（只在安装后的 .app 里可用）。")
 				}
-			}
+			})
+
+			ui.Column(c).FillWidth().Gap(space3).Children(func() {
+				section(c, p, "启动")
+				toggleRow(c, p, "开机自启", func(name string) {
+					on := mygo.App.IsReady() && mygo.App.OpenAtLogin()
+					if ui.Switch(c, &on).Label(name).Changed() && mygo.App.IsReady() {
+						if err := mygo.App.SetOpenAtLogin(on); err != nil {
+							log.Printf("窗口：设置开机自启失败：%v", err)
+							a.toast, _ = failureText("开机自启设置失败", err.Error())
+						}
+					}
+				})
+				unconfiguredLine(c, p, "需要安装后的 .app（macOS 13 以上）。")
+			})
 		})
-		unconfiguredLine(c, p, "需要安装后的 .app（macOS 13 以上）。")
 	})
 }
 
 // appearancePicker is the theme row: three little windows, each drawn in the
 // theme it offers, so the choice is made by looking instead of by reading.
-// "Follow the system" is drawn as the two themes it moves between.
+// Quiet pills — no resting border; the selected swatch lifts with the accent.
 func appearancePicker(c *ui.Context, p palette, a *App) ui.Element {
 	options := []struct {
 		value, label string
@@ -163,16 +249,15 @@ func appearancePicker(c *ui.Context, p palette, a *App) ui.Element {
 		{"light", "浅色", false, false},
 		{"dark", "深色", true, false},
 	}
-	return ui.Row(c).Gap(space2).Children(func() {
+	return ui.Row(c).Gap(space2).Padding(4).Radius(radiusControl).Background(p.track).Children(func() {
 		for _, o := range options {
 			opt := o
 			selected := a.settings.Theme == opt.value
-			ui.Column(c).Gap(space1).AlignItems(ui.Center).Children(func() {
+			ui.Column(c).Gap(space1).AlignItems(ui.Center).Padding(space1).Children(func() {
 				swatch := ui.Box(c).
 					Size(62, 40).
 					Radius(radiusControl).
-					Label("主题："+opt.label).
-					Border(1, p.border).
+					Label("主题：" + opt.label).
 					Draw(func(pt *ui.Painter, r ui.Rect) {
 						canvas, card, track, accent := miniWindow(opt.dark)
 						if opt.split {
@@ -234,32 +319,36 @@ func switchRow(c *ui.Context, field *bool, a *App, name string) ui.Element {
 // The rows are a list, not a form: the mark and the name are what the eye
 // scans, so they lead, and the state and the actions trail — the switch last,
 // where the platform puts it, rather than a column of switches in front of
-// the names.
+// the names. Gap between rows, not hairlines.
 func (a *App) settingsProviders(c *ui.Context, p palette) {
 	card(c, p, func() {
 		section(c, p, "全部服务商")
-		for i, v := range a.providers() {
-			view := v
-			if i > 0 {
-				hairline(c, p)
-			}
-			ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
-				mark(c, p, view.ID, view.DisplayName, 26, "")
-				body(c, p, view.DisplayName).Grow(1).SingleLine()
-				pill(c, p, statusLabel(view.Status, view.firstCred()), statusTone(view.Status))
-				if btnSmall(ui.Button(c, "详情")).Clicked() {
-					a.navigate("provider:" + view.ID)
-					if a.win != nil && !a.win.IsDestroyed() {
-						a.win.Show()
-						a.win.Focus()
+		ui.Column(c).FillWidth().Gap(space3).Children(func() {
+			for _, v := range a.providers() {
+				view := v
+				ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
+					mark(c, p, view.ID, view.DisplayName, 26, "")
+					body(c, p, view.DisplayName).Grow(1).SingleLine()
+					pill(c, p, statusLabel(view.Status, view.firstCred()), statusTone(view.Status))
+					detail := btnSmall(ui.ButtonBase(c).Children(func() {
+						ui.Text(c, "详情").FontSize(sizeBody).TextColor(p.t.TextMuted)
+					})).Cursor(ui.CursorPointer)
+					ghostFill(detail, p)
+					if detail.Clicked() {
+						a.settingsOpen = false
+						a.navigate("provider:" + view.ID)
+						if a.win != nil && !a.win.IsDestroyed() {
+							a.win.Show()
+							a.win.Focus()
+						}
 					}
-				}
-				on := view.Enabled
-				if ui.Switch(c, &on).Label("添加 " + view.DisplayName).Changed() {
-					a.Enable(view.ID, on)
-				}
-			})
-		}
+					on := view.Enabled
+					if ui.Switch(c, &on).Label("添加 " + view.DisplayName).Changed() {
+						a.Enable(view.ID, on)
+					}
+				})
+			}
+		})
 		unconfiguredLine(c, p, "已移除的服务商不会被查询。登录、切换账号和移除，都在它的详情页里。")
 	})
 }
@@ -267,69 +356,76 @@ func (a *App) settingsProviders(c *ui.Context, p palette) {
 // settingsData is where leeway keeps its files, and what can be done to them.
 func (a *App) settingsData(c *ui.Context, p palette) {
 	card(c, p, func() {
-		section(c, p, "历史")
-		formRow(c, p, "每个额度周期保留的查询次数", "影响历史页的走势图，也是命令行 usage --last 的默认值。", func() {
-			n := float64(a.settings.HistoryN)
-			field := ui.NumberInput(c, &n, 5, 200, 5)
-			if field.Changed() {
-				a.settings.HistoryN = int(n)
-				a.SaveSettings()
-				a.loadHistory()
-			}
-		})
-	})
-
-	card(c, p, func() {
-		section(c, p, "文件")
-		for i, f := range []struct{ label, path string }{
-			{"配置", configPathText()},
-			{"缓存", cacheDirText()},
-			{"登录文件", sessionDirText()},
-			{"历史", historyPathText()},
-		} {
-			file := f
-			if i > 0 {
-				hairline(c, p)
-			}
-			ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
-				label(c, p, file.label).Width(labelColumn)
-				path := body(c, p, shortenPath(file.path)).
-					Font(p.mono).
-					Grow(1).
-					SingleLine().
-					Ellipsis("…").
-					Tooltip(file.path + "\n点击复制路径")
-				if path.Clicked() {
-					mygo.Clipboard.WriteText(file.path)
-					a.toast = "已复制路径"
-				}
-				if btnSmall(ui.Button(c, "打开")).Clicked() {
-					mygo.Shell.ShowItemInFolder(file.path)
-				}
+		ui.Column(c).FillWidth().Gap(space5).Children(func() {
+			ui.Column(c).FillWidth().Gap(space3).Children(func() {
+				section(c, p, "历史")
+				formRow(c, p, "每个额度周期保留的查询次数", "影响历史页的走势图，也是命令行 usage --last 的默认值。", func() {
+					n := float64(a.settings.HistoryN)
+					field := ui.NumberInput(c, &n, 5, 200, 5)
+					if field.Changed() {
+						a.settings.HistoryN = int(n)
+						a.SaveSettings()
+						a.loadHistory()
+					}
+				})
 			})
-		}
-	})
 
-	card(c, p, func() {
-		section(c, p, "维护")
-		ui.Row(c).Gap(space2).Wrap().Children(func() {
-			if btnSmall(ui.Button(c, "复制数据")).Clicked() {
-				mygo.Clipboard.WriteText(a.CopyJSON())
-				a.toast = "已复制"
-			}
-			if btnSmall(ui.Button(c, "重新读取浏览器登录状态")).Clicked() {
-				a.askClearCache()
-			}
-			if btnSmall(ui.Button(c, "刷新")).Disabled(a.fetching).Clicked() {
-				a.Refresh(true)
-			}
+			ui.Column(c).FillWidth().Gap(space3).Children(func() {
+				section(c, p, "文件")
+				ui.Column(c).FillWidth().Gap(space3).Children(func() {
+					for _, f := range []struct{ label, path string }{
+						{"配置", configPathText()},
+						{"缓存", cacheDirText()},
+						{"登录文件", sessionDirText()},
+						{"历史", historyPathText()},
+					} {
+						file := f
+						ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
+							label(c, p, file.label).Width(labelColumn)
+							path := body(c, p, shortenPath(file.path)).
+								Font(p.mono).
+								Grow(1).
+								SingleLine().
+								Ellipsis("…").
+								Tooltip(file.path + "\n点击复制路径")
+							if path.Clicked() {
+								mygo.Clipboard.WriteText(file.path)
+								a.toast = "已复制路径"
+							}
+							open := btnSmall(ui.ButtonBase(c).Children(func() {
+								ui.Text(c, "打开").FontSize(sizeBody).TextColor(p.t.TextMuted)
+							})).Cursor(ui.CursorPointer)
+							ghostFill(open, p)
+							if open.Clicked() {
+								mygo.Shell.ShowItemInFolder(file.path)
+							}
+						})
+					}
+				})
+			})
+
+			ui.Column(c).FillWidth().Gap(space3).Children(func() {
+				section(c, p, "维护")
+				ui.Row(c).Gap(space2).Wrap().Children(func() {
+					if btnSmall(ui.Button(c, "复制数据")).Clicked() {
+						mygo.Clipboard.WriteText(a.CopyJSON())
+						a.toast = "已复制"
+					}
+					if btnSmall(ui.Button(c, "重新读取浏览器登录状态")).Clicked() {
+						a.askClearCache()
+					}
+					if btnSmall(ui.Button(c, "刷新")).Disabled(a.fetching).Clicked() {
+						a.Refresh(true)
+					}
+				})
+				unconfiguredLine(c, p, "只让下一次查询重新读一遍浏览器登录状态，不动 config.json 里的密钥。")
+			})
+
+			ui.Column(c).FillWidth().Gap(space2).Children(func() {
+				section(c, p, "关于")
+				keyValue(c, p, "版本", "leeway "+version)
+				keyValue(c, p, "运行环境", "go "+goVersion())
+			})
 		})
-		unconfiguredLine(c, p, "只让下一次查询重新读一遍浏览器登录状态，不动 config.json 里的密钥。")
-	})
-
-	card(c, p, func() {
-		section(c, p, "关于")
-		keyValue(c, p, "版本", "leeway "+version)
-		keyValue(c, p, "运行环境", "go "+goVersion())
 	})
 }

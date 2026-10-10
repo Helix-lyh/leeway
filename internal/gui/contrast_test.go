@@ -43,6 +43,8 @@ func TestThePaletteStaysLegible(t *testing.T) {
 			{"a neutral pill's label", p.toneInk(toneNeutral), over(p.toneColor(toneNeutral).Alpha(0.14), card)},
 			// The label on a primary button.
 			{"text on the accent", p.t.AccentText, p.accent},
+			// Pulse blue pill: selected sidebar label/icon on navSelected.
+			{"selected nav label on the pill", p.navSelectedText, p.navSelected},
 			// The state counts in the title bar. They used to be a muted at
 			// half alpha, which measured 2.02:1 — a count is text.
 			{"a state count in the title bar", p.t.TextMuted, p.canvas},
@@ -56,6 +58,56 @@ func TestThePaletteStaysLegible(t *testing.T) {
 			if r := contrast(check.fg, check.bg); r < 4.5 {
 				t.Errorf("%s: %s is %.2f:1, under the 4.5:1 ordinary text needs", appearance.name, check.what, r)
 			}
+		}
+	}
+}
+
+// TestNavSelectedPillKeepsLabelContrast pins the Pulse fork: selected nav is
+// a system-blue pill with white ink, not motrix gray wash and not brand violet.
+func TestNavSelectedPillKeepsLabelContrast(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := ui.LightTheme()
+		if dark {
+			theme = ui.DarkTheme()
+		}
+		p := paletteOf(theme)
+		if r := contrast(p.navSelectedText, p.navSelected); r < 4.5 {
+			t.Errorf("dark=%v: selected nav label is %.2f:1 on the pill, under 4.5:1", dark, r)
+		}
+		// Pill must read as a fill distinct from the canvas (selection, not a whisper).
+		if r := contrast(p.navSelected, p.canvas); r < 2 {
+			t.Errorf("dark=%v: nav pill is %.2f:1 from the canvas — too quiet to mark selection", dark, r)
+		}
+		// Brand accent stays violet; nav selection is its own blue.
+		if p.navSelected == p.accent {
+			t.Errorf("dark=%v: navSelected collapsed onto accent; keep the Pulse/brand split", dark)
+		}
+	}
+}
+
+// TestCardLiftsOffTheCanvas pins the measured open-card lift (~1.10:1): Pulse
+// dark spirit without decorative borders. Light stays the existing white wash
+// (~1.10); dark targets Pulse #141416 / #1f1f23 (~1.12).
+func TestCardLiftsOffTheCanvas(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := ui.LightTheme()
+		if dark {
+			theme = ui.DarkTheme()
+		}
+		p := paletteOf(theme)
+		card := over(p.card, p.canvas)
+		r := contrast(card, p.canvas)
+		lo, hi := 1.09, 1.20
+		if dark {
+			lo = 1.10
+		}
+		if r < lo || r > hi {
+			t.Errorf("dark=%v: card on canvas is %.2f:1; want %.2f–%.2f:1 lift", dark, r, lo, hi)
+		}
+		// chartWell is for other agents: recessed vs card, not a second border.
+		well := over(p.chartWell, card)
+		if contrast(well, card) < 1.02 {
+			t.Errorf("dark=%v: chartWell does not sit under the card", dark)
 		}
 	}
 }
@@ -218,6 +270,29 @@ func TestTheCardsHoverIsVisible(t *testing.T) {
 	}
 }
 
+// TestTheCardsPressIsStrongerThanHover pins press as the stronger state
+// layer (meiro StatePress 0.10 over StateHover 0.08). Visibility of the
+// press itself is the same floor as hover: at least the card's edge over
+// the canvas.
+func TestTheCardsPressIsStrongerThanHover(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := ui.LightTheme()
+		if dark {
+			theme = ui.DarkTheme()
+		}
+		p := paletteOf(theme)
+		rest := over(p.card, p.canvas)
+		hover := over(p.cardHi, p.canvas)
+		press := over(p.cardPress, p.canvas)
+		if r := contrast(press, rest); r < 1.10 {
+			t.Errorf("dark=%v: the card's press is %.2f:1 from its rest (%v vs %v): nobody can see it", dark, r, press, rest)
+		}
+		if contrast(press, rest) <= contrast(hover, rest) {
+			t.Errorf("dark=%v: press (%.2f:1) is not stronger than hover (%.2f:1)", dark, contrast(press, rest), contrast(hover, rest))
+		}
+	}
+}
+
 func colorAt(img *image.RGBA, x, y int) ui.Color {
 	o := img.PixOffset(x, y)
 	return ui.RGB(img.Pix[o], img.Pix[o+1], img.Pix[o+2])
@@ -356,16 +431,12 @@ func TestTheStructuralLinesCarryTheirOwnContrast(t *testing.T) {
 			// the line does. At 0.55 alpha it measured 2.12:1.
 			{"the warn level on its band", p.rule, over(p.toneColor(toneWarn).Alpha(chartBandWarn), card)},
 			{"the critical level on its band", p.rule, over(p.toneColor(toneCritical).Alpha(chartBandCritical), card)},
-			// A bar's levels are cut out of the fill, so the mark a reader
-			// measures against is the empty track itself, and the fill's own
-			// leading edge is the other end of the same reading. Both are the
-			// track against the fill, in every color a bar takes: the gradient
-			// that used to lighten the fill's leading end left that edge at
-			// 2.66:1 in the light theme.
-			{"a bar's fill on its track", p.toneColor(toneOK), over(p.track, card)},
-			{"a warn bar's fill on its track", p.toneColor(toneWarn), over(p.track, card)},
-			{"a critical bar's fill on its track", p.toneColor(toneCritical), over(p.track, card)},
-			{"a money bar's fill on its track", p.money, over(p.track, card)},
+			// A bar is fill on the card (no trough). Levels are gaps of card
+			// through the fill; the fill itself has to clear 3:1 on the card.
+			{"a bar's fill on the card", p.toneColor(toneOK), card},
+			{"a warn bar's fill on the card", p.toneColor(toneWarn), card},
+			{"a critical bar's fill on the card", p.toneColor(toneCritical), card},
+			{"a money bar's fill on the card", p.money, card},
 		} {
 			if r := contrast(check.fg, check.bg); r < 3 {
 				t.Errorf("dark=%v: %s is %.2f:1, under the 3:1 a graphic needs", dark, check.what, r)

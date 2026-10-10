@@ -2,6 +2,7 @@ package gui
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -55,49 +56,30 @@ func (a *App) historyPage(c *ui.Context, p palette) {
 		muted(c, p, legend)
 	}
 	byProvider := groupSeries(a.series)
-	// One card per provider, each with its charts, and two of them side by
-	// side in the window the app opens at: the page is half as long, and the
-	// charts are the same width as each other, so two providers can be read
-	// against one another. A grid rather than a wrapping row of growing
-	// cards, because the last card on a page would take the whole width and
-	// draw its trend at twice the scale of the ones above it.
-	// Two columns only when there are two cards to compare: with a single
-	// provider a half-width tray would leave half the measure empty, and the
-	// fixed width exists so one card's slope can be read against another's.
-	cols := 1
-	if w, _ := c.Size(); w >= historyTwoUp && len(byProvider) > 1 {
-		cols = 2
-	}
-	ui.Grid(c).FillWidth().Columns(cols).Gap(space4).Children(func() {
+	// One full-width tray per provider, stacked — same column as 总览. Two-up
+	// halved the chart measure and made sparklines read like fat sliders
+	// ("比例" broke); a single column keeps slope and bar width honest.
+	ui.Column(c).FillWidth().Gap(space4).Children(func() {
 		for _, id := range providerOrder(byProvider) {
 			series := byProvider[id]
-			// The cell is a column of its own: a card fills the width it is
-			// given, and inside a grid that is the cell, not the whole grid.
-			ui.Column(c).Children(func() {
-				shell(c, p, func() {
-					ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
-						mark(c, p, id, providerName(id), 24, "")
-						section(c, p, providerName(id))
-						ui.Spacer(c)
-						label(c, p, fmt.Sprintf("%d 条记录", len(series)))
-					})
-					hairline(c, p)
-					for i, s := range series {
-						if i > 0 {
-							hairline(c, p)
-						}
+			name := providerName(id)
+			tray := shell(c, p, func() {
+				ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
+					mark(c, p, id, name, 24, "")
+					section(c, p, name)
+					ui.Spacer(c)
+					label(c, p, fmt.Sprintf("%d 条记录", len(series)))
+				})
+				ui.Column(c).FillWidth().Gap(space3).Children(func() {
+					for _, s := range series {
 						a.historyRow(c, p, s)
 					}
 				})
 			})
+			tray.Label(name + " 的历史")
 		}
 	})
 }
-
-// historyTwoUp is the window width at which two provider cards fit side by
-// side: the sidebar and the page's own padding leave 740 of the 1040 the app
-// opens at, so a card is about 360 wide there, which is a chart's width.
-const historyTwoUp = 900
 
 // historyEmpty is the history page before anything has been recorded: it shows
 // the shape the page will take, and the one thing that fills it.
@@ -132,12 +114,13 @@ func historyEmpty(c *ui.Context, p palette, a *App) ui.Element {
 	})
 }
 
-// historyRow is one series inside its provider's tray: the window, its shape,
-// and what the shape covers.
+// historyRow is one series inside its provider's tray: Pulse detail rhythm —
+// title, hero remaining/used when the point carries a number, soft-track
+// meter, chart in a recessed well, then the caption that is about this series.
 func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 	last := s.Points[len(s.Points)-1]
-	window := model.RateWindow{ID: s.Window, UsedPercent: last.UsedPercent}
-	t := windowTone(window)
+	window := historyWindow(last, s.Window)
+	color := barColor(p, window)
 	// The series carries the window's ID, not the name the provider gives it:
 	// the probe that saw it last is where the name comes from.
 	live := a.liveWindow(s)
@@ -146,7 +129,7 @@ func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 		title = live.Title
 	}
 	ui.Column(c).FillWidth().Gap(space2).Children(func() {
-		line := ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.End)
+		line := ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center)
 		line.Children(func() {
 			ui.Text(c, windowTitle(s.Provider, s.Window, title)).FontSize(sizeBody).FontWeight(600).SingleLine()
 			if s.Account != "" && s.Account != "default" {
@@ -156,10 +139,13 @@ func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 			if text, dir := changeChip(s.Points); text != "" {
 				muted(c, p, chipText(text, dir))
 			}
-			value(c, p, pointText(last), p.toneColor(t))
 		})
+		if last.UsedPercent != nil || last.Used != nil {
+			historyHero(c, p, window, last)
+			meter(c, p, window, 7)
+		}
 		// The same color rule as a bar: a level has a tone, money does not.
-		_, over := a.sparkline(c, p, "history:"+s.Provider+"/"+s.Window+"/"+s.Account, "走势："+windowTitle(s.Provider, s.Window, title), s.Points, barColor(p, window), 40, nil)
+		_, over := a.sparklineInWell(c, p, "history:"+s.Provider+"/"+s.Window+"/"+s.Account, "走势："+windowTitle(s.Provider, s.Window, title), s.Points, color, 36, nil)
 		parts := []string{}
 		// A money series is drawn against its own peak, so it still says what
 		// its scale is; the percentage axis is the page's, said above.
@@ -181,6 +167,53 @@ func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 		muted(c, p, chartCaption(s.Points, over, joinNonEmpty(parts, " · ")))
 		resetNote(c, p, s.Points)
 	})
+}
+
+// historyWindow is the RateWindow a recorded point implies for tone, meter and
+// hero colour — the same fields barColor / windowTone already understand.
+func historyWindow(last history.Point, id string) model.RateWindow {
+	return model.RateWindow{
+		ID:          id,
+		UsedPercent: last.UsedPercent,
+		Used:        last.Used,
+		Limit:       last.Limit,
+		Currency:    last.Currency,
+	}
+}
+
+// historyHero is the series' lead reading: used as the number, remaining
+// beside it when the point can say how much is left (Pulse detail cards).
+// Sized at value/chrome rather than page-hero; the hierarchy is the rank
+// under the title, not a second 40px page title.
+func historyHero(c *ui.Context, p palette, w model.RateWindow, last history.Point) {
+	ui.Row(c).FillWidth().Wrap().AlignItems(ui.End).Gap(space4).Children(func() {
+		ui.Column(c).Gap(space1).Children(func() {
+			if detail := amountDetail(w); detail != "" {
+				label(c, p, detail)
+			}
+			value(c, p, pointText(last), p.amountColor(w))
+		})
+		if rem, ok := historyRemaining(last); ok {
+			ui.Column(c).Gap(space1).Children(func() {
+				label(c, p, "剩余")
+				chrome(c, p, rem)
+			})
+		}
+	})
+}
+
+// historyRemaining is what is left of a quota point, when used and a whole
+// are both known. Percentages are out of 100; money needs a limit.
+func historyRemaining(last history.Point) (string, bool) {
+	switch {
+	case last.UsedPercent != nil:
+		left := math.Max(0, 100-*last.UsedPercent)
+		return percentText(left), true
+	case last.Used != nil && last.Limit != nil:
+		left := math.Max(0, *last.Limit-*last.Used)
+		return money(left, last.Currency), true
+	}
+	return "", false
 }
 
 // historyLegend is the line under the page's head: the axis and the thresholds

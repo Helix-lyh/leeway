@@ -12,14 +12,14 @@ import (
 // same series drawn across a wider card reads as a shallower climb, so a chart
 // that is stretched is a chart that lies about its slope.
 const (
-	chartStroke    = 2
-	chartInset     = 7 // room at each end for the endpoint's halo
-	chartPadY      = 4 // headroom above the peak and below the baseline
+	chartStroke    = 2.25 // data ink a step above the quiet grid (Pulse spirit)
+	chartInset     = 7    // room at each end for the endpoint's halo
+	chartPadY      = 4    // headroom above the peak and below the baseline
 	chartDotR      = 4
 	chartHaloR     = 7
-	chartHalo      = 0.25
-	chartFillTop   = 0.30
-	chartFillBase  = 0.02
+	chartHalo      = 0.28
+	chartFillTop   = 0.42 // stronger area wash so the series, not the well, leads
+	chartFillBase  = 0.03
 	chartHeadroom  = 1.1 // the peak never touches the top of a money chart
 	chartGridSteps = 2   // the scale is halved: its baseline, its middle and its top
 	// The zones behind a percentage series, where the number turns warn and
@@ -27,8 +27,9 @@ const (
 	// stay the strongest thing in the chart — and faint enough that the axis
 	// label drawn over them keeps its 4.5:1 (contrast_test.go measures the
 	// label against both).
-	chartBandWarn     = 0.12
-	chartBandCritical = 0.18
+	chartBandWarn     = 0.10
+	chartBandCritical = 0.15
+	chartWellPad      = space1 // inset of the recessed well; keep trays short enough for two-up tests
 )
 
 // chartPoint is one observation as the line draws it: the number it carries,
@@ -151,6 +152,34 @@ func seriesCurrency(points []history.Point) string {
 	return ""
 }
 
+// chartWellColor is the recessed pad a plot sits in: palette.chartWell (Pulse's
+// third grey), no stroke.
+func chartWellColor(p palette) ui.Color {
+	return p.chartWell
+}
+
+// chartGridInk is quieter than p.grid so the series stroke/fill lead. It is
+// not p.hairline: history's decorative-hairline test matches that ink across
+// the tray, and a full-width baseline in hairline colour would count as a rule.
+func chartGridInk(p palette) ui.Color {
+	return p.track
+}
+
+// sparklineInWell is sparkline seated in a rounded recessed pad (Pulse chart
+// well): fill difference only, no border stroke.
+func (a *App) sparklineInWell(c *ui.Context, p palette, key, label string, points []history.Point, color ui.Color, height float32, onOpen func()) (ui.Element, int) {
+	over := -1
+	well := ui.Column(c).
+		FillWidth().
+		Padding(chartWellPad).
+		Radius(radiusControl).
+		Background(chartWellColor(p))
+	well.Children(func() {
+		_, over = a.sparkline(c, p, key, label, points, color, height, onOpen)
+	})
+	return well, over
+}
+
 // sparkline draws the recorded observations of one window: a line with the
 // area under it filled, a dot where the series ended, and the faint rules of
 // the scale it is drawn against.
@@ -223,19 +252,17 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 			}
 		}
 		// The scale is laid down next and the data over it, so a line never
-		// loses a pixel to the rule it crosses.
-		for i := 0; i <= chartGridSteps; i++ {
-			if axis.bands && i > 0 {
-				// A percentage chart's scale is its bands. The 50% step would
-				// land on the warn rule — one border drawn twice — and the
-				// 100% step is the top edge of the critical band, so a step
-				// there is ink laid inside a tint, saying nothing the band's
-				// own edge does not already say. Only the baseline is left,
-				// and the caption still says 0–100%.
-				continue
+		// loses a pixel to the rule it crosses. Quiet track ink keeps the
+		// grid under the series (Pulse: texture serves data, not the frame).
+		// Percentage charts already have warn/critical band edges; a baseline
+		// in the well composites to nearly hairline-on-card and reads as a
+		// tray rule — skip the grid there. Money charts keep the steps.
+		if !axis.bands {
+			grid := chartGridInk(p)
+			for i := 0; i <= chartGridSteps; i++ {
+				gy := plot.Y + plot.H*float32(chartGridSteps-i)/chartGridSteps
+				pt.Fill(ui.Rect{X: plot.X, Y: gy, W: plot.W, H: 1}, grid, 0)
 			}
-			gy := plot.Y + plot.H*float32(chartGridSteps-i)/chartGridSteps
-			pt.Fill(ui.Rect{X: plot.X, Y: gy, W: plot.W, H: 1}, p.grid, 0)
 		}
 		if len(series) > 1 {
 			line := &ui.Path{}

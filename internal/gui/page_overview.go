@@ -16,9 +16,10 @@ import (
 // rest follow in a grid, and whatever needs a hand gets its own list, so the
 // page has a shape instead of a uniform field of cards.
 func (a *App) overviewPage(c *ui.Context, p palette) {
-	// The title bar already says what the probes found, so the head carries
-	// what it does not: how long the last probe took.
-	sub := ""
+	// Page head carries the question; the body is only the answers. How long
+	// the last probe took sits in the subtitle when there is one — quiet, not
+	// a control strip in the cards.
+	sub := "各家还剩多少"
 	if took := sinceStart(a.lastTook); took != "" && !a.fetching {
 		sub = took
 	}
@@ -82,7 +83,7 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 		// what every answer has.
 		if enabled > 1 {
 			// One card per row, the shape the answer lands in.
-			ui.Column(c).FillWidth().Gap(space4).Children(func() {
+			ui.Column(c).FillWidth().Gap(space5).Children(func() {
 				for i := 1; i < enabled; i++ {
 					a.skeletonCard(c, p)
 				}
@@ -124,7 +125,9 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 			return len(rest[i].Accounts) > len(rest[j].Accounts)
 		})
 		if len(rest) > 0 {
-			ui.Column(c).FillWidth().Gap(space4).Children(func() {
+			// Fill + gap only: stacked full width (no side-by-side holes), with
+			// the breathing room Pulse keeps between bento plates.
+			ui.Column(c).FillWidth().Gap(space5).Children(func() {
 				for i := range rest {
 					a.overviewCard(c, p, rest[i])
 				}
@@ -143,12 +146,13 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 	}
 }
 
-// heroCard is the provider the page leads with, at twice the size of the
-// others: its mark, its numbers, and a bar you can read across the room.
+// heroCard is the provider the page leads with: mark as category anchor, a
+// large lead number, quiet secondary readings, meter and trend — Pulse's
+// resource-card hierarchy at full width.
 func (a *App) heroCard(c *ui.Context, p palette, v providerView) ui.Element {
 	open := func() { a.navigate("provider:" + v.ID) }
-	return a.openCard(c, p, "查看 "+v.DisplayName, open, shell(c, p, func() {
-		ui.Row(c).FillWidth().Gap(space4).AlignItems(ui.Center).Children(func() {
+	return openCard(c, p, "查看 "+v.DisplayName, open, func() {
+		ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
 			mark(c, p, v.ID, v.DisplayName, 46, v.Status)
 			ui.Column(c).Grow(1).Gap(space1).Children(func() {
 				ui.Text(c, v.DisplayName).
@@ -158,7 +162,7 @@ func (a *App) heroCard(c *ui.Context, p palette, v providerView) ui.Element {
 					FontWeight(700).
 					LetterSpacing(-0.4).
 					SingleLine()
-				muted(c, p, providerIdentity(v))
+				label(c, p, providerIdentity(v))
 			})
 			// The whole plate is the target, so the chevron is the card's
 			// own mark rather than a second button inside the first.
@@ -167,7 +171,7 @@ func (a *App) heroCard(c *ui.Context, p palette, v providerView) ui.Element {
 		for i := range v.Accounts {
 			a.heroAccount(c, p, v, v.Accounts[i], open)
 		}
-	}))
+	})
 }
 
 // heroAccount is one account's headline window inside the lead card: the
@@ -195,7 +199,10 @@ func (a *App) heroAccount(c *ui.Context, p palette, v providerView, av accountVi
 		a.heroWindow(c, p, v.ID, lead, heroFacts(v.ID, windows, lead, a.now()))
 		if len(points) >= 2 {
 			ui.Column(c).FillWidth().Gap(space2).Children(func() {
-				_, over := a.sparkline(c, p, "overview-trend", "用量走势："+windowTitle(v.ID, lead.ID, lead.Title), points, p.toneColor(windowTone(lead)), 54, open)
+				// TODO(theme): providerColor(id) for spark/meter ink so mark +
+				// series share one category hue; tone stays for warn/critical text.
+				series := p.toneColor(windowTone(lead))
+				_, over := a.sparkline(c, p, "overview-trend", "用量走势："+windowTitle(v.ID, lead.ID, lead.Title), points, series, 54, open)
 				summary := joinNonEmpty([]string{chartScale(points), trendCaption(points, lead)}, " · ")
 				muted(c, p, chartCaption(points, over, summary))
 				resetNote(c, p, points)
@@ -225,19 +232,16 @@ func heroFacts(providerID string, windows []model.RateWindow, lead model.RateWin
 	return out
 }
 
-// heroWindow is the lead card's headline: what the number counts above it, the
-// number, the readings that support it on the number's own line, and the bar
-// they are all read against directly under them.
+// heroWindow is the lead card's headline: quiet caption above a large number,
+// secondary readings on the number's own line, meter under — Pulse's "answer
+// first" stack without a nested tray.
 func (a *App) heroWindow(c *ui.Context, p palette, providerID string, w model.RateWindow, facts []heroFact) {
-	ui.Column(c).FillWidth().Gap(space2).Children(func() {
+	ui.Column(c).FillWidth().Gap(space3).Children(func() {
 		line := ui.Row(c).FillWidth().Wrap().AlignItems(ui.End).Gap(space4)
 		line.Children(func() {
 			ui.Column(c).Gap(space1).Children(func() {
 				ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
-					ui.Text(c, windowTitle(providerID, w.ID, w.Title)).
-						FontSize(sizeBody).
-						FontWeight(600).
-						SingleLine()
+					label(c, p, windowTitle(providerID, w.ID, w.Title))
 					if detail := amountDetail(w); detail != "" {
 						muted(c, p, detail)
 					}
@@ -245,17 +249,11 @@ func (a *App) heroWindow(c *ui.Context, p palette, providerID string, w model.Ra
 				hero(c, p, tweenText(w, tweenValue(line, "value", windowValue(w))), p.amountColor(w))
 			})
 			for _, f := range facts {
-				// The readings stay on the number's own line, as one group with
-				// it. They used to be pushed apart to the card's edges, which
-				// left a hole in the middle of the hero: a gap at the edge of a
-				// group reads as margin, and the same gap inside one reads as
-				// something missing.
+				// Readings share the number's line as one group. End alignment
+				// matches box bottoms; the 40px number descends further than a
+				// 16px reading, so the shorter face gets the difference back.
 				ui.Column(c).
 					Gap(space1).
-					// A row's End alignment matches box bottoms, and the 40px
-					// number reaches further below the baseline than the 16px
-					// reading, so the readings' ink sat 5px low. The descent
-					// difference is the whole of it.
 					Padding(0, 0, heroFactDrop(), 0).
 					Children(func() {
 						label(c, p, f.caption)
@@ -331,50 +329,31 @@ func barColor(p palette, w model.RateWindow) ui.Color {
 	return p.toneColor(windowTone(w))
 }
 
-// overviewCard is one provider's summary in the grid under the lead card.
+// overviewCard is one provider under the lead: Pulse resource-card shape —
+// mark, name, chevron, then a large lead number with quiet secondary stats.
 func (a *App) overviewCard(c *ui.Context, p palette, v providerView) ui.Element {
-	return a.openCard(c, p, "查看 "+v.DisplayName, func() {
+	return openCard(c, p, "查看 "+v.DisplayName, func() {
 		a.navigate("provider:" + v.ID)
-	}, shell(c, p, func() {
-		ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
+	}, func() {
+		ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
 			mark(c, p, v.ID, v.DisplayName, 32, v.Status)
 			ui.Column(c).Grow(1).Gap(space1).Children(func() {
 				ui.Text(c, v.DisplayName).
 					Role(ui.RoleHeading).
 					Level(2).
-					FontSize(sizeBody).
+					FontSize(sizeChrome).
 					FontWeight(600).
 					SingleLine()
-				muted(c, p, providerIdentity(v))
+				label(c, p, providerIdentity(v))
 			})
 			ui.Icon(c, iconChevron).FontSize(iconSmall).TextColor(p.t.TextMuted).Role(ui.RoleNone)
 		})
-		// Two subscriptions of one provider are two blocks: each account gets
-		// its own name and its own block of space, so a card never reads as one
-		// paragraph about nobody in particular. No rule between them: the
-		// corpus rules rows in a settings list, not accounts in a card —
-		// codex-monitor separates its account rows with Gap(4) alone.
+		// Two subscriptions are two blocks, separated by Gap alone — no rule,
+		// no nested tray.
 		for _, av := range v.Accounts {
 			a.overviewAccount(c, p, v, av)
 		}
-	}))
-}
-
-// openCard makes a whole card the target that opens its provider, and names
-// it for assistive technology. A card that lightens under the pointer and
-// answers nowhere is a lie, so the plate itself takes the click, and it
-// answers the press as well as the hover. OnClick is MyGo's clickable path:
-// it registers the click and marks the element as one that takes the pointer,
-// Enter and Space — so the window's front door opens from the keyboard too,
-// not only from the mouse.
-func (a *App) openCard(c *ui.Context, p palette, label string, open func(), e ui.Element) ui.Element {
-	e.Label(label).Role(ui.RoleButton).Cursor(ui.CursorPointer).Focusable().OnClick(open)
-	if e.Pressed() {
-		e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-			pt.Fill(r, p.t.Text.Alpha(statePress), radiusTray)
-		})
-	}
-	return e
+	})
 }
 
 // probingLine says what the window is doing while the first probe is out: a
@@ -397,45 +376,36 @@ func placeholder(c *ui.Context, p palette, w, h, radius float32) ui.Element {
 }
 
 // skeletonHero is the lead card's shape before its numbers arrive: the same
-// tray, the same mark and the same bars in the same places, so the page does
-// not jump when the probe answers.
+// mark, caption, large number and secondary readings, so the page does not
+// jump when the probe answers.
 func (a *App) skeletonHero(c *ui.Context, p palette) ui.Element {
 	return card(c, p, func() {
-		ui.Row(c).FillWidth().Gap(space4).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
 			placeholder(c, p, 46, 46, 12)
 			ui.Column(c).Grow(1).Gap(space2).Children(func() {
 				placeholder(c, p, 132, 14, 7)
 				placeholder(c, p, 180, 10, 5)
 			})
 		})
-		// The number with what it counts above it, and the readings that
-		// support it on the number's own line: the shape the answer takes, so
-		// the page does not jump when it lands. How many readings the answer
-		// brings is the probe's business; the common answer has two.
-		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space4).Children(func() {
-			// The caption bar and the number bar are the heights the landed
-			// line boxes have, not the bars' own look: the skeleton is a
-			// prediction of the page, and a short one moves the page twice.
-			// The number bar is as wide as the caption above it because that
-			// is what the landed column measures — its number ("78%") is
-			// narrower than the window's name — and the readings stay on the
-			// number's line as one group with it, where the answer draws them.
-			// The bars are the landed line boxes at the size the reader asked
-			// for: fixed heights left the card 55px short at 1.5x, and the answer
-			// then moved what the skeleton had just drawn.
-			f := sizeBody / baseBody
-			ui.Column(c).Gap(space1).Children(func() {
-				placeholder(c, p, 96*f, sizeBody*1.2, 8)
-				placeholder(c, p, 96*f, sizeHero*1.2, 12)
-			})
-			for i := 0; i < 2; i++ {
+		// Caption + hero number + two readings on the number's line: the shape
+		// the answer takes. Bar heights follow the type scale so 1.5x does not
+		// move the landed page under a short skeleton.
+		ui.Column(c).FillWidth().Gap(space3).Children(func() {
+			ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space4).Children(func() {
+				f := sizeBody / baseBody
 				ui.Column(c).Gap(space1).Children(func() {
-					placeholder(c, p, 48*f, sizeLabel*1.2, 6)
-					placeholder(c, p, 72*f, sizeChrome*1.2, 7)
+					placeholder(c, p, 96*f, sizeLabel*1.2, 6)
+					placeholder(c, p, 96*f, sizeHero*1.2, 12)
 				})
-			}
+				for i := 0; i < 2; i++ {
+					ui.Column(c).Gap(space1).Children(func() {
+						placeholder(c, p, 48*f, sizeLabel*1.2, 6)
+						placeholder(c, p, 72*f, sizeChrome*1.2, 7)
+					})
+				}
+			})
+			placeholder(c, p, 0, 10, 5)
 		})
-		placeholder(c, p, 0, 10, 5)
 	})
 }
 
@@ -458,18 +428,27 @@ func (a *App) skeletonAttention(c *ui.Context, p palette) ui.Element {
 	})
 }
 
-// skeletonCard is a grid card before its numbers arrive.
+// skeletonCard is a grid card before its numbers arrive: caption, large
+// number, quiet secondary, meter — the Pulse body the answer lands in.
 func (a *App) skeletonCard(c *ui.Context, p palette) ui.Element {
 	return card(c, p, func() {
-		ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).FillWidth().Gap(space3).AlignItems(ui.Center).Children(func() {
 			placeholder(c, p, 32, 32, 9)
 			ui.Column(c).Grow(1).Gap(space2).Children(func() {
 				placeholder(c, p, 96, 12, 6)
 				placeholder(c, p, 132, 10, 5)
 			})
 		})
-		placeholder(c, p, 0, 12, 6)
-		placeholder(c, p, 0, 10, 5)
+		f := sizeBody / baseBody
+		ui.Column(c).FillWidth().Gap(space2).Children(func() {
+			placeholder(c, p, 72*f, sizeLabel*1.2, 6)
+			placeholder(c, p, 88*f, sizeValue*1.2, 10)
+			ui.Row(c).Gap(space4).Children(func() {
+				placeholder(c, p, 48*f, sizeLabel*1.2, 6)
+				placeholder(c, p, 56*f, sizeChrome*1.2, 7)
+			})
+			placeholder(c, p, 0, 8, 4)
+		})
 	})
 }
 
@@ -483,10 +462,9 @@ func (a *App) overviewAccount(c *ui.Context, p palette, v providerView, av accou
 		windows := displayWindows(av.Snapshot)
 		if len(windows) == 0 {
 			unconfiguredLine(c, p, "服务商没有提供额度信息。")
+			return
 		}
-		for _, w := range windows {
-			a.windowRow(c, p, v.ID, w, a.historyFor(v.ID, av.Name, w.ID), 0)
-		}
+		a.overviewLead(c, p, v.ID, av.Name, windows)
 	default:
 		if av.Error != "" {
 			text, detail := failureText("这个账号这次没有结果", av.Error)
@@ -505,6 +483,39 @@ func (a *App) overviewAccount(c *ui.Context, p palette, v providerView, av accou
 			loginActions(c, a, v.ID, av.Name)
 		})
 	}
+}
+
+// overviewLead is the Pulse body of a successful account card: quiet caption,
+// large lead number, secondary stats in a quiet row under it, then the meter.
+// Other windows stay as facts, not a second equal chrome lane.
+func (a *App) overviewLead(c *ui.Context, p palette, providerID, account string, windows []model.RateWindow) {
+	lead := fullestWindow(windows)
+	facts := heroFacts(providerID, windows, lead, a.now())
+	points := a.historyFor(providerID, account, lead.ID)
+	ui.Column(c).FillWidth().Gap(space2).Children(func() {
+		ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
+			label(c, p, windowTitle(providerID, lead.ID, lead.Title))
+			if detail := amountDetail(lead); detail != "" {
+				muted(c, p, detail)
+			}
+		})
+		host := ui.Column(c).FillWidth().Gap(space2)
+		host.Children(func() {
+			value(c, p, tweenText(lead, tweenValue(host, "value", windowValue(lead))), p.amountColor(lead))
+			if len(facts) > 0 {
+				ui.Row(c).FillWidth().Wrap().Gap(space4).AlignItems(ui.Start).Children(func() {
+					for _, f := range facts {
+						ui.Column(c).Gap(space1).Children(func() {
+							label(c, p, f.caption)
+							chrome(c, p, f.value)
+						})
+					}
+				})
+			}
+			meter(c, p, lead, 8)
+			resetNote(c, p, points)
+		})
+	})
 }
 
 // accountCaption names one account inside a card that holds more than one,

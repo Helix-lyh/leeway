@@ -72,13 +72,16 @@ internal/gui/
   view.go         # 主窗口：标题栏、侧栏、页面路由、菜单、快捷键
   page_overview.go / page_provider.go / page_matrix.go / page_history.go / page_start.go   # 页面
   trend.go        # 走势的变化量与重置提示
-  settingsview.go # 设置窗口（通用 / 服务商 / 数据）
+  settingsview.go # 设置浮层（主窗口 DialogBase：通用 / 服务商 / 数据；非独立窗）
   prompt.go / promptview.go   # 登录、导入浏览器登录状态、登录文件、新账号，以及确认框
   ops.go          # 登录/退出/use/启用等动作，落在共享的 auth/config/credwrite 上
   theme.go icons.go charts.go format.go   # 设计系统、图标、走势图、文案格式
 ```
 
 ## 设计系统（`theme.go`）
+
+成品美学对照（无源码）：egoist 的 Pulse 实机规则与截图见
+[`PULSE-AESTHETIC.md`](PULSE-AESTHETIC.md)、[`ref/pulse/`](ref/pulse/)——改总览/侧栏/条之前先打开那几张图。
 
 窗口是 macOS 26 那种「玻璃 chrome + 实体内容」的层次，规则写在 `theme.go` 一处，页面只调：
 
@@ -526,8 +529,8 @@ the first column's at y=339`）。
 ## 构建与打包
 
 ```sh
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build     # .app + .dmg
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build -skip-dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build     # .app + .dmg
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build -skip-dmg
 ```
 
 `mygo.json` 里的 `main` 必须写成 `./cmd/leeway-gui`：MyGo 用 `go list` 解析它，

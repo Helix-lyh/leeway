@@ -50,4 +50,10 @@ leeway 能做成，是因为先有人把「各家额度怎么查」走通了。�
 | tokscale | Grok / Kimi / Codex 多账号 TUI |
 | pi-quota-monitoring / pi-commandcode-provider | Command Code + OpenCode Go 纯 API key 多账号 |
 
+### 窗口美学对照（MyGo）
+
+| 项目 | 链接 | 对照了什么 |
+|---|---|---|
+| Pulse | https://pulse.egoist.dev/ · 本机 `Pulse.app`（无公开源码） | 深色侧栏蓝 pill、三层灰卡片、点阵量图、无描边条；实机图与规则见 [PULSE-AESTHETIC.md](PULSE-AESTHETIC.md)、[`ref/pulse/`](ref/pulse/) |
+
 同类对照的展开见 [COMPETITORS.md](COMPETITORS.md)，各家端点见 [PROVIDER-FETCH.md](PROVIDER-FETCH.md)。

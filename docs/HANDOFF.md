@@ -22,7 +22,7 @@
 
 ---
 
-## 2. 当前状态（已提交）
+## 2. 当前状态
 
 ```
 1451e0d 状态层：卡片悬停原来只有 1.02:1，读者看不见
@@ -30,10 +30,29 @@ fba339c 把剩下的装饰线也收掉：页标题下、首次运行每行、账
 bacc6f8 卡片不再是一圈描边加一条 3px 凹槽：一块面，靠填充差和投影分开
 3f02658 首次运行：详情 是画出来的控件，并挪到动作左边
 3848559 侧栏写每家还剩多少，主角卡的读数收回数字那一行
-23f1f08 mygo 升到 v0.4.0            ← 本会话之前
+23f1f08 mygo 升到 v0.4.0
+—— 本会话（未提交）——
+P1 卡片按下：cardPress 状态层，OnClick 与 Pressed 挂在同一块 surface；去掉 DrawOver
+P2 安静控件 ghostFill：首次运行「详情」悬停/按下也走状态层背景
+P2 构建命令与 go.mod 对齐 mygo@v0.4.0（未动 go.mod / ICON.md）
+P2 历史托盘：系列之间只用 Gap，删 header/row hairline；托盘 Label「…的历史」供测宽
+P2 额度条：Pulse 软槽（满宽 track + 填充，无描边）；0% 仍有虚影
+—— Pulse 全面改版（四路并行已收回并合并）——
+对照 docs/PULSE-AESTHETIC.md + docs/ref/pulse/；未动 ICON/go.mod。
+- Chrome：侧栏蓝 pill（navSelected）、深色 #141416/#1f1f23、chartWell；accent 仍紫
+- Overview：hero + overviewLead（大数字/副标/条）；重置说明回到 rest 卡
+- History：图井 sparklineInWell；百分比图不再画与 hairline 撞色的 baseline
+- Secondary：start/provider/matrix/settings 卡片栈 + Gap；provider hero/support
+env -u DEEPSEEK_API_KEY go test ./... 已绿。
+历史单列（对齐总览）；设置改主窗口 DialogBase 浮层（固定 400×500、轻蒙层；对齐 Pulse，非独立窗）。
 ```
 
-`gofmt -l internal/ cmd/` 干净，`go build ./...`、`go vet ./...`、`go test -count=1 ./...` 全绿。
+`gofmt -l internal/ cmd/` 干净；验证时请 `env -u DEEPSEEK_API_KEY`（本机若有该变量会污染「未配置」类测试）。
+
+### Pulse fork（相对 §4.1 / motrix）
+
+开源语料侧栏选中是中性灰 wash；Pulse 实机是蓝 pill + 行内活值。Wave 1 已分叉到
+Pulse 一侧（`docs/PULSE-AESTHETIC.md` §2.2）。品牌紫 `accent` 不进侧栏选中。
 
 ### 2.1 量出来的结果（同一把尺子：整幅宽度 50% 以上的 1px 暗线）
 
@@ -42,26 +61,29 @@ bacc6f8 卡片不再是一圈描边加一条 3px 凹槽：一块面，靠填充�
 | 总览 | 7 横 + 3 竖 | **2 横 + 0 竖** |
 | 首次运行 | 7 横 | **0** |
 | provider | 5 横 | **2 横 + 0 竖** |
-| 历史 | 6 横 | 5 横 + 0 竖 |
+| 历史 | 6 横 | **4 横**（图表/底槽墨；`p.hairline` 装饰线 = 0）+ 0 竖 |
 | 设置 | 2 横 | 2 横 + 0 竖 |
-| **合计** | **24 横 + 3 竖** | **11 横 + 0 竖** |
+| **合计** | **24 横 + 3 竖** | **10 横 + 0 竖** |
 
-总览每千像素从 **14 条降到 3 条**。剩下 11 条逐条看过颜色：3 条是图上数据（色 107/212，
-说明文字点名的那条线）、4 条是列表行线、4 条是条的底槽上沿（填充边界，不是画的线）。
-**装饰性的框和线已经没有**。
+总览每千像素从 **14 条降到 3 条**。core5 合计 **10H**：历史托盘的装饰 hairline 已清；
+余下主要是图上数据墨与条底槽上沿（填充边界）。**装饰性的框和线已经没有**。
 
 ### 2.2 设计系统现状（`internal/gui/theme.go`）
 
 | 层 | 值 | 依据 |
 |---|---|---|
-| 画布 `canvas` | `#f2f2f6`，顶部 `canvasTop` 带强调色渐变 | — |
-| 卡片 `card` | 白 82%（深色：白 5.5%） | 压在画布上 **1.10:1**（深 1.13:1）；motrix 是 1.09:1 |
-| 卡片悬停 `cardHi` | `card.Mix(t.Text, stateHover)` | meiro `m3/theme.go:139` |
+| 画布 `canvas` | 浅 `#f2f2f6`；深 Pulse `#141416` | 窗底 |
+| 卡片 `card` | 浅：白 82%；深：`#1f1f23` | 压在画布上 ~**1.10:1**（深 ~1.12:1）；无描边 |
+| 图区 `chartWell` | 深 `#1a1a1d`；浅黑 4% | 卡内凹槽，给其他页画 spark/点阵 |
+| 侧栏选中 `navSelected` | `#0071e3` + 白字 | Pulse 蓝 pill（比 `#007aff` 略深以过 4.5:1）；≠ accent |
+| 卡片悬停 `cardHi` | `card.Mix(t.Text, stateHover)` | meiro `m3/theme.go:147-153` |
+| 卡片按下 `cardPress` | `card.Mix(t.Text, statePress)` | 同上；挂在 surface 背景，不 DrawOver |
 | 状态层 | `stateHover 0.08` / `statePress 0.10` | 同上，全语料唯一一张表 |
+| 安静控件 | `ghostFill` → `Text.Alpha(op)` 作背景 | meiro 透明容器的 StateFill |
 | 分组细线 `hairline` | 10% 墨（≈1.3:1） | 只分组，不是边界 |
 | 表格分隔 `divider` | 黑 44%（浅 3.2 / 深 3.3:1） | MintUI：行间一条线，**表格周围一条都没有** |
 | 有边的面板 `border` | 黑 16% | 只剩弹窗、设置行、菜单在用 |
-| 条底槽 `track` | 黑 10% | 条没有描边（§4.1） |
+| 条底槽 `track` | 黑 6%（深：白 8%） | **Pulse 软槽**：满宽 `track` + 色填充、无描边；0% 仍见虚影 |
 | 字阶 | 40 / 25 / 20 / 16 / **13 正文** / **10.5 caption** | 每级 ≥1.2×；caption 比 motrix 的 11 还小 |
 | 间距 | `space1..space6 = 4/8/12/16/24/32` | 所有布局间距都从这一梯取 |
 | 圆角 | `radiusControl 10` / `radiusTray 18` / `radiusCapsule 999` | 卡片只有一层，`radiusInner`/`cardTrayPad` 已删 |
@@ -73,43 +95,35 @@ bacc6f8 卡片不再是一圈描边加一条 3px 凹槽：一块面，靠填充�
 
 ## 3. 已知问题（按优先级）
 
-### P1 — 按下状态用 `DrawOver`，会压暗文字
-`internal/gui/page_overview.go:372` 的 `openCard` 用 `e.DrawOver(...)` 画按下层。MyGo 的
-`DrawOver` 设的是 `paintAfterFn`（`ui/element.go:1099`），**画在子元素之上**，所以按下时
-文字也被压暗 10%。meiro 的状态层画在内容**之下**。
-修法：把按下也做成颜色（`cardPress = card.Mix(t.Text, statePress)`），在 `shellSurface`
-里和 `cardHi` 一起管；`shellSurface` 需要知道按下状态（`surface.Pressed()` 是否在子元素上
-成立要先验证，别假设）。
+### P1 — 按下状态用 `DrawOver`，会压暗文字 ✅
+已修：`cardPress = card.Mix(t.Text, statePress)`；`openCard` 把 `OnClick` / `Pressed` /
+`Hovered` 都挂在同一块 surface 上（`Pressed()` 一调用就打 `flagClickable`，不能在历史
+`shell` 的 plate 上盲查）。测试：`TestTheCardsPressIsStrongerThanHover`、
+`TestTheCardsPressLeavesTheTitleInk`（板子抬升有牙；把 press 填回 `card` 会红）。
 
-### P1 — 账号行的常驻按钮
+### P1 — 账号行的常驻按钮 ✅（已判断，不改布局）
+复核现状后**不是**「每个账号三个常驻按钮」：
+- 成功账号：无行内按钮，整卡是目标（`openCard`）；
+- 失败/未配置：`overviewAccount` / `attentionRow` 常驻主动作（刷新/登录/添加）——行存在的
+  理由就是行动，收进 kebab 会藏掉主路径；与 codex-monitor 常驻按钮一派一致；
+- provider 页：主动作 `loginActions` + 次要 `accountActions` kebab（已有）；
+- **禁止** hover 才出现的动作（语料最差方案）。
 
-> ⚠️ 本节的行号来自两个研究子代理读源码的结论，**我只逐条复核了 §6 表里的那些**。
-> 引用前请自己打开文件确认；我已经知道它们至少压平过一次子目录。
+### P2 — 历史页还有 5 条线 ✅（装饰线已收）
+header/row 的 `p.hairline` 已删，系列只靠 shell 的 Gap。快照亮度尺仍报 4 横，来自图/
+底槽墨，不是 hairline；`TestTheHistoryPageDoesNotRuleItsRows` 用颜色探针钉死装饰线 = 0
+（加回一条 hairline 会红）。卡宽测试改找 Label「…的历史」。
 
-`internal/gui/page_overview.go` 的 `overviewAccount` 每个账号常驻「刷新」「登录」两个按钮
-（加上「详情」共三个控件）。语料里的做法不一致，需要判断而不是照搬：
-- motrix：行操作走**右键菜单**（`downloads.go:415`），行内没有常驻按钮；
-- meiro：共用的 `itemMenu`，每项一个按钮**或**右键任意处打开（`itemmenu.go:6-52`）；
-- Yeek：行内**没有**按钮，侧栏级一个菜单 + 表头行 kebab（`view.go:328,1002`）；
-- codex-monitor：**有**常驻按钮（`internal/nativeapp/settings.go:47,88,157`，这条我复核过）。
-mine-D 的原话：「Nothing in either appears only on hover.」——所以 **hover 才出现是最差的方案**，
-要么常驻 kebab，要么右键。
+### P2 — 滚动边缘未做 ✅（明确不做）
+`glass.ScrollEdge`（`plugins/glass/edge.go`）是给「内容从栏下面滚过去」用的。我们的
+标题栏和 `ui.Scroll` 是 **Column 里的兄弟**，内容不从标题栏下穿过，软边只会重铺一层
+已经有的 `canvas` 渐变。语料 0/13 用 `ScrollEdge`；侧栏 glass 已去掉。标题栏仍保留
+`Material(glass.Glass{})`（与 motrix 标题区不同，但不增加整幅暗线——overview 的 2 条
+全宽线在 y≈311/576，是条/图，不是 rim）。**不做 ScrollEdge，因为布局用不上。**
 
-### P2 — 历史页还有 5 条线
-2 条是图上的数据线（保留，说明文字点名它们）、3 条是行线（motrix `downloads.go:346`
-就是单边底线，保留合理）。如果要再收，只能收行线，且要同步改两个把「线」当卡片探测器的
-测试（`TestASingleHistoryTraySpansTheMeasure`、`TestTheHistoryCardsAreTheSameWidth`，
-它们现在找 `p.hairline`）。
-
-### P2 — 滚动边缘未做
-MyGo 有 `glass.ScrollEdge`（`plugins/glass/edge.go`，macOS 26 的滚动边缘效果，用法见该文件
-注释），**我们和 motrix 都没用**。要不要用需要先判断：它压在纯色画布上是否成立（我们的窗口
-不是原生毛玻璃）。13 个语料项目里 **0 个**调用 `glass.Glass`/`Material`（我们上一轮已把侧栏
-的 glass 去掉）。
-
-### P2 — 文档与依赖版本不一致
-`AGENTS.md` / `CLAUDE.md` 的构建命令写 `mygo@v0.3.4`，`go.mod` 实际钉 `v0.4.0`。
-v0.4.0 = v0.3.4 + `ui/webview.go` + `ui/textlines.go`，glass 插件 API 逐字节相同。
+### P2 — 文档与依赖版本不一致 ✅
+构建命令已与 `go.mod` 对齐为 `mygo@v0.4.0`（`AGENTS.md` / `CLAUDE.md` / `README.md` /
+`docs/GUI.md` / `docs/MYGO-NOTES.md` 的现行命令）。`docs/ICON.md` 留给图标 agent，未改。
 
 ### P3 — 没有命令面板
 motrix（`Ctrl K` 芯片）和 Yeek/MujicaUI 都有。我们有 ⌘R 刷新，没有全局跳转。属于**功能**，
@@ -181,10 +195,15 @@ motrix（`Ctrl K` 芯片）和 Yeek/MujicaUI 都有。我们有 ⌘R 刷新，�
 
 ## 6. 可参考的项目与代码
 
+**美学标杆（无源码，以实机图为准）**：egoist 的 [Pulse](https://pulse.egoist.dev/)——规则与截图在仓库内
+[`docs/PULSE-AESTHETIC.md`](PULSE-AESTHETIC.md)、[`docs/ref/pulse/`](ref/pulse/)。官网浅色营销图**不要**当依据。
+和 §4.1 开源语料的分叉（侧栏蓝 pill vs 灰 wash）写在那份文档 §2.2 / §4。
+
 **注意 `/tmp` 会被清空。**下面是仓库地址，需要时重新 clone 到 `/tmp/ref/clones/<owner>__<repo>`：
 
 | 项目 | 地址 | 为什么看它（行号已复核） |
 |---|---|---|
+| **Pulse**（美学） | https://pulse.egoist.dev/ · `/Applications/Pulse.app` | **成品标杆**：蓝 pill 选中、三层灰无描边卡、点阵量图、深槽无边条、glass 设置弹层；见 `docs/PULSE-AESTHETIC.md` |
 | motrix-mygo | `https://github.com/missuo/motrix-mygo` | **卡片 = 填充 + 淡投影，零描边**：`app.go:361`（`Radius(14).Background(p.card).Shadow(0,1,3,0,p.shadow)`，无 `Border`）；caption `widgets.go:30`（11/600/+0.8）；行分隔是**单边底线** `BorderWidth(0,0,1,0)`：`downloads.go:346`、`notifications.go:25` |
 | codex-monitor | `https://github.com/oysterhyd/codex-monitor` | **同类产品**（用量仪表盘）；卡片 `internal/nativeapp/style.go:98`，浅色下的边是**高光** `internal/nativeapp/style.go:44`（`RGB(255,255,255).Alpha(.93)`）；账号行只用 `Gap(4)`：`internal/nativeapp/settings.go:108,133`；常驻行内按钮确实存在：`settings.go:47,88,157` |
 | vitals | `https://github.com/xbenduan/vitals` | 用**默认 MyGo 主题**的样本；卡片 `view.go:284`（`Radius(8).Background(t.Surface).Border(1,t.Border)`，**无投影**）；全文几乎不画线 |
@@ -277,9 +296,8 @@ def count(path):
 
 ## 9. 建议的下一步（按性价比）
 
-1. **P1 按下状态改用状态层颜色**（`shellSurface` 同时管 hover 和 press），消掉 `DrawOver` 压暗文字。
-2. **P1 账号行的动作**：定一个方案（常驻 kebab 或右键菜单），做之前先确认键盘可达性
-   （现有测试 `TestTheCardOpensFromTheKeyboard` 是这类交互的样板）。
-3. **P2 判断 `glass.ScrollEdge`** 在纯色画布上是否成立；不成立就明确记一笔「不做，因为……」。
-4. **P2 统一状态层**：把按钮、行、菜单的悬停/按下都走 §2.2 那张表，删掉各组件自配的 alpha。
-5. **P3 命令面板**（功能级，需先问维护者要不要）。
+1. ~~P1 按下 / 账号行 / 文档版本 / ghostFill / ScrollEdge / 历史装饰线~~ ✅ · core5 **10H+0V**
+2. **P2 统一状态层**：MyGo 自带 Button 仍用主题 `SurfaceHover`；行、菜单若还有自配 alpha，收到 §2.2 表。
+3. **对照截图下一刀**：额度条底槽已去；overview/provider 亮度尺若仍有 2H，查是否来自图/其它填充边界。
+4. **P3 命令面板**（功能级，需先问维护者要不要）。
+5. **品质收口**：层次、动效、字阶节奏、空状态的可测量差距；未证伪前不要宣称达标。

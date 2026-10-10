@@ -18,7 +18,7 @@ import (
 
 // Version is the release the window reports; the bundle's Info.plist wins
 // once the app is installed.
-const Version = "0.1.0"
+const Version = "0.2.0"
 
 // window sizes; the windows remember their own bounds under these keys.
 const (
@@ -37,46 +37,35 @@ func (a *App) Focus() {
 }
 
 // appearanceCanvas is the window fill before the first frame paints.
-const appearanceCanvas = "light-dark(#f2f2f6, #0d0d11)"
+const appearanceCanvas = "light-dark(#f2f2f6, #141416)"
 
 // Open creates the main window. Call it from mygo.App.WhenReady.
 func (a *App) Open() {
 	a.applyAppearance()
 	win := mygo.NewWindow(mygo.WindowOptions{
-		Title:           "leeway",
-		Width:           mainWidth,
-		Height:          mainHeight,
-		MinWidth:        780,
-		MinHeight:       500,
-		TitleBarStyle:   mygo.TitleBarHidden,
-		BackgroundColor: appearanceCanvas,
-		StateKey:        "main",
-		Content:         ui.View(a.view),
+		Title:     "leeway",
+		Width:     mainWidth,
+		Height:    mainHeight,
+		MinWidth:  780,
+		MinHeight: 500,
+		// HiddenInset + 40 matches AppKit traffic-light geometry (kopi / MyGo
+		// windows.md). Plain Hidden with a 54pt bar left the wordmark lower
+		// than the lights and too far from the green button.
+		TitleBarStyle:        mygo.TitleBarHiddenInset,
+		TitleBarHeight:       titleBarMin,
+		TrafficLightPosition: &mygo.Point{X: 14, Y: 13},
+		BackgroundColor:      appearanceCanvas,
+		StateKey:             "main",
+		Content:              ui.View(a.view),
 	})
 	win.SetMinimumSize(780, 500)
 	a.Start(win)
 }
 
-// OpenSettings shows the settings window, or brings it forward.
+// OpenSettings toggles the settings popover on the main window — Pulse's
+// glass sheet over the page, not a second independent window.
 func (a *App) OpenSettings() {
-	if w := a.settingsWin; w != nil && !w.IsDestroyed() {
-		w.Show()
-		w.Focus()
-		return
-	}
-	w := mygo.NewWindow(mygo.WindowOptions{
-		Title:           "leeway 设置",
-		Width:           settingsWidth,
-		Height:          settingsHght,
-		MinWidth:        560,
-		MinHeight:       460,
-		TitleBarStyle:   mygo.TitleBarHidden,
-		BackgroundColor: appearanceCanvas,
-		StateKey:        "settings",
-		Content:         ui.View(a.settingsView),
-	})
-	w.OnClosed(func() { a.settingsWin = nil })
-	a.settingsWin = w
+	a.settingsOpen = !a.settingsOpen
 }
 
 // applyAppearance asks MyGo to follow the appearance the settings chose.
@@ -199,6 +188,9 @@ func (a *App) view(c *ui.Context) {
 			})
 		})
 
+	// Settings sits under prompt/confirm so a Data-tab confirm (or a login
+	// sheet) is not trapped behind the fixed settings DialogBase.
+	a.settingsSheet(c, p)
 	a.promptSheet(c, p)
 	a.confirmSheet(c, p)
 }
@@ -212,12 +204,14 @@ var pageMotion = ui.ElementTransition{
 
 // titleBar is the window's own title bar: the wordmark and the state of the
 // last probe on the left, the refresh controls on the right, on glass.
-// titleBarMin is the room the titlebar keeps for its own controls when the
-// desktop does not ask for more.
-const titleBarMin = 54
+// titleBarMin matches WindowOptions.TitleBarHeight so traffic lights and
+// our row share one vertical band (MyGo docs / kopi: 40).
+const titleBarMin = 40
 
-// titleBarHeight is how tall the titlebar is: its own content, or the room the
-// desktop asks for its traffic lights.
+// titleBarPad is the gap past the system control insets (docs/ui/windows.md).
+const titleBarPad = 12
+
+// titleBarHeight is how tall the titlebar is: desktop inset, or our minimum.
 func (a *App) titleBarHeight(c *ui.Context) float32 {
 	if h := c.TitleBar().Height; h > titleBarMin {
 		return h
@@ -228,28 +222,35 @@ func (a *App) titleBarHeight(c *ui.Context) float32 {
 func (a *App) titleBar(c *ui.Context, p palette) {
 	tb := c.TitleBar()
 	height := a.titleBarHeight(c)
-	left := float32(space4)
-	if tb.Left > 0 {
-		left = tb.Left + space3
+	// Pad from the control insets, not a fixed gutter — otherwise the
+	// wordmark sits a full Gap past the green light.
+	left := tb.Left + titleBarPad
+	right := tb.Right + titleBarPad
+	if left < titleBarPad {
+		left = titleBarPad
+	}
+	if right < titleBarPad {
+		right = titleBarPad
 	}
 	ui.Row(c).
 		FillWidth().
 		Height(height).
-		Padding(0, space4, 0, left).
+		Padding(0, right, 0, left).
 		Gap(space3).
 		AlignItems(ui.Center).
 		DragWindow().
 		Material(glass.Glass{}).
 		Children(func() {
-			// The mark is the app icon, drawn in ink rather than the
-			// accent: the one accent in the frame belongs to the one
-			// action in it.
-			ui.Icon(c, iconApp).FontSize(sizeChrome).TextColor(p.t.Text)
-			ui.Text(c, "leeway").
-				FontSize(sizeChrome).
-				FontWeight(700).
-				LetterSpacing(-0.2).
-				Shrink(0)
+			// Mark + name are one brand cluster (tight gap); status sits after
+			// the rule at the row's Gap, so it doesn't crowd the wordmark.
+			ui.Row(c).Gap(space2).AlignItems(ui.Center).Shrink(0).Children(func() {
+				ui.Icon(c, iconApp).FontSize(sizeChrome).TextColor(p.t.Text)
+				ui.Text(c, "leeway").
+					FontSize(sizeChrome).
+					FontWeight(700).
+					LetterSpacing(-0.2).
+					Shrink(0)
+			})
 			chromeRule(c, p)
 			a.titleState(c, p)
 			ui.Spacer(c)
@@ -362,7 +363,7 @@ func refreshLabel(sec int) string {
 // the pages about the data itself.
 func (a *App) sidebarItems(c *ui.Context, p palette) {
 	ui.SidebarSection(c, "用量", nil, func() {
-		sidebarItem(c, "overview", iconOverview, "总览", a.page == "overview")
+		sidebarItem(c, p, "overview", iconOverview, "总览", a.page == "overview")
 		// Only the subscriptions this machine actually has: a provider nobody
 		// has set up is a row to read once in the first-run guide, not a page
 		// to keep walking past.
@@ -373,30 +374,18 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 				continue
 			}
 			listed++
-			item := ui.SidebarItem(c, "provider:"+view.ID, nil, view.DisplayName)
+			selected := a.page == "provider:"+view.ID
+			item := paintSidebarNav(c, p, "provider:"+view.ID, nil, view.DisplayName, selected)
 			// The dot's shape and colour are the mark; the word rides on the
 			// row so a keyboard or screen-reader user reads the state too.
 			item = item.Tooltip(view.DisplayName + " · " + statusLabel(view.Status, view.firstCred()))
 			item.Children(func() {
-				// The row leads with the provider's own headroom, not with how
-				// many accounts it has: the question the overview answers is
-				// which provider is closest to its cap, and a sidebar that only
-				// counted accounts made that unanswerable without opening each
-				// one. A provider with nothing to report yet falls back to the
-				// count — a row without a number reads as "unknown", not as
-				// "one".
+				// Right-aligned live remaining quota (Pulse): muted + tabular.
+				// On the blue pill the ink is navSelectedText so contrast holds.
 				if left, ok := headlineLeft(view); ok {
-					// Text, not a badge: a filled chip 9px from the state dot
-					// reads as a second state badge. Tabular, because the
-					// number changes under the reader.
-					//
-					// Full-strength ink, not the muted one: the sidebar sits on
-					// glass, and the muted ink measures 3.90:1 there — under the
-					// 4.5:1 a 13px number needs. It is a reading, and the row's
-					// hierarchy comes from its order, not from fading the data.
-					label(c, p, left).TextColor(p.t.Text).FontFeatures("tnum")
+					sidebarLive(c, p, left, selected)
 				} else if n := len(view.Accounts); n > 0 {
-					muted(c, p, fmt.Sprintf("%d", n)).TextColor(p.t.Text)
+					sidebarLive(c, p, fmt.Sprintf("%d", n), selected)
 				}
 				// A dot means leeway has something to say: green is fine, red
 				// is not, and a ring means it has not answered yet.
@@ -408,8 +397,8 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 		}
 	})
 	ui.SidebarSection(c, "数据", nil, func() {
-		sidebarItem(c, "history", iconHistory, "历史", a.page == "history")
-		sidebarItem(c, "about", iconAbout, "关于", a.page == "about")
+		sidebarItem(c, p, "history", iconHistory, "历史", a.page == "history")
+		sidebarItem(c, p, "about", iconAbout, "关于", a.page == "about")
 	})
 }
 
