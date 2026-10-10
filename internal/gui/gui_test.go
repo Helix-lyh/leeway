@@ -724,6 +724,35 @@ func TestLoginSheetRendersAndKeepsTheTypedKey(t *testing.T) {
 	}
 }
 
+// A row's right edge is where its action is. 详情 used to sit outboard of the
+// button that gets the provider working, at the same weight: the row read as
+// two actions with the quiet one in the loud position.
+func TestTheFirstRunRowEndsWithItsAction(t *testing.T) {
+	a := freshApp(t)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	detail, ok := tester.Find("详情")
+	if !ok {
+		t.Fatalf("the guide has no 详情; texts=%v", tester.Texts())
+	}
+	// The first row is Codex's, whose action is the official tool.
+	action, ok := tester.Find("用官方工具登录")
+	if !ok {
+		t.Fatalf("the guide has no action; texts=%v", tester.Texts())
+	}
+	if action.X+action.W <= detail.X {
+		t.Errorf("the action ends at x=%.0f and 详情 starts at x=%.0f: the quiet control is outboard of the action",
+			action.X+action.W, detail.X)
+	}
+	// And it is a control the reader can see. A ButtonBase with only a Label
+	// publishes the name and draws nothing: this one was an invisible button
+	// until the ink below was checked, and the name in the frame was enough to
+	// pass every test that only asked whether it was there.
+	if inkBottom(tester.Image(), detail) < 0 {
+		t.Error("详情 is in the frame and has no ink: it is a name, not a control")
+	}
+}
+
 func TestFirstRunTeachesInsteadOfBlaming(t *testing.T) {
 	// Nothing configured and nothing answered: the window has to say what to
 	// do about it. This is the state a fresh install is in, and the guide is

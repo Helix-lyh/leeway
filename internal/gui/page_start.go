@@ -62,6 +62,29 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 			muted(c, p, line)
 		})
 		ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
+			// 详情 is the way to the provider's own page, not a second action.
+			// At the weight of the button that gets the provider working it
+			// competed with it on every row of a seven-row guide, so it is a
+			// quiet control: muted ink, no border, and a hover fill the size of
+			// the row's other controls, which is also the only thing saying it
+			// can be pressed. It comes first in the row as well as second in
+			// weight: a row's right edge is where its action is, and a quiet
+			// control sitting outboard of the loud one reads as the louder.
+			//
+			// The text is a child, not `Label`: ButtonBase is a button without
+			// a look, so a Label is what a screen reader reads and nothing at
+			// all is what the reader sees.
+			detail := btnSmall(ui.ButtonBase(c).Children(func() {
+				ui.Text(c, "详情").FontSize(sizeBody).TextColor(p.t.TextMuted)
+			})).Cursor(ui.CursorPointer)
+			if detail.Hovered() {
+				detail.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+					pt.Fill(r, p.t.Text.Alpha(0.06), radiusControl)
+				})
+			}
+			if detail.Clicked() {
+				a.navigate("provider:" + v.ID)
+			}
 			switch {
 			case !v.Enabled:
 				if btnSmall(ui.Button(c, "添加")).Clicked() {
@@ -76,20 +99,6 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 					method := loginMethods(v.ID)[0]
 					method.open(a, v.ID, defaultAccount(v))
 				}
-			}
-			// 详情 is the way to the provider's own page, not a second action.
-			// At the weight of the button that gets the provider working it
-			// competed with it on every row of a seven-row guide, so it is a
-			// quiet control: muted ink that comes up to full strength under the
-			// pointer, which is also the only thing saying it can be pressed.
-			detail := btnSmall(ui.ButtonBase(c).Label("详情")).
-				Cursor(ui.CursorPointer).
-				TextColor(p.t.TextMuted)
-			if detail.Hovered() {
-				detail.TextColor(p.t.Text)
-			}
-			if detail.Clicked() {
-				a.navigate("provider:" + v.ID)
 			}
 		})
 	})
