@@ -159,16 +159,10 @@ func (a *App) providerAccount(c *ui.Context, p palette, v providerView, av accou
 // snapshotDetail draws one account's windows, cost and history.
 func (a *App) snapshotDetail(c *ui.Context, p palette, providerID string, av accountView) {
 	snap := av.Snapshot
-	for i, w := range snap.Windows {
-		if i > 0 {
-			hairline(c, p)
-		}
+	for _, w := range snap.Windows {
 		a.windowRow(c, p, providerID, w, a.historyFor(providerID, av.Name, w.ID), 46)
 	}
 	if snap.Cost != nil && snap.Cost.Amount != nil {
-		if len(snap.Windows) > 0 {
-			hairline(c, p)
-		}
 		line := money(*snap.Cost.Amount, snap.Cost.Currency)
 		if snap.Cost.Limit != nil {
 			line += fmt.Sprintf(" / %s", money(*snap.Cost.Limit, snap.Cost.Currency))

@@ -2621,9 +2621,11 @@ func TestThePageStopsGrowingOnAWideWindow(t *testing.T) {
 	a.navigate("overview")
 	tester := ui.NewTester(a.view, wide, 900)
 	img := tester.Image()
-	// The rule under the page's head spans the page's column, so it is exactly
-	// as wide as the content and the only line on the page that is.
-	rule := func(x, y int) bool { return rgbSum(img, x, y) < rgbSum(img, x, y-3)-30 }
+	// The cards span the page's column, so the widest run of card fill is
+	// exactly as wide as the content. This used to be read off the rule under
+	// the page's head; that rule is gone, with every other page-head rule.
+	canvas := rgbSum(img, sidebarWidth+4, 200)
+	rule := func(x, y int) bool { return rgbSum(img, x, y) > canvas+12 }
 	best, left, right := 0, 0, 0
 	for y := 60; y < 300; y++ {
 		n, x0, x1 := 0, -1, -1

@@ -28,7 +28,6 @@ type palette struct {
 	divider   ui.Color // the rule between two account columns, which has to read as one line
 	hairline  ui.Color // a rule that only groups: a whisper, not a boundary
 	track     ui.Color // a bar's empty part
-	trackEdge ui.Color // the line around it, which is what makes the bar a control
 	rule      ui.Color // a line the caption points at, which has to hold over every band it crosses
 	grid      ui.Color // the scale behind a chart: quiet on the card, but never as loud as the data
 	markTile  ui.Color // the tile under a mark the provider publishes alone
@@ -56,7 +55,6 @@ func paletteOf(t *ui.Theme) palette {
 		p.divider = ui.RGBA(255, 255, 255, 0.36)
 		p.hairline = ui.RGBA(255, 255, 255, 0.10)
 		p.track = ui.RGBA(255, 255, 255, 0.14)
-		p.trackEdge = ui.RGBA(255, 255, 255, 0.38)
 		p.markShade = ui.RGBA(0, 0, 0, 0.45)
 		p.money = ui.Oklch(0.72, 0.09, 255)
 		p.accent = ui.Oklch(0.72, 0.17, 285)
@@ -74,7 +72,6 @@ func paletteOf(t *ui.Theme) palette {
 		p.divider = ui.RGBA(0, 0, 0, 0.44)
 		p.hairline = ui.RGBA(20, 18, 40, 0.10)
 		p.track = ui.RGBA(0, 0, 0, 0.10)
-		p.trackEdge = ui.RGBA(0, 0, 0, 0.45)
 		p.markShade = ui.RGBA(20, 18, 40, 0.16)
 		p.money = ui.Oklch(0.52, 0.09, 255)
 		p.accent = ui.Oklch(0.55, 0.20, 285)
@@ -117,7 +114,6 @@ func (a *App) theme(c *ui.Context) palette {
 		p.divider = p.divider.Mix(t.Text, 0.40)
 		p.hairline = p.hairline.Mix(t.Text, 0.55)
 		p.track = p.track.Mix(t.Text, 0.50)
-		p.trackEdge = p.trackEdge.Mix(t.Text, 0.30)
 	}
 	t.Background = p.canvas
 	t.Accent = p.accent
@@ -649,12 +645,14 @@ func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Elem
 	e := ui.Box(c).
 		FillWidth().
 		Height(height).
-		Radius(height/2).
+		Radius(height / 2).
 		Background(p.track).
-		// The empty part of a bar is what says how much is left, so the bar
-		// carries an edge a reader can find: a tint alone measured 1.26:1 on a
-		// light card, which is a scale you have to guess at.
-		Border(1, p.trackEdge).
+		// No edge. A bar is a fill on a track, and the track is what says how
+		// much is left — motrix, codex-monitor and vitals all draw it that way.
+		// The edge this used to carry was the darkest line on the page, and the
+		// reading it protected is in text anyway: the number above the bar, and
+		// the same percentage in the sidebar. A tint at 1.26:1 on a light card
+		// is not a scale you guess at when it is six pixels of a filled pill.
 		Role(ui.RoleMeter)
 	switch {
 	// A provider can report past its own limit (codex and cursor pass the API
@@ -671,7 +669,7 @@ func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Elem
 	e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
 		// DrawOver is not clipped by the element's own Clip(), so the pill is
 		// cut here by hand.
-		inner := ui.Rect{X: r.X + 1, Y: r.Y + 1, W: r.W - 2, H: r.H - 2}
+		inner := r
 		if inner.W <= 0 || inner.H <= 0 {
 			return
 		}

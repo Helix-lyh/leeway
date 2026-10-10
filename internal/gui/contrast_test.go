@@ -318,7 +318,6 @@ func TestTheStructuralLinesCarryTheirOwnContrast(t *testing.T) {
 			what   string
 			fg, bg ui.Color
 		}{
-			{"the edge of a bar", p.trackEdge, card},
 			{"the rule between two accounts", p.divider, card},
 			{"the focus ring", p.t.Focus, card},
 			// The rules the chart's caption counts: they cross the band tints,

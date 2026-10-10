@@ -350,13 +350,12 @@ func (a *App) overviewCard(c *ui.Context, p palette, v providerView) ui.Element 
 			ui.Icon(c, iconChevron).FontSize(iconSmall).TextColor(p.t.TextMuted).Role(ui.RoleNone)
 		})
 		// Two subscriptions of one provider are two blocks: each account gets
-		// its own rule and its own name, so a card never reads as one
-		// paragraph about nobody in particular.
-		for i := range v.Accounts {
-			if i > 0 {
-				hairline(c, p)
-			}
-			a.overviewAccount(c, p, v, v.Accounts[i])
+		// its own name and its own block of space, so a card never reads as one
+		// paragraph about nobody in particular. No rule between them: the
+		// corpus rules rows in a settings list, not accounts in a card —
+		// codex-monitor separates its account rows with Gap(4) alone.
+		for _, av := range v.Accounts {
+			a.overviewAccount(c, p, v, av)
 		}
 	}))
 }
@@ -552,24 +551,14 @@ func (a *App) attentionCard(c *ui.Context, p palette, list []providerView) ui.El
 	}
 	return card(c, p, func() {
 		section(c, p, "需要处理")
-		first := true
-		row := func(fn func()) {
-			if !first {
-				hairline(c, p)
-			}
-			first = false
-			fn()
+		for _, v := range broken {
+			a.attentionRow(c, p, v)
 		}
-		for i := range broken {
-			v := broken[i]
-			row(func() { a.attentionRow(c, p, v) })
-		}
-		for i := range waiting {
-			v := waiting[i]
-			row(func() { a.attentionRow(c, p, v) })
+		for _, v := range waiting {
+			a.attentionRow(c, p, v)
 		}
 		if len(bare) > 0 {
-			row(func() { a.unconfiguredRow(c, p, bare) })
+			a.unconfiguredRow(c, p, bare)
 		}
 	})
 }

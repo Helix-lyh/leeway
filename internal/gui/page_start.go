@@ -18,11 +18,7 @@ func (a *App) startGuide(c *ui.Context, p palette) ui.Element {
 			FontSize(sizeChrome).
 			LineHeight(1.55).
 			MaxWidth(620)
-		hairline(c, p)
-		for i, v := range a.providers() {
-			if i > 0 {
-				hairline(c, p)
-			}
+		for _, v := range a.providers() {
 			a.startRow(c, p, v)
 		}
 		muted(c, p, "配好一个就能用：点「刷新」或按 ⌘R。命令行同样可用：leeway usage")

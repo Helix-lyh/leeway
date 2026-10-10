@@ -503,7 +503,6 @@ func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string,
 				ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(actions)
 			}
 		})
-		hairline(c, p)
 	})
 }
 
