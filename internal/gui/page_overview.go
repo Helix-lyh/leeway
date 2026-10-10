@@ -81,12 +81,10 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 		// will need a hand is the probe's answer, so the skeleton shows only
 		// what every answer has.
 		if enabled > 1 {
-			// Every placeholder is the same height, so a wrapping row is the
-			// shape the columns will have; only the order has to match the page
-			// that lands, which puts the cards before the list of chores.
-			ui.Row(c).FillWidth().Wrap().Gap(space4).AlignItems(ui.Start).Children(func() {
+			// One card per row, the shape the answer lands in.
+			ui.Column(c).FillWidth().Gap(space4).Children(func() {
 				for i := 1; i < enabled; i++ {
-					a.skeletonCard(c, p).MinWidth(overviewCardMin).Grow(1)
+					a.skeletonCard(c, p)
 				}
 			})
 		}
@@ -126,7 +124,11 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 			return len(rest[i].Accounts) > len(rest[j].Accounts)
 		})
 		if len(rest) > 0 {
-			a.overviewGrid(c, p, rest)
+			ui.Column(c).FillWidth().Gap(space4).Children(func() {
+				for i := range rest {
+					a.overviewCard(c, p, rest[i])
+				}
+			})
 		}
 		// What needs a hand comes after the providers that are merely fine: the
 		// cards are what the page is read for, and a list of chores above them
@@ -139,77 +141,6 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 	if len(attention) > 0 && !firstRun {
 		a.attentionCard(c, p, attention)
 	}
-}
-
-// overviewGrid lays the cards out in columns filled shortest-first instead of
-// letting them wrap. A wrapping row puts the next card below the tallest card
-// of the row, which leaves a hole beside every shorter card — one provider with
-// four accounts next to one with a single account is a hole the size of the
-// short card, and the card after them starts under the tall one. The price of
-// filling it is that from the third card on the page reads down a column rather
-// than across a row.
-func (a *App) overviewGrid(c *ui.Context, p palette, list []providerView) {
-	winW, _ := c.Size()
-	inner := contentWidth(winW)
-	gap := float32(space4)
-	cols := int((inner + gap) / (overviewCardMin + gap))
-	if cols < 1 {
-		cols = 1
-	}
-	if cols > len(list) {
-		cols = len(list)
-	}
-	colW := (inner - gap*float32(cols-1)) / float32(cols)
-
-	// Cards are handed out in order, filling one column before the next, and a
-	// column is closed once the next card would take it past its share of the
-	// total. Keeping the columns contiguous is what keeps the page readable in
-	// the order the cards were sorted in — a card is never pulled out of turn
-	// into an earlier column just because that column is short.
-	total := float32(0)
-	for _, v := range list {
-		total += overviewCardWeight(v)
-	}
-	share := total / float32(cols)
-	column := make([][]int, cols)
-	weight := make([]float32, cols)
-	at := 0
-	for i, v := range list {
-		w := overviewCardWeight(v)
-		if len(column[at]) > 0 && weight[at]+w > share && at < cols-1 {
-			at++
-		}
-		column[at] = append(column[at], i)
-		weight[at] += w
-	}
-	ui.Row(c).FillWidth().Gap(gap).AlignItems(ui.Start).Children(func() {
-		for _, cards := range column {
-			ui.Column(c).Width(colW).Gap(gap).Children(func() {
-				for _, i := range cards {
-					a.overviewCard(c, p, list[i])
-				}
-			})
-		}
-	})
-}
-
-// overviewCardWeight is how tall a card will be, in text lines: the shell's
-// padding, the provider's header, and then for every account its name plus the
-// rows it carries. Only the comparison between cards matters — the columns are
-// being balanced, not measured — so these are lines, not pixels.
-func overviewCardWeight(v providerView) float32 {
-	lines := float32(3) // the shell's padding and the header row
-	for _, av := range v.Accounts {
-		if len(v.Accounts) > 1 {
-			lines++ // the account's own caption
-		}
-		if av.Status == "ok" && av.Snapshot != nil {
-			lines += 2 * float32(len(displayWindows(av.Snapshot))) // a name, a number and a bar
-			continue
-		}
-		lines += 2 // the failure, and the row of actions under it
-	}
-	return lines
 }
 
 // heroCard is the provider the page leads with, at twice the size of the

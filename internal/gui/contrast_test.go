@@ -135,10 +135,22 @@ func checkInk(t *testing.T, state string, a *App, dark bool) {
 	tester.SetDark(dark)
 	tester.Frame()
 	img := tester.Image()
+	// The frame's own edge, so a box the window cuts off can be told apart from
+	// one that fits.
+	edgeX, edgeY := float32(img.Bounds().Dx()), float32(img.Bounds().Dy())
 	checked := 0
 	for _, text := range tester.Texts() {
 		r, ok := tester.Find(text)
 		if !ok || r.W < 4 || r.H < 6 || len([]rune(text)) < 2 {
+			continue
+		}
+		// A label the window cuts off has no surface to judge: the page scrolls,
+		// and what is left of such a box in the frame is a sliver of background
+		// and whatever edge runs through it. A tray row cut off at the bottom
+		// measured 1.68:1 that way — the strongest ink in its 22px sliver was
+		// the row's own border, not the label. Boxes that reach the frame's edge
+		// are the ones that may have been cut, so they are skipped.
+		if r.X < 0 || r.Y < 0 || r.X+r.W >= edgeX-0.5 || r.Y+r.H >= edgeY-0.5 {
 			continue
 		}
 		checked++

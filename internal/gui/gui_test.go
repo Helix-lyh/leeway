@@ -2174,14 +2174,16 @@ func overviewMixApp(t *testing.T) *App {
 	return a
 }
 
-// The overview's cards are read in the order of how much they carry, and the
-// card that carries least goes into the column that has room rather than into a
-// row of its own. A provider with four accounts beside one with a single
-// account leaves a hole the height of the short card and pushes everything
-// after them below the tall one, which is the hole this test is about.
-func TestTheOverviewPacksItsCardsByHeight(t *testing.T) {
+// The overview lists its cards one per row and full width. Side by side, a
+// provider with four accounts next to one with a single account leaves a hole
+// under the short card the height of the tall one, and nothing fills it: the
+// cards are read in the order of how much they carry, which is the order they
+// stack in.
+func TestTheOverviewStacksItsCardsFullWidth(t *testing.T) {
 	a := overviewMixApp(t)
-	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	// A window tall enough to lay the whole column out: text below the fold has
+	// no box to measure.
+	tester := ui.NewTester(a.view, mainWidth, 2400)
 	tester.Frame()
 
 	at := func(text string) ui.Rect {
@@ -2192,23 +2194,25 @@ func TestTheOverviewPacksItsCardsByHeight(t *testing.T) {
 		}
 		return box
 	}
-	// Both cards are measured on their first account's number, which is the row
-	// under the card's header.
-	four, two := at("11%"), at("21%")
-	if four.X >= two.X {
-		t.Errorf("the four-account card sits at x=%.0f and the two-account card at x=%.0f: the cards are not listed by account count",
-			four.X, two.X)
+	// Full width: each card's number is right-aligned inside a card as wide as
+	// the page, so all of them end at the page's right edge.
+	edge := float32(sidebarWidth+pagePad) + contentWidth(mainWidth)
+	for _, label := range []string{"11%", "21%", "31%"} {
+		if box := at(label); box.X+box.W < edge-60 {
+			t.Errorf("the card holding %s ends at x=%.0f, short of the page's %.0f: the cards are not full width",
+				label, box.X+box.W, edge)
+		}
 	}
-	// The single-account card is put under the short card, not under the tall
-	// one: the same column, and above the tall card's last row.
-	one := at("31%")
-	if d := one.X - two.X; d < -2 || d > 2 {
-		t.Errorf("the single-account card sits at x=%.0f against x=%.0f for the card beside it: it started a row of its own",
-			one.X, two.X)
+	// One per row, in the order the cards carry: four accounts, then two, then
+	// one. The second card starts below the first card's last row.
+	four, two, one := at("11%"), at("21%"), at("31%")
+	if !(four.Y < two.Y && two.Y < one.Y) {
+		t.Errorf("the cards run y=%.0f, y=%.0f, y=%.0f: they are not stacked in account-count order",
+			four.Y, two.Y, one.Y)
 	}
-	if last := at("14%"); one.Y >= last.Y {
-		t.Errorf("the single-account card starts at y=%.0f, at or below the four-account card's last row at y=%.0f: the hole beside the short card is still there",
-			one.Y, last.Y)
+	if last := at("14%"); two.Y <= last.Y {
+		t.Errorf("the two-account card starts at y=%.0f, at or above the four-account card's last row at y=%.0f: the cards are still side by side",
+			two.Y, last.Y)
 	}
 	// What needs a hand comes after the cards, not above them.
 	if cho := at("需要处理"); cho.Y <= one.Y {

@@ -141,12 +141,6 @@ func contentWidth(winW float32) float32 {
 	return inner
 }
 
-// overviewCardMin is the narrowest a provider card is drawn: below it the card's
-// numbers and bars stop being readable across the room. The overview fits as
-// many cards side by side as this leaves room for, and lays them out in that
-// many columns.
-const overviewCardMin = 340
-
 func (a *App) view(c *ui.Context) {
 	for _, text := range a.spoken {
 		c.Announce(text)
