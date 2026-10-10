@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -22,10 +24,17 @@ func goVersion() string { return runtime.Version() }
 // historyPage shows the recorded observations of every provider, account and
 // window as one row each.
 func (a *App) historyPage(c *ui.Context, p palette) {
-	sub := fmt.Sprintf("每个额度周期最近 %d 次查询 · 最近一次 %s", a.settings.HistoryN, agoText(a.lastAt, a.now()))
+	// "最近一次" is the last successful probe, which can be newer than the last
+	// recorded observation: with nothing recorded yet the head said
+	// "最近一次 刚刚" over a card that says 还没有记录.
+	last := ""
+	if len(a.series) > 0 {
+		last = " · 最近一次 " + agoText(a.lastAt, a.now())
+	}
+	sub := fmt.Sprintf("每个额度周期最近 %d 次查询%s", a.settings.HistoryN, last)
 	if path, err := history.Path(); err == nil {
-		sub = fmt.Sprintf("每个额度周期最近 %d 次查询 · 记录在 %s · 最近一次 %s",
-			a.settings.HistoryN, filepath.Base(path), agoText(a.lastAt, a.now()))
+		sub = fmt.Sprintf("每个额度周期最近 %d 次查询 · 记录在 %s%s",
+			a.settings.HistoryN, filepath.Base(path), last)
 	}
 	pageHead(c, p, "历史", sub, func() {
 		if btnLarge(ui.Button(c, "刷新")).Clicked() {
@@ -37,26 +46,58 @@ func (a *App) historyPage(c *ui.Context, p palette) {
 		historyEmpty(c, p, a)
 		return
 	}
-	byProvider := groupSeries(a.series)
-	for _, id := range providerOrder(byProvider) {
-		series := byProvider[id]
-		shell(c, p, func() {
-			ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
-				mark(c, p, id, providerName(id), 24, "")
-				section(c, p, providerName(id))
-				ui.Spacer(c)
-				label(c, p, fmt.Sprintf("%d 条记录", len(series)))
-			})
-			hairline(c, p)
-			for i, s := range series {
-				if i > 0 {
-					hairline(c, p)
-				}
-				a.historyRow(c, p, s)
-			}
-		})
+	// What every chart on the page shares, said once: one axis and two
+	// thresholds for every percentage series, and the record they are all read
+	// from. Under each chart it was the same sentence again — four times over
+	// on a page of four — and the caption it left room for is the one thing
+	// that is about that chart alone.
+	if legend := historyLegend(a.series); legend != "" {
+		muted(c, p, legend)
 	}
+	byProvider := groupSeries(a.series)
+	// One card per provider, each with its charts, and two of them side by
+	// side in the window the app opens at: the page is half as long, and the
+	// charts are the same width as each other, so two providers can be read
+	// against one another. A grid rather than a wrapping row of growing
+	// cards, because the last card on a page would take the whole width and
+	// draw its trend at twice the scale of the ones above it.
+	// Two columns only when there are two cards to compare: with a single
+	// provider a half-width tray would leave half the measure empty, and the
+	// fixed width exists so one card's slope can be read against another's.
+	cols := 1
+	if w, _ := c.Size(); w >= historyTwoUp && len(byProvider) > 1 {
+		cols = 2
+	}
+	ui.Grid(c).FillWidth().Columns(cols).Gap(space4).Children(func() {
+		for _, id := range providerOrder(byProvider) {
+			series := byProvider[id]
+			// The cell is a column of its own: a card fills the width it is
+			// given, and inside a grid that is the cell, not the whole grid.
+			ui.Column(c).Children(func() {
+				shell(c, p, func() {
+					ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
+						mark(c, p, id, providerName(id), 24, "")
+						section(c, p, providerName(id))
+						ui.Spacer(c)
+						label(c, p, fmt.Sprintf("%d 条记录", len(series)))
+					})
+					hairline(c, p)
+					for i, s := range series {
+						if i > 0 {
+							hairline(c, p)
+						}
+						a.historyRow(c, p, s)
+					}
+				})
+			})
+		}
+	})
 }
+
+// historyTwoUp is the window width at which two provider cards fit side by
+// side: the sidebar and the page's own padding leave 740 of the 1040 the app
+// opens at, so a card is about 360 wide there, which is a chart's width.
+const historyTwoUp = 900
 
 // historyEmpty is the history page before anything has been recorded: it shows
 // the shape the page will take, and the one thing that fills it.
@@ -119,16 +160,57 @@ func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 		})
 		// The same color rule as a bar: a level has a tone, money does not.
 		_, over := a.sparkline(c, p, "history:"+s.Provider+"/"+s.Window+"/"+s.Account, "走势："+windowTitle(s.Provider, s.Window, title), s.Points, barColor(p, window), 40, nil)
-		parts := []string{chartScale(s.Points), historyCaption(s.Points)}
+		parts := []string{}
+		// A money series is drawn against its own peak, so it still says what
+		// its scale is; the percentage axis is the page's, said above.
+		if !percentSeries(s.Points) {
+			parts = append(parts, chartScale(s.Points))
+		}
+		if r := trendRange(s.Points); r != "" {
+			parts = append(parts, r)
+		}
 		if n := countResets(s.Points); n > 0 {
 			parts = append(parts, fmt.Sprintf("期间重置 %d 次（竖线就是重置）", n))
 		}
-		muted(c, p, chartCaption(s.Points, over, joinNonEmpty(parts, " · ")))
-		if live != nil {
-			burnAlarm(c, p, s.Points, *live)
+		// A series that never moved has no range to report; how many
+		// observations its flat line is drawn from is then the one thing left
+		// that is about this chart and not about the page.
+		if len(parts) == 0 {
+			parts = append(parts, fmt.Sprintf("%d 次查询", len(s.Points)))
 		}
+		muted(c, p, chartCaption(s.Points, over, joinNonEmpty(parts, " · ")))
 		resetNote(c, p, s.Points)
 	})
+}
+
+// historyLegend is the line under the page's head: the axis and the thresholds
+// every percentage chart is drawn against, and the queries the series were
+// recorded from. Both are properties of the page, not of a chart — and the
+// queries are counted across all of the series, because a provider that missed
+// one is not a reason for the page to say the record is shorter than it is.
+func historyLegend(series []history.Series) string {
+	var parts []string
+	queries := map[int64]bool{}
+	var first, last time.Time
+	for _, s := range series {
+		if len(parts) == 0 && percentSeries(s.Points) {
+			parts = append(parts, chartScale(s.Points))
+		}
+		for _, pt := range s.Points {
+			queries[pt.T.Unix()] = true
+			if first.IsZero() || pt.T.Before(first) {
+				first = pt.T
+			}
+			if pt.T.After(last) {
+				last = pt.T
+			}
+		}
+	}
+	if len(queries) > 1 {
+		parts = append(parts, fmt.Sprintf("记录里最近 %d 次查询：%s → %s", len(queries),
+			first.Local().Format("01-02 15:04"), last.Local().Format("01-02 15:04")))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // pointText renders one recorded observation.

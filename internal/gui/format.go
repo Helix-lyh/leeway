@@ -76,6 +76,23 @@ func resetLabel(w model.RateWindow, now time.Time) string {
 	}
 }
 
+// resetIn is the countdown alone, for the places that name it with a caption
+// above it — "重置" over "2 天 4 小时" — rather than in a sentence.
+func resetIn(w model.RateWindow, now time.Time) string {
+	if w.ResetsAt == nil {
+		return ""
+	}
+	left := w.ResetsAt.Sub(now)
+	switch {
+	case left < 0:
+		return "等待中"
+	case left < time.Minute:
+		return "即将"
+	default:
+		return spanText(left)
+	}
+}
+
 // credSentence says where an account's credential comes from. Chinese and
 // Latin take a space where they meet, so a source that starts with a Latin
 // letter is set off and one that starts with a Chinese word is not.

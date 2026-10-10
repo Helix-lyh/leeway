@@ -115,6 +115,20 @@ func (a *App) Menu() *mygo.Menu {
 // the page's own padding still shows under it.
 const pageBottomPad = 40
 
+// sidebarWidth is the navigation column's width: fixed, so a page's measure
+// does not move when a provider is added. pagePad is the room the scroll keeps
+// on either side of the page.
+const (
+	sidebarWidth = 236
+	pagePad      = 32
+)
+
+// contentMax is the widest the page's column gets before it stops growing and
+// centers itself. It is a measure, not a breakpoint: the window's own default
+// is 1040 and the narrowest is 780, so on either of those the page still fills
+// what it is given, and the cap only answers a window the reader stretched.
+const contentMax = 1120
+
 func (a *App) view(c *ui.Context) {
 	for _, text := range a.spoken {
 		c.Announce(text)
@@ -131,7 +145,6 @@ func (a *App) view(c *ui.Context) {
 		c.Toast(a.toast)
 		a.toast = ""
 	}
-	a.burnToast(c)
 	if a.Due() {
 		a.Refresh(false)
 	}
@@ -147,20 +160,30 @@ func (a *App) view(c *ui.Context) {
 			_, winH := c.Size()
 			ui.Row(c).Height(winH - a.titleBarHeight(c)).Children(func() {
 				ui.Sidebar(c, &a.page, func() { a.sidebarItems(c, p) }).
-					Width(236).
+					Width(sidebarWidth).
 					FillHeight().
 					Padding(12, 10).
 					Material(glass.Glass{})
 				ui.Scroll(c).
 					Grow(1).
 					FillHeight().
-					Padding(26, 32, pageBottomPad, 32).
+					Padding(26, pagePad, pageBottomPad, pagePad).
 					Children(func() {
-						ui.Column(c).
-							FillWidth().
-							Gap(space5).
-							Transition(pageMotion).
-							Children(func() { a.pageView(c, p) })
+						// The measure. A window pulled across a wide display
+						// is not a reason for a bar 1600px long or a number
+						// 1500px from the label it belongs to: past this the
+						// page stops growing and centers itself in what is
+						// left, which is where the eye expects the column to
+						// be. The app opens at 1040, so this only ever moves
+						// on a window the reader stretched themselves.
+						ui.Row(c).FillWidth().Justify(ui.Center).Children(func() {
+							ui.Column(c).
+								FillWidth().
+								MaxWidth(contentMax).
+								Gap(space5).
+								Transition(pageMotion).
+								Children(func() { a.pageView(c, p) })
+						})
 					})
 			})
 		})
@@ -348,7 +371,10 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 				// the count is always worth showing: a row without a number
 				// reads as "unknown", not as "one".
 				if n := len(view.Accounts); n > 0 {
-					ui.Badge(c, fmt.Sprintf("%d", n))
+					// Text, not a badge: a filled chip 9px from the state dot
+					// reads as a second state badge, and the count has no label
+					// to say which is which.
+					muted(c, p, fmt.Sprintf("%d", n))
 				}
 				// A dot means leeway has something to say: green is fine, red
 				// is not, and a ring means it has not answered yet.

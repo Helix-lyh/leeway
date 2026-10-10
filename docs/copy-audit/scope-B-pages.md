@@ -2,6 +2,8 @@
 
 - 审计范围（只读）：`internal/gui/page_overview.go`、`internal/gui/page_matrix.go`、`internal/gui/page_history.go`、`internal/gui/trend.go`、`internal/gui/charts.go`、`internal/gui/format.go`
 - 只读分析，**未修改任何代码文件**。本文件是本次唯一新增产物。
+- **`trend.go:134 / 248 / 275` 三条「用满预测」文案已作废**：该功能已按要求从界面移除，本表不再
+  是这三条的目标；其余条目照旧。
 - 行号对应当前工作区内容（`internal/gui/*.go` 在本仓库里已有未提交改动）；若并行改写已落地，行号会漂移，请以原文案字符串为准检索。
 - 判定方法：逐个读渲染路径（谁调用、画在哪个控件上、点了会发生什么），不靠猜；拿不准的进「不确定清单」。
 - 建议用词与 `docs/copy-audit/glossary-draft.md`（父任务的术语草案）对齐：`provider→服务商`、`凭据→登录信息`、`探测→查询`、`额度窗口→额度周期`、`数据点→记录`、`限流→请求太频繁`；`刷新 / 额度 / 用量 / 重置 / 账号 / 启用 / 停用` 保留。

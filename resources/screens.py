@@ -18,13 +18,10 @@ GAP = 16
 ORDER = [
     "overview.png",
     "overview-trend.png",
-    "overview-burn.png",
     "provider.png",
     "provider-trend.png",
     "provider-many.png",
-    "provider-many-burn.png",
     "history-many.png",
-    "history-burn.png",
     "settings.png",
     "settings-data.png",
     "overview-first-run.png",

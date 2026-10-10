@@ -29,7 +29,6 @@ const (
 	// label against both).
 	chartBandWarn     = 0.12
 	chartBandCritical = 0.18
-	chartBandRule     = 0.80
 )
 
 // chartPoint is one observation as the line draws it: the number it carries,
@@ -178,7 +177,9 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 	// The line is a picture of numbers, so it carries the name of what it
 	// shows for assistive technology; the numbers themselves are in the
 	// caption below it and in `leeway usage --last`.
-	plot := ui.Row(c).FillWidth().Height(height).Focusable().Label(label).DrawOver(func(pt *ui.Painter, r ui.Rect) {
+	// Radius so the focus ring's corners match every other control's: MyGo adds
+	// 3 to the element's own radius, and a plot at 0 drew a near-square ring.
+	plot := ui.Row(c).FillWidth().Height(height).Radius(radiusControl).Focusable().Label(label).DrawOver(func(pt *ui.Painter, r ui.Rect) {
 		plot := ui.Rect{X: r.X + chartInset, Y: r.Y + chartPadY, W: r.W - 2*chartInset, H: r.H - 2*chartPadY}
 		if plot.W <= 0 || plot.H <= 0 {
 			return
@@ -206,15 +207,18 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 				color    ui.Color
 				rule     ui.Color
 			}{
-				{percentWarnAt, percentCriticalAt, p.toneColor(toneWarn).Alpha(chartBandWarn), p.toneColor(toneWarn).Alpha(chartBandRule)},
-				{percentCriticalAt, 100, p.toneColor(toneCritical).Alpha(chartBandCritical), p.toneColor(toneCritical).Alpha(chartBandRule)},
+				{percentWarnAt, percentCriticalAt, p.toneColor(toneWarn).Alpha(chartBandWarn), p.rule},
+				{percentCriticalAt, 100, p.toneColor(toneCritical).Alpha(chartBandCritical), p.rule},
 			} {
 				top, bottom := y(band.to), y(band.from)
 				pt.Fill(ui.Rect{X: plot.X, Y: top, W: plot.W, H: bottom - top}, band.color, 0)
 				// The wash is a zone, not a boundary: a tint of 1.18:1
 				// (warn) or 1.33:1 (critical) says nothing on its own, so the
 				// level itself is drawn as a line the caption can point at
-				// ("图上的横线").
+				// ("图上的横线"). That line is the neutral rule ink, not the
+				// series' own tone: in the tone it disappeared into a series
+				// sitting in that band — measured as one 3px amber smear on the
+				// overview trend and one 5px red band on Codex's history.
 				pt.Fill(ui.Rect{X: plot.X, Y: y(band.from), W: plot.W, H: 1}, band.rule, 0)
 			}
 		}

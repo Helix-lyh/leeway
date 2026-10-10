@@ -23,29 +23,19 @@ func (a *App) providerMatrix(c *ui.Context, p palette, v providerView) ui.Elemen
 				// One line across the whole card: a block boundary is a rule of
 				// the table, not a dash inside each column.
 				hairline(c, p)
-				// The window title sits in the first column like a row header,
-				// so the rules keep running instead of stopping at each label.
+				// The window's name and its "已用" sit on the number's own line
+				// in the first column, like a row header: the header is one
+				// line instead of two, every column keeps that line for its
+				// number, and the rows still read across.
+				inline := matrixColumnWidth(c, len(v.Accounts)) >= matrixInlineMin
 				matrixRow(c, p, v, space2, 0, func(c *ui.Context, i int, av accountView) {
-					if i != 0 {
-						return
-					}
-					ui.Text(c, windowTitle(v.ID, w.ID, w.Title)).FontSize(sizeBody).FontWeight(600).SingleLine()
-					if detail := amountDetail(w); detail != "" {
-						muted(c, p, detail)
-					}
-					ui.Spacer(c)
-				})
-				matrixRow(c, p, v, 0, 0, func(c *ui.Context, i int, av accountView) {
-					a.matrixCell(c, p, av, w)
+					a.matrixCell(c, p, v.ID, av, w, i == 0, inline)
 				})
 				matrixRow(c, p, v, 0, space2, func(c *ui.Context, i int, av accountView) {
-					cw, ok := accountWindow(av, w.ID)
-					if !ok {
+					if _, ok := accountWindow(av, w.ID); !ok {
 						return
 					}
-					points := a.historyFor(v.ID, av.Name, cw.ID)
-					burnAlarmInColumn(c, p, displayAccount(av.Name), points, cw)
-					resetNote(c, p, points)
+					resetNote(c, p, a.historyFor(v.ID, av.Name, w.ID))
 				})
 			}
 		})
@@ -147,22 +137,94 @@ func matrixActions(c *ui.Context, a *App, p palette, providerID, account string)
 	})
 }
 
+// matrixInlineBase is how wide one account's column has to be, at 1x, for the
+// window's name to ride on the number's line. The widest thing that line holds
+// is "Monthly 已用 100%": 51.2 + 25.8 + 54.9 and the three space2 gaps between
+// them make 155.9, so below that the name takes a line of its own — the number
+// is the one thing in the cell that must not be cut. It is a measure of text,
+// so it scales with the type the way the caption column does.
+const matrixInlineBase = 156
+
+// matrixColumnWidth is how wide one account's column is. Every cell in a row
+// has to make the same choice about where the window's name goes, and the
+// layout engine has not run when the cells are built, so the width is worked
+// out here from the window: less the sidebar and the page's padding, capped at
+// the page's measure, less the card's tray and padding, shared between the
+// columns and the gaps between them.
+func matrixColumnWidth(c *ui.Context, accounts int) float32 {
+	winW, _ := c.Size()
+	inner := winW - sidebarWidth - 2*pagePad
+	if inner > contentMax {
+		inner = contentMax
+	}
+	inner -= 2 * (cardTrayPad + space4)
+	return (inner - space4*float32(accounts-1)) / float32(accounts)
+}
+
 // matrixCell is one account's answer for one window: the number, how far it
-// has come, and when it goes back to zero.
-func (a *App) matrixCell(c *ui.Context, p palette, av accountView, w model.RateWindow) {
+// has come, and when it goes back to zero. The first column also carries the
+// row's header: on the number's line while the column is wide enough for both,
+// so a window is three lines in every column — the number, the bar, and when it
+// resets — and on a line of its own when it is not, which keeps the numbers and
+// so the bars on one line across the table.
+func (a *App) matrixCell(c *ui.Context, p palette, providerID string, av accountView, w model.RateWindow, header, inline bool) {
 	cw, ok := accountWindow(av, w.ID)
-	if !ok {
-		muted(c, p, "—")
+	// The header belongs to the row, not to the column that happens to carry
+	// it: an account that does not report this window still gets the row's name
+	// above its dash. The name is cut, never broken, and carries itself whole
+	// on the tooltip the way every other cut string in the window does.
+	name := func(withDetail bool) {
+		title := windowTitle(providerID, w.ID, w.Title)
+		ui.Text(c, title).
+			FontSize(sizeBody).
+			FontWeight(600).
+			SingleLine().
+			Ellipsis("…").
+			Tooltip(title).
+			Focusable()
+		// "已用" states what the number counts; stacked, the line has only the
+		// column's width, and the name and the number are both worth more than
+		// the word for them, so the word is the one that goes.
+		if detail := amountDetail(w); withDetail && detail != "" {
+			muted(c, p, detail).SingleLine()
+		}
+	}
+	if !inline {
+		// The name's line is kept in every column, empty where the name is not:
+		// the cells have to be the same height in every column or the numbers
+		// and the bars stop reading across the table.
+		ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.End).Children(func() {
+			if header {
+				name(false)
+				return
+			}
+			// A space in the name's own style, so the line box is the one the
+			// name would have had: a spacer of a guessed height is off by the
+			// font's leading, which is four pixels at this size.
+			ui.Text(c, " ").FontSize(sizeBody).FontWeight(600)
+		})
+	}
+	ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.End).Children(func() {
+		if header && inline {
+			name(true)
+		}
+		ui.Spacer(c)
+		switch {
+		case !ok:
+			muted(c, p, "—")
+		case cw.UsedPercent == nil && cw.Used == nil:
+			muted(c, p, "无数据")
+		default:
+			// The number is the one thing in the cell that must not be cut, and
+			// a provider's window title ("Codex Spark Weekly") can eat the whole
+			// line: the value keeps its width and the name is what ellipsizes.
+			value(c, p, amountText(cw), p.amountColor(cw)).Shrink(0)
+		}
+	})
+	if !ok || (cw.UsedPercent == nil && cw.Used == nil) {
 		return
 	}
-	if cw.UsedPercent == nil && cw.Used == nil {
-		muted(c, p, "无数据")
-		return
-	}
-	value(c, p, amountText(cw), p.amountColor(cw))
-	if fraction, ok := windowFraction(cw); ok {
-		bar(c, p, fraction, barColor(p, cw), 7)
-	}
+	meter(c, p, cw, 7)
 	if meta := resetMeta(cw, a.now()); meta != "" {
 		muted(c, p, meta)
 	}

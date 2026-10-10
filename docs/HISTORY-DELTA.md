@@ -18,7 +18,7 @@
 
 `leeway usage` 今天只展示**这一次探测**的官方窗口。60s 的 `snapshots.json` 是防抖缓存，不是历史：换一次 `--provider` 都不会读写它，`--watch` 只清屏重绘。用户已经能在一张分组表里看到 Cursor / DeepSeek / Grok / OpenCode Go 的多账号窗口，但无法回答「和上次相比烧了多少」。
 
-本设计加一条**很小、agent 友好**的本地增量：每次真正探测成功的 `usage` 把无密钥摘要追加到 `~/.cache/leeway/history.jsonl`；下一次按 `(provider id, account name, window id)` 对齐，在表格同一行和 JSON 的可选 `delta` 里给出百分点或金额差。窗口重置（本窗 `ResetsAt` 前跳；无 `ResetsAt` 的**非余额**窗，且同账户**百分比**兄弟已前跳、本窗数值下降；孤儿百分比 ≥50pp / 花费窗回落到 ~0）标记为 `reset`。余额 / 剩余（`Used` 无 `Limit`，且 id 不是 `day-*`）永不因兄弟跳变或数值回落而被标成 `reset`。产品边界不变：纯 CLI，stdout 只出数据，不引入 TUI / WebUI / 菜单栏，也不恢复 CodexBar 的成本曲线和 pace 预测。（已过时：GUI 已实现、菜单栏与常驻不再是禁止项，pace 预测与走势也已进窗口，见文首说明。）
+本设计加一条**很小、agent 友好**的本地增量：每次真正探测成功的 `usage` 把无密钥摘要追加到 `~/.cache/leeway/history.jsonl`；下一次按 `(provider id, account name, window id)` 对齐，在表格同一行和 JSON 的可选 `delta` 里给出百分点或金额差。窗口重置（本窗 `ResetsAt` 前跳；无 `ResetsAt` 的**非余额**窗，且同账户**百分比**兄弟已前跳、本窗数值下降；孤儿百分比 ≥50pp / 花费窗回落到 ~0）标记为 `reset`。余额 / 剩余（`Used` 无 `Limit`，且 id 不是 `day-*`）永不因兄弟跳变或数值回落而被标成 `reset`。产品边界不变：纯 CLI，stdout 只出数据，不引入 TUI / WebUI / 菜单栏，也不恢复 CodexBar 的成本曲线和 pace 预测。（已过时：GUI 已实现、菜单栏与常驻不再是禁止项，走势也已进窗口，见文首说明；pace / 用满预测仍然不做。）
 
 ---
 

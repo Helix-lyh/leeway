@@ -2,6 +2,7 @@ package gui
 
 import (
 	"math"
+	"strings"
 	"time"
 
 	"github.com/egoist/mygo/ui"
@@ -164,6 +165,12 @@ var (
 	sizeChrome float32 = baseChrome
 	sizeBody   float32 = baseBody
 	sizeLabel  float32 = baseLabel
+	// The caption column is a measure of text like the sizes are, so it scales
+	// with them: at 1.5x the caption 登录文件目录 is 94px wide, and a column
+	// pinned at 76 cut it to 登录文….
+	labelColumn float32 = labelColumnBase
+	// So is the width at which a matrix cell's name fits on the number's line.
+	matrixInlineMin float32 = matrixInlineBase
 )
 
 const trackLabel = 0.7
@@ -179,6 +186,12 @@ func typeScale(scale float32) (hero, title, value, chrome, body, label float32) 
 
 func scaleType(scale float32) {
 	sizeHero, sizeTitle, sizeValue, sizeChrome, sizeBody, sizeLabel = typeScale(scale)
+	// The two measures that are made of text take the factor the sizes took:
+	// a reader who asks for bigger type gets a wider caption column and a wider
+	// row, not a word cut to fit the one measured at 1x.
+	f := sizeBody / baseBody
+	labelColumn = labelColumnBase * f
+	matrixInlineMin = matrixInlineBase * f
 }
 
 // --- spacing and corners ---------------------------------------------------
@@ -194,11 +207,12 @@ const (
 	space5 = 24
 	space6 = 32
 
-	radiusControl = 10
-	labelColumn   = 76 // the caption column every details list shares
-	// A card's surface sits 3px inside its tray, so its radius is the tray's
-	// less those 3px: two curves of one centre read as one plate, and two that
-	// do not are the thing the eye catches first.
+	radiusControl   = 10
+	labelColumnBase = 76 // the caption column every details list shares, at 1x
+	// A card's surface sits cardTrayPad inside its tray, so its radius is the
+	// tray's less those 3px: two curves of one centre read as one plate, and
+	// two that do not are the thing the eye catches first.
+	cardTrayPad   = 3
 	radiusInner   = 15
 	radiusTray    = 18
 	radiusCapsule = 999
@@ -210,8 +224,25 @@ const (
 	iconBody  = 15
 )
 
-// hero is the number the page leads with.
+// heroUnitScale is how much smaller a number's unit is than its digits. The
+// number is what the page leads with; at the digits' own size the % competed
+// with it for the same glance.
+const heroUnitScale = 0.45
+
+// hero is the number the page leads with, with its unit stepped down. The two
+// are one text, so the number stays one string to read, to copy and to
+// announce, and the spans sit on one baseline without being told to.
 func hero(c *ui.Context, p palette, text string, color ui.Color) ui.Element {
+	if digits, ok := strings.CutSuffix(text, "%"); ok {
+		return ui.RichText(c,
+			ui.Span{Text: digits, Size: sizeHero, Weight: 600},
+			ui.Span{Text: "%", Size: sizeHero * heroUnitScale, Weight: 600, Color: p.t.TextMuted},
+		).
+			FontFeatures("tnum").
+			LetterSpacing(-1.1).
+			TextColor(color).
+			SingleLine()
+	}
 	return ui.Text(c, text).
 		FontSize(sizeHero).
 		FontWeight(600).
@@ -347,7 +378,7 @@ func shellSurface(c *ui.Context, p palette, interactive bool, fn func()) ui.Elem
 	plate.Children(func() {
 		outer := ui.Column(c).
 			FillWidth().
-			Padding(3).
+			Padding(cardTrayPad).
 			Radius(radiusTray).
 			Background(p.bezel).
 			Border(1, p.border)
@@ -615,9 +646,29 @@ func tweenText(w model.RateWindow, v float64) string {
 	return amountText(w)
 }
 
-func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height float32) ui.Element {
+// meter is a window's quota bar: how full it is, the color its level earns, and
+// — for a window measured in percent — the two levels that color changes at,
+// cut out of the fill as a 1px gap. The gap is the empty track showing through,
+// which is the only mark that is legible on both sides of itself: every ink
+// that reads on the track (2.9–4.0:1) disappeared on the fill (1.0–2.2:1),
+// while the track on the fill measures 3.7–5.7:1. The fill is flat for the
+// same reason: the gradient that used to lighten its leading end left the
+// edge the bar is read by at 2.66:1 against the track in the light theme,
+// under the 3:1 a graphic needs.
+//
+// It carries its value to assistive technology as a meter with a range rather
+// than as a picture, so the bar is readable without seeing it. It is not given
+// a label: the window's name and its number are already published as text in
+// the same row, and a label would put this box in the frame's text registry,
+// where every ink inside it is held to 4.5:1 — which no saturated fill on a
+// track can meet, because the two are a graphic pair at 3:1.
+func meter(c *ui.Context, p palette, w model.RateWindow, height float32) ui.Element {
+	fraction, ok := windowFraction(w)
+	if !ok {
+		return ui.Element{}
+	}
 	f := float32(math.Max(0, math.Min(fraction, 1)))
-	return ui.Box(c).
+	e := ui.Box(c).
 		FillWidth().
 		Height(height).
 		Radius(height/2).
@@ -626,26 +677,62 @@ func bar(c *ui.Context, p palette, fraction float64, color ui.Color, height floa
 		// carries an edge a reader can find: a tint alone measured 1.26:1 on a
 		// light card, which is a scale you have to guess at.
 		Border(1, p.trackEdge).
-		Clip().
-		Children(func() {
-			w := float32(0)
-			if f > 0 {
-				w = ui.Box(c).Animate("fill", f, numberMotion) * 100
-			}
-			if w <= 0 {
+		Role(ui.RoleMeter)
+	switch {
+	// A provider can report past its own limit (codex and cursor pass the API
+	// value through) and the fill is clamped to the track, so the published
+	// value is clamped with it: a bar that announces 140 in a 0-100 range
+	// contradicts the range it declares and the bar it draws.
+	case w.UsedPercent != nil:
+		e.Range(0, 100, float64(f)*100)
+	case w.Used != nil && w.Limit != nil:
+		e.Range(0, *w.Limit, float64(f)*(*w.Limit))
+	}
+	fill := e.Animate("fill", f, numberMotion)
+	marks := meterMarks(w)
+	e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
+		// DrawOver is not clipped by the element's own Clip(), so the pill is
+		// cut here by hand.
+		inner := ui.Rect{X: r.X + 1, Y: r.Y + 1, W: r.W - 2, H: r.H - 2}
+		if inner.W <= 0 || inner.H <= 0 {
+			return
+		}
+		pt.Clip(inner, inner.H/2, func() {
+			full := inner.W * fill
+			if full <= 0 {
 				return
 			}
-			ui.Box(c).
-				Height(height).
-				WidthPercent(w).
-				Radius(height / 2).
-				LinearGradient(ui.LinearGradient{
-					From:  color,
-					To:    color.Mix(ui.RGB(255, 255, 255), 0.22),
-					Angle: 90,
-					Oklab: true,
-				})
+			from := float32(0)
+			for _, edge := range append(append([]float32{}, marks...), 1) {
+				to := edge * inner.W
+				if from >= full {
+					break
+				}
+				end := to
+				switch {
+				case full < to:
+					end = full // the fill stops inside this stretch
+				case edge < 1:
+					end = to - 1 // a level is a gap, not ink
+				}
+				if end > from {
+					pt.Fill(ui.Rect{X: inner.X + from, Y: inner.Y, W: end - from, H: inner.H}, barColor(p, w), 0)
+				}
+				from = to
+			}
 		})
+	})
+	return e
+}
+
+// meterMarks is the scale a window's bar carries: a percentage window is read
+// against the levels that decide its color, and money has no level, so it gets
+// no marks.
+func meterMarks(w model.RateWindow) []float32 {
+	if w.UsedPercent == nil {
+		return nil
+	}
+	return []float32{float32(percentWarnAt) / 100, float32(percentCriticalAt) / 100}
 }
 
 // keyValue is one line of a details list: the caption, then the value, which

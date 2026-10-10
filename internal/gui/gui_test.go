@@ -562,23 +562,6 @@ func manyAccountApp(t *testing.T) *App {
 	return a
 }
 
-// Every account in the matrix gets its own prediction, under its own column,
-// so a line like "约 1 小时 40 分后用满" is never left to be guessed at.
-func TestManyAccountsShowTheirOwnPrediction(t *testing.T) {
-	a := manyAccountApp(t)
-	for _, acc := range []string{"alpha", "work", "side", "delta"} {
-		addSeries(a, "opencode-go", acc, "5h", 10, 6, true, 0)
-	}
-	a.navigate("provider:opencode-go")
-	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	snapshot(t, tester, "provider-many-burn")
-	for _, acc := range []string{"alpha", "work", "side", "delta"} {
-		if !tester.HasText(acc + "：按这个速度，约") {
-			t.Errorf("%s has no prediction of its own; texts=%v", acc, tester.Texts())
-		}
-	}
-}
-
 // Four subscriptions of one provider are read side by side, and the whole
 // matrix has to fit the window: a card per account would push the last one
 // below the fold, which is the question this layout answers.
@@ -831,6 +814,45 @@ func TestTheFirstProbeShowsTheShapeOfTheAnswer(t *testing.T) {
 		t.Errorf("the answer did not replace the skeleton; texts=%v", landed.Texts())
 	}
 
+	// The skeleton predicts where the answer lands, and the readings are the
+	// part of the card the spacers place. With one spacer for both, the two
+	// placeholders sat together at the card's right edge and the first reading
+	// jumped 219px left when the numbers arrived. This measures the two frames
+	// against each other: the row with three bars is the readings' row — the
+	// number and the two readings — and the last two of its runs are where the
+	// answer's readings have to appear.
+	row := -1
+	for y := 120; y < mainHeight-10; y++ {
+		if runs := barRuns(tester.Image(), y); len(runs) == 3 {
+			row = y
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("the skeleton has no row with a number and two readings")
+	}
+	// The value bars sit under the caption bars and are wider, so the last
+	// row with three runs is the one the readings' left edges come from.
+	var placed [][2]int
+	for y := row; y < row+30; y++ {
+		if runs := barRuns(tester.Image(), y); len(runs) == 3 {
+			placed = runs
+		}
+	}
+	if len(placed) != 3 {
+		t.Fatalf("the skeleton's readings row measured %v", placed)
+	}
+	for i, want := range []string{"2 天 4 小时", "¥12.50"} {
+		box, ok := landed.Find(want)
+		if !ok {
+			t.Fatalf("the landed page has no %q; texts=%v", want, landed.Texts())
+		}
+		got := float32(placed[i+1][0])
+		if d := got - box.X; d < -20 || d > 20 {
+			t.Errorf("the skeleton puts %q at x=%.0f and the answer puts it at x=%.0f: %.0f off", want, got, box.X, d)
+		}
+	}
+
 	// A machine with nothing on it has no number coming: the answer is the
 	// guide, so the window draws the guide rather than a skeleton for a card
 	// that will never arrive.
@@ -844,81 +866,6 @@ func TestTheFirstProbeShowsTheShapeOfTheAnswer(t *testing.T) {
 	if waiting.HasText("需要处理") {
 		t.Error("a machine with nothing configured is promised a 需要处理 card it will not get")
 	}
-}
-
-// A window climbing toward a limit it will reach before the provider gives it
-// back is the one thing this tool exists to say out loud.
-func TestTheWindowThatRunsOutFirstIsNamedAloud(t *testing.T) {
-	a := testApp(t)
-	now := a.now()
-	// 20% → 70% over two hours: 25 points an hour, so the 30 points left are
-	// gone in an hour and twelve minutes, and the reset is two days out.
-	var pts []history.Point
-	for i, v := range []float64{20, 30, 40, 50, 60, 70} {
-		val := v
-		pts = append(pts, history.Point{T: now.Add(time.Duration(i-5) * 24 * time.Minute), UsedPercent: &val})
-	}
-	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
-	const alarm = "最近 2 小时 每小时涨 25%，约 1 小时 12 分后用完；重置还有 2 天 4 小时"
-	// The overview draws its own reset line above the bar, so its projection
-	// stops at when the window is full: the countdown is read once there, and
-	// on the history row — which has no reset label of its own — it is not.
-	const alarmOnOverview = "最近 2 小时 每小时涨 25%，约 1 小时 12 分后用完"
-
-	a.navigate("history")
-	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	snapshotStill(t, tester, "history-burn")
-	if !saysText(tester, alarm) {
-		t.Errorf("the history row does not project the burn; texts=%v", tester.Texts())
-	}
-
-	// The overview leads with the same window, so it says the same thing.
-	a.navigate("overview")
-	over := ui.NewTester(a.view, mainWidth, mainHeight)
-	snapshotStill(t, over, "overview-burn")
-	if !saysText(over, alarmOnOverview) {
-		t.Errorf("the overview does not project the burn; texts=%v", over.Texts())
-	}
-	if saysText(over, "刚重置") {
-		t.Error("a window on its way up was reported as having just reset")
-	}
-}
-
-// The projection reaches the user wherever they are looking: it is the one
-// thing worth saying without being asked, and worth saying only once. On the
-// overview the sentence is already on screen in the lead card, so the page
-// gets the announcement and not a second copy of it in a toast.
-func TestTheBurnWarningIsToldOnce(t *testing.T) {
-	a := testApp(t)
-	now := a.now()
-	var pts []history.Point
-	for i, v := range []float64{20, 30, 40, 50, 60, 70} {
-		val := v
-		pts = append(pts, history.Point{T: now.Add(time.Duration(i-5) * 24 * time.Minute), UsedPercent: &val})
-	}
-	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
-	a.navigate("overview")
-	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	snapshotStill(t, tester, "overview-burn-spoken")
-	const warning = "DeepSeek Weekly 按现在的速度，1 小时 12 分后用完"
-	if got := tester.Announcements(); !containsText(got, warning) {
-		t.Errorf("the warning was not announced; got %v", got)
-	}
-	// The next frame says nothing: a probe that repeats the warning is not
-	// news, and the toast would otherwise come back every minute.
-	tester.Frame()
-	if got := tester.Announcements(); len(got) != 0 {
-		t.Errorf("the warning repeated itself: %v", got)
-	}
-}
-
-func containsText(list []string, want string) bool {
-	for _, s := range list {
-		if strings.Contains(s, want) {
-			return true
-		}
-	}
-	return false
 }
 
 // A quota that came back is the other half of a quota that ran out: it is
@@ -1092,7 +1039,8 @@ func TestTheEndOfALongPageIsReachable(t *testing.T) {
 	// The scroll's viewport ends at the window's bottom, and the page's own
 	// bottom padding sits inside it: at the end of the page the last line has
 	// to clear that padding rather than end inside it. Tester.Find reports
-	// window coordinates, so the window's bottom is the viewport's.
+	// window coordinates, so the window's bottom is the viewport's, and the
+	// last line is inside the card the page ends with.
 	viewport := float32(mainHeight) - pageBottomPad
 	if bottom := r.Y + r.H; bottom > viewport-8 {
 		t.Errorf("the last line ends at %.0f, inside the scroll's own bottom padding (the padding starts at %.0f)", bottom, viewport)
@@ -1105,9 +1053,10 @@ func saysText(tester *ui.Tester, want string) bool {
 	return strings.Contains(strings.Join(tester.Texts(), ""), want)
 }
 
-// The projection is silent when the reset comes first: a window with room
-// left that resets long before it fills is not news.
-func TestAWindowThatResetsFirstIsNotAnAlarm(t *testing.T) {
+// The change chip is the row's own account of the last move, and the caption
+// under it is the record the row is drawn from: between them a row says where
+// it went and over how many observations, with no projection under it.
+func TestTheHistoryRowShowsTheLastMove(t *testing.T) {
 	a := testApp(t)
 	now := a.now()
 	var pts []history.Point
@@ -1116,16 +1065,13 @@ func TestAWindowThatResetsFirstIsNotAnAlarm(t *testing.T) {
 		pts = append(pts, history.Point{T: now.Add(time.Duration(i-2) * time.Hour), UsedPercent: &val})
 	}
 	a.series = []history.Series{{Provider: "deepseek", Account: "default", Window: "primary-percent", Points: pts}}
-	a.navigate("overview")
-	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	if saysText(tester, "用完") {
-		t.Errorf("a window that resets first is not out of quota; texts=%v", tester.Texts())
-	}
-	// The row still says what moved, which is the part that is true.
 	a.navigate("history")
-	historyView := ui.NewTester(a.view, mainWidth, mainHeight)
-	if !historyView.HasText("▲ +1%") {
-		t.Errorf("the change chip is missing; texts=%v", historyView.Texts())
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	if !tester.HasText("▲ +1%") {
+		t.Errorf("the change chip is missing; texts=%v", tester.Texts())
+	}
+	if !saysText(tester, "18% → 20%") {
+		t.Errorf("the row does not say the range it moved over; texts=%v", tester.Texts())
 	}
 }
 
@@ -1160,13 +1106,16 @@ func TestOverviewDrawsTheTrendUnderTheBar(t *testing.T) {
 	snapshotStill(t, tester, "overview-trend")
 	// The chart scales itself to the series, so its caption has to say what
 	// the ends are worth.
-	for _, want := range []string{"近 11 次查询", "18% → 78%", "覆盖 3 小时 20 分", "比上次 +6%", "2 天 4 小时后重置"} {
+	for _, want := range []string{"近 11 次查询", "18% → 78%", "覆盖 3 小时 20 分", "比上次 +6%"} {
 		if !tester.HasText(want) {
 			t.Errorf("the hero trend does not say %q; texts=%v", want, tester.Texts())
 		}
 	}
-	// The reset countdown stays in the row above, so the caption is not a
-	// second place to read the same thing.
+	// The countdown is one reading in the hero's strip, a caption over its
+	// value, so the caption below the chart is not a second place to read it.
+	if !tester.HasText("重置") || !tester.HasText("2 天 4 小时") {
+		t.Errorf("the hero does not say when the window comes back; texts=%v", tester.Texts())
+	}
 	if tester.HasText("2 天 4 小时后重置 · 比上次 +6%") {
 		t.Error("the delta should live in the caption, not twice on the card")
 	}
@@ -1178,6 +1127,212 @@ func TestOverviewDrawsTheTrendUnderTheBar(t *testing.T) {
 	if !detail.HasText("近 11 次查询：") || !detail.HasText("18% → 78%") {
 		t.Errorf("the provider page should caption the trend with its own times and range; texts=%v", detail.Texts())
 	}
+}
+
+// The two levels a percentage window turns color at are cut out of the bar's
+// fill as a 1px gap, so the scale is the empty track showing through — the only
+// mark that stays legible on both sides of itself — and the fill is flat,
+// because the gradient that used to lighten its leading end left the edge the
+// bar is read by at 2.66:1 against the track in the light theme.
+func TestTheBarCutsItsLevelsOutOfTheFill(t *testing.T) {
+	a := &App{}
+	var p palette
+	used := 0.0
+	right := 10.0
+	view := func(c *ui.Context) {
+		p = a.theme(c)
+		ui.Column(c).FillWidth().Padding(10, float32(right), 10, 10).Children(func() {
+			meter(c, p, model.RateWindow{ID: "primary", Title: "Weekly", UsedPercent: ptrTo(used)}, 10)
+		})
+	}
+	for _, tc := range []struct {
+		used float64
+		runs int
+	}{
+		{35, 1}, // under the warn level: no level has been reached
+		{78, 2}, // past 50: the warn level is a gap
+		{96, 3}, // past 80: both levels are gaps
+	} {
+		// The matrix gives a column 65.14px, so the bar's width is not a whole
+		// number: a 1px gap has to survive being rounded to device pixels, and
+		// a bar that loses its scale in the narrow case has no scale at all.
+		for _, pad := range []float64{10, 11.3} {
+			used, right = tc.used, pad
+			tester := ui.NewTester(view, 400, 40)
+			tester.Frame()
+			fill := barColor(p, model.RateWindow{UsedPercent: ptrTo(tc.used)})
+			runs, extent, ok := fillRuns(tester.Image(), fill)
+			if !ok {
+				t.Fatalf("used=%.0f%% pad=%.1f: the bar drew no fill", tc.used, pad)
+			}
+			if len(runs) != tc.runs {
+				t.Errorf("used=%.0f%% pad=%.1f: the fill has %d stretches, want %d: %v", tc.used, pad, len(runs), tc.runs, runs)
+				continue
+			}
+			// Each gap sits at the level it stands for, on the bar's own width.
+			for i, level := range []float64{0.5, 0.8}[:tc.runs-1] {
+				want := extent[0] + int(level*float64(extent[1]-extent[0]))
+				if got := runs[i+1][0]; got < want-3 || got > want+3 {
+					t.Errorf("used=%.0f%% pad=%.1f: the gap for %.0f%% is at x=%d, want about %d", tc.used, pad, level*100, got, want)
+				}
+			}
+		}
+	}
+}
+
+// laneApp is one account with three percent windows at three levels: the
+// shape that shows whether a card's bars can be read against each other.
+func laneApp(t *testing.T) *App {
+	t.Helper()
+	a := testApp(t)
+	if err := loginAPIKey("opencode-go", "alpha", "oc_sk-test"); err != nil {
+		t.Fatalf("loginAPIKey: %v", err)
+	}
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	a.reloadConfig()
+	reset := a.lastAt.Add(36 * time.Hour)
+	var windows []model.RateWindow
+	for i, w := range []struct{ id, title string }{{"5h", "5-hour"}, {"weekly", "Weekly"}, {"monthly", "Monthly"}} {
+		pct := float64(20 * (i + 1))
+		windows = append(windows, model.RateWindow{ID: w.id, Title: w.title, UsedPercent: &pct, ResetsAt: &reset})
+	}
+	a.out = &model.Output{Version: 1, GeneratedAt: a.lastAt, Providers: []model.ProviderResult{{
+		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok", UpdatedAt: a.lastAt,
+		Accounts: []model.AccountResult{{
+			Name: "alpha", Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: a.lastAt,
+				Identity:  &model.Identity{Account: "alpha@example.com", Plan: "Go"},
+				Windows:   windows,
+			},
+		}},
+	}}}
+	return a
+}
+
+// TestTheBarsInOneCardCanBeReadAgainstEachOther pins the one thing a set of
+// bars has to get right: the same span of track means the same amount in every
+// row. A bar that starts where its own label happens to end makes two 20%
+// windows two different lengths, which is a meter that lies about the numbers
+// printed beside it.
+func TestTheBarsInOneCardCanBeReadAgainstEachOther(t *testing.T) {
+	a := laneApp(t)
+	a.navigate("provider:opencode-go")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	img := tester.Image()
+
+	// The card's own surface, and the inside of the card without its border:
+	// the border is at the same x on every row, so leaving it in would make
+	// every row look like it started in the same place. The surface is not one
+	// value — the card is painted with a slight gradient — so a pixel counts as
+	// surface when it is close to the most common one.
+	const x0, x1 = 276, 1003
+	surface := modalColor(img, ui.Rect{X: x0, Y: 180, W: x1 - x0, H: 300})
+	near := func(c ui.Color) bool {
+		d := func(a, b uint8) int {
+			if a > b {
+				return int(a) - int(b)
+			}
+			return int(b) - int(a)
+		}
+		return d(c.R, surface.R)+d(c.G, surface.G)+d(c.B, surface.B) <= 8
+	}
+	type bar struct{ left, right, top, bottom int }
+	var bars []bar
+	for y := 180; y < 560; y++ {
+		left, right, ink := -1, -1, 0
+		for x := x0; x <= x1; x++ {
+			if !near(colorAt(img, x, y)) {
+				if left < 0 {
+					left = x
+				}
+				right = x
+				ink++
+			}
+		}
+		// A bar is a long, almost unbroken run of ink; a line of text is not,
+		// and a rule that reaches both ends of the card is not one either.
+		if left < 0 || right-left < 240 || ink < (right-left)*95/100 || left <= x0 || right >= x1 {
+			continue
+		}
+		if n := len(bars); n > 0 && bars[n-1].bottom >= y-2 {
+			bars[n-1].bottom = y
+			if left < bars[n-1].left {
+				bars[n-1].left = left
+			}
+			if right > bars[n-1].right {
+				bars[n-1].right = right
+			}
+			continue
+		}
+		bars = append(bars, bar{left: left, right: right, top: y, bottom: y})
+	}
+	// The rules between rows are one pixel tall and span the same width.
+	var drawn []bar
+	for _, s := range bars {
+		if s.bottom-s.top >= 4 {
+			drawn = append(drawn, s)
+		}
+	}
+	if len(drawn) != 3 {
+		t.Fatalf("the card drew %d bars that span it, want 3: %v — a bar has to be the width of the card and on a row of its own, or the bars cannot be read against each other", len(drawn), drawn)
+	}
+	for _, s := range drawn[1:] {
+		if s.left != drawn[0].left || s.right != drawn[0].right {
+			t.Errorf("the bars do not line up: one spans %d..%d, another %d..%d", drawn[0].left, drawn[0].right, s.left, s.right)
+		}
+	}
+}
+
+// fillRuns finds the row a bar was drawn in and the stretches of its fill
+// color on it, with the bar's own left and right edges on that row.
+func fillRuns(img *image.RGBA, fill ui.Color) ([][2]int, [2]int, bool) {
+	b := img.Bounds()
+	canvas := colorKey(modalColor(img, ui.Rect{W: float32(b.Dx()), H: float32(b.Dy())}))
+	key := colorKey(fill)
+	row, most := -1, 0
+	for y := 0; y < b.Dy(); y++ {
+		n := 0
+		for x := 0; x < b.Dx(); x++ {
+			if colorKey(colorAt(img, x, y)) == key {
+				n++
+			}
+		}
+		if n > most {
+			row, most = y, n
+		}
+	}
+	if row < 0 {
+		return nil, [2]int{}, false
+	}
+	extent := [2]int{-1, -1}
+	for x := 0; x < b.Dx(); x++ {
+		if colorKey(colorAt(img, x, row)) != canvas {
+			if extent[0] < 0 {
+				extent[0] = x
+			}
+			extent[1] = x
+		}
+	}
+	var runs [][2]int
+	start := -1
+	for x := 0; x < b.Dx(); x++ {
+		same := colorKey(colorAt(img, x, row)) == key
+		if same && start < 0 {
+			start = x
+		}
+		if !same && start >= 0 {
+			runs = append(runs, [2]int{start, x - 1})
+			start = -1
+		}
+	}
+	if start >= 0 {
+		runs = append(runs, [2]int{start, b.Dx() - 1})
+	}
+	return runs, extent, true
 }
 
 // addSeries records a series for a provider, so the history page has more
@@ -1231,6 +1386,111 @@ func TestSettingsPathsAreReadableAndCopyable(t *testing.T) {
 	for _, path := range []string{configPathText(), cacheDirText(), sessionDirText(), historyPathText()} {
 		if _, ok := tester.Find(shortenPath(path)); !ok {
 			t.Errorf("%q is not on the page or not clickable; texts=%v", shortenPath(path), tester.Texts())
+		}
+	}
+}
+
+// TestTheHistoryCardsAreTheSameWidth pins why the page is a grid and not a
+// wrapping row of growing cards: the last card on a page would take the whole
+// width, and the trend it draws would be at a different scale from the ones
+// beside it, which is two readings of the same line.
+// One provider's history gets the whole measure: the fixed card width exists so
+// one card's slope can be read against another's, and with a single card a
+// half-width tray left half the page empty.
+func TestASingleHistoryTraySpansTheMeasure(t *testing.T) {
+	a := testApp(t)
+	addSeries(a, "codex", "default", "primary", 30, 6, true, 0)
+	a.navigate("history")
+	var p palette
+	page := a.view
+	tester := ui.NewTester(func(c *ui.Context) { p = a.theme(c); page(c) }, mainWidth, mainHeight)
+	tester.Frame()
+	img := tester.Image()
+	// The rule under the card's header is as wide as the card; the page's
+	// gradient moves the surface under it a little from row to row, so the ink
+	// is matched against the row above it.
+	wide := 0
+	for y := 200; y < mainHeight-10; y++ {
+		want := over(p.divider, colorAt(img, 280, y-3))
+		run := 0
+		for x := 274; x <= 1006; x++ {
+			if close3(colorAt(img, x, y), want) {
+				run++
+				if run > wide {
+					wide = run
+				}
+				continue
+			}
+			run = 0
+		}
+	}
+	if wide < 700 {
+		t.Errorf("the only history card's rule is %dpx across a 739px measure: one card does not need a two-card width", wide)
+	}
+}
+
+// close3 reports whether two colours are within three steps of each other: the
+// page's gradient moves the surface under a rule a little from row to row, so a
+// rule is matched against the row just above it rather than a fixed colour.
+func close3(a, b ui.Color) bool {
+	d := func(x, y uint8) int {
+		if x > y {
+			return int(x) - int(y)
+		}
+		return int(y) - int(x)
+	}
+	return d(a.R, b.R)+d(a.G, b.G)+d(a.B, b.B) <= 3
+}
+
+func TestTheHistoryCardsAreTheSameWidth(t *testing.T) {
+	a := testApp(t)
+	addSeries(a, "codex", "default", "primary", 30, 6, true, 0)
+	addSeries(a, "codex", "default", "secondary", 10, 2, true, 0)
+	addSeries(a, "cursor", "default", "included", 0.4, 0.28, false, 0)
+	addSeries(a, "kimi", "home", "primary", 55, 3, true, 7)
+	a.navigate("history")
+	var p palette
+	page := a.view
+	tester := ui.NewTester(func(c *ui.Context) { p = a.theme(c); page(c) }, mainWidth, mainHeight)
+	tester.Frame()
+	img := tester.Image()
+
+	// The rule under a card's header is as wide as the card is: the length of
+	// that run is the card's width.
+	var widths []int
+	rows, paired := 0, 0
+	for y := 200; y < 700; y++ {
+		want := over(p.divider, colorAt(img, 280, y-3))
+		var runs []int
+		run := 0
+		for x := 274; x <= 1006; x++ {
+			if close3(colorAt(img, x, y), want) {
+				run++
+				continue
+			}
+			if run >= 200 {
+				runs = append(runs, run)
+			}
+			run = 0
+		}
+		if run >= 200 {
+			runs = append(runs, run)
+		}
+		if len(runs) == 0 {
+			continue
+		}
+		rows++
+		if len(runs) > 1 {
+			paired++
+		}
+		widths = append(widths, runs...)
+	}
+	if rows < 2 || paired == 0 {
+		t.Fatalf("found %d rows of card rules, %d of them side by side: the page is not two cards across", rows, paired)
+	}
+	for _, w := range widths[1:] {
+		if w < widths[0]-1 || w > widths[0]+1 {
+			t.Errorf("the cards are not the same width: one is %d wide, another %d", widths[0], w)
 		}
 	}
 }
@@ -1316,7 +1576,7 @@ func TestConfirmSheetAsksBeforeLoggingOut(t *testing.T) {
 	a.askLogout("kimi", "work")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	snapshot(t, tester, "confirm")
-	for _, want := range []string{"移除 kimi 的账号 work？", "取消", "移除账号"} {
+	for _, want := range []string{"移除 Kimi Code 的账号 work？", "取消", "移除账号"} {
 		if !tester.HasText(want) {
 			t.Errorf("the confirm sheet does not show %q; texts=%v", want, tester.Texts())
 		}
@@ -1334,7 +1594,7 @@ func TestLogoutConfirmForKeyOnlyProviderSaysKey(t *testing.T) {
 	a.askLogout("deepseek", "work")
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	for _, want := range []string{
-		"删除 deepseek 账号 work 的 API 密钥？",
+		"删除 DeepSeek 账号 work 的 API 密钥？",
 		"只删 leeway 里存的这一份，别处不受影响。",
 		"删除密钥",
 	} {
@@ -1586,40 +1846,6 @@ func TestCLISheetDoneClosesTheSheet(t *testing.T) {
 	}
 }
 
-// The prediction of each account belongs to its own column: that is what the
-// matrix is for, and four predictions stacked in the first column would pass
-// any text-only assertion.
-func TestEachPredictionStaysInItsOwnColumn(t *testing.T) {
-	a := manyAccountApp(t)
-	for _, acc := range []string{"alpha", "work", "side", "delta"} {
-		addSeries(a, "opencode-go", acc, "5h", 10, 6, true, 0)
-	}
-	a.navigate("provider:opencode-go")
-	tester := ui.NewTester(a.view, mainWidth, mainHeight)
-	last := float32(-1)
-	for _, acc := range []string{"alpha", "work", "side", "delta"} {
-		r, ok := rectOf(tester, acc+"：")
-		if !ok {
-			t.Fatalf("%s has no prediction", acc)
-		}
-		if r.X <= last {
-			t.Errorf("%s 的预测不在自己那一列：x=%v，前一列 x=%v", acc, r.X, last)
-		}
-		last = r.X
-	}
-}
-
-// rectOf finds the drawn box of the first text with this prefix. Find matches
-// a whole label, and the labels the matrix draws carry values.
-func rectOf(tester *ui.Tester, prefix string) (ui.Rect, bool) {
-	for _, txt := range tester.Texts() {
-		if strings.HasPrefix(txt, prefix) {
-			return tester.Find(txt)
-		}
-	}
-	return ui.Rect{}, false
-}
-
 // The rules between the account columns are a stated rule of the matrix, and
 // they only read as one line if the rows of a block meet. No text assertion can
 // see a divider, so this one measures the pixels.
@@ -1629,32 +1855,89 @@ func TestMatrixColumnsAreSeparatedByContinuousRules(t *testing.T) {
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
 	img := tester.Image()
 	y0, y1 := 150, mainHeight-10
-	covered := func(x int) int {
-		n := 0
-		for y := y0; y < y1; y++ {
-			b := rgbSum(img, x, y)
-			if b < rgbSum(img, x-3, y)-30 && b < rgbSum(img, x+3, y)-30 {
-				n++
-			}
-		}
-		return n
+	// A rule pixel is darker than the card three pixels to either side of it.
+	rule := func(x, y int) bool {
+		b := rgbSum(img, x, y)
+		return b < rgbSum(img, x-3, y)-30 && b < rgbSum(img, x+3, y)-30
 	}
 	var rules []int
 	for x := 300; x < mainWidth-40; x++ {
-		if covered(x) >= 300 {
+		n := 0
+		for y := y0; y < y1; y++ {
+			if rule(x, y) {
+				n++
+			}
+		}
+		if n >= 200 {
 			rules = append(rules, x)
 		}
 	}
 	if len(rules) != 3 {
 		t.Fatalf("matrix rules = %v, want the 3 between four accounts", rules)
 	}
-	// A dash per row leaves roughly a quarter of the line missing; a line that
-	// runs the height of the matrix covers all of it bar a stray pixel.
-	for _, x := range rules {
-		if n := covered(x); n < (y1-y0)*85/100 {
-			t.Errorf("x=%d 的竖线只覆盖 %d/%d 行：分割线是断的", x, n, y1-y0)
+	// The table is as tall as its rows, not as tall as the window, so what the
+	// rules are measured against is their own span: the rows where all three
+	// are drawn. A dash per row leaves a fifth of that missing.
+	top, bottom := -1, -1
+	for y := y0; y < y1; y++ {
+		all := true
+		for _, x := range rules {
+			if !rule(x, y) {
+				all = false
+				break
+			}
+		}
+		if all {
+			if top < 0 {
+				top = y
+			}
+			bottom = y
+			continue
+		}
+		// The rule between two blocks is one pixel tall; anything longer than
+		// that is the page below the table, not a row of it.
+		if top >= 0 && y-bottom > 3 {
+			break
 		}
 	}
+	if bottom-top < 200 {
+		t.Fatalf("the rules of the matrix share only %d..%d: they do not run down the table", top, bottom)
+	}
+	for _, x := range rules {
+		n := 0
+		for y := top; y <= bottom; y++ {
+			if rule(x, y) {
+				n++
+			}
+		}
+		if n < (bottom-top+1)*95/100 {
+			t.Errorf("x=%d 的竖线只覆盖 %d/%d 行：分割线是断的", x, n, bottom-top+1)
+		}
+	}
+}
+
+// barRuns is the x runs of one row's drawn bars: pixels that are darker than
+// the card they sit on. The skeleton's bars are the meter's track colour, which
+// nothing else on the card draws.
+func barRuns(img *image.RGBA, y int) [][2]int {
+	var runs [][2]int
+	for x := 270; x < img.Bounds().Dx()-20; x++ {
+		if rgbSum(img, x, y) >= 740 {
+			continue
+		}
+		if n := len(runs); n > 0 && x-runs[n-1][1] <= 2 {
+			runs[n-1][1] = x
+			continue
+		}
+		runs = append(runs, [2]int{x, x})
+	}
+	var wide [][2]int
+	for _, r := range runs {
+		if r[1]-r[0] >= 40 {
+			wide = append(wide, r)
+		}
+	}
+	return wide
 }
 
 func rgbSum(img *image.RGBA, x, y int) int {
@@ -1772,6 +2055,15 @@ func TestTheSystemTextSizeReachesEveryPage(t *testing.T) {
 			t.Errorf("%s renders the same at 1.5x text (mean difference %v)", page, d)
 		}
 	}
+	// The matrix is the page whose row header rides on the number's line, so it
+	// is where 1.5x text has the least room: at the default width it used to
+	// cut every window name, and no snapshot rendered that page at 1.5x.
+	matrix := manyAccountApp(t)
+	matrix.navigate("provider:opencode-go")
+	bigMatrix := ui.NewTester(matrix.view, mainWidth, mainHeight)
+	bigMatrix.SetPreferences(ui.Preferences{TextScale: 1.5})
+	bigMatrix.Frame()
+	snapshot(t, bigMatrix, "text-scale-provider-many")
 	// The settings window is a second window with its own header, so it gets
 	// its own render: its title line is the one that has the least room.
 	a := testApp(t)
@@ -1779,6 +2071,205 @@ func TestTheSystemTextSizeReachesEveryPage(t *testing.T) {
 	big.SetPreferences(ui.Preferences{TextScale: 1.5})
 	big.Frame()
 	snapshot(t, big, "text-scale-settings")
+}
+
+// The caption column is a measure of text, so the system text size scales it
+// with the type. A column pinned at 76px cut 登录文件目录 to 登录文… at 1.5x,
+// which is a reader who asked for larger text losing a word; the property is
+// that a caption which fits at 1x fits at any scale, because the column and
+// the type grow together.
+func TestTheCaptionColumnScalesWithTheText(t *testing.T) {
+	a := testApp(t)
+	a.navigate("provider:deepseek")
+	width := func(scale float32) float32 {
+		tr := ui.NewTester(a.view, mainWidth, mainHeight)
+		if scale != 1 {
+			tr.SetPreferences(ui.Preferences{TextScale: scale})
+		}
+		tr.Frame()
+		box, ok := tr.Find("登录文件目录")
+		if !ok {
+			t.Fatalf("the credential card has no 登录文件目录 caption at %vx; texts=%v", scale, tr.Texts())
+		}
+		return box.W
+	}
+	plain := width(1)
+	if plain != labelColumnBase {
+		t.Fatalf("the caption column at 1x is %v, want %v", plain, labelColumnBase)
+	}
+	if big := width(1.5); big < 1.4*plain {
+		t.Errorf("the caption column at 1.5x is %v against %v at 1x: the type grew and the column it sits in did not", big, plain)
+	}
+}
+
+// rewriteWindows replaces every account's windows in the fixture, so a test can
+// describe a provider whose own window names — or window count — differ from the
+// ones the shared fixture happens to use.
+func rewriteWindows(t *testing.T, a *App, windows func(i int) []model.RateWindow) {
+	t.Helper()
+	out := *a.out
+	prov := out.Providers[0]
+	accts := make([]model.AccountResult, len(prov.Accounts))
+	copy(accts, prov.Accounts)
+	for i := range accts {
+		snap := *accts[i].Snapshot
+		snap.Windows = windows(i)
+		accts[i].Snapshot = &snap
+	}
+	prov.Accounts = accts
+	out.Providers = []model.ProviderResult{prov}
+	a.out = &out
+}
+
+// A provider names its own windows, and those names are not all short: with
+// "Codex Spark Weekly" on the row header's line, the number — the one thing in
+// the cell that must not be cut — was what got cut, drawing "20%" as "2…" and
+// dropping its bar 16px below its neighbours'.
+func TestALongWindowNameDoesNotCutTheNumber(t *testing.T) {
+	long := manyAccountApp(t)
+	rewriteWindows(t, long, func(i int) []model.RateWindow {
+		pct, reset := float64(20*(i+1)), long.lastAt.Add(24*time.Hour)
+		return []model.RateWindow{{ID: "weekly", Title: "Codex Spark Weekly", UsedPercent: &pct, ResetsAt: &reset}}
+	})
+	long.navigate("provider:opencode-go")
+	short := manyAccountApp(t)
+	rewriteWindows(t, short, func(i int) []model.RateWindow {
+		pct, reset := float64(20*(i+1)), short.lastAt.Add(24*time.Hour)
+		return []model.RateWindow{{ID: "weekly", Title: "Weekly", UsedPercent: &pct, ResetsAt: &reset}}
+	})
+	short.navigate("provider:opencode-go")
+	ref := ui.NewTester(short.view, mainWidth, mainHeight)
+	ref.Frame()
+	got := ui.NewTester(long.view, mainWidth, mainHeight)
+	got.Frame()
+	for _, want := range []string{"20%", "40%", "60%", "80%"} {
+		wantBox, ok := ref.Find(want)
+		if !ok {
+			t.Fatalf("the short-name matrix does not say %q; texts=%v", want, ref.Texts())
+		}
+		box, ok := got.Find(want)
+		if !ok {
+			t.Fatalf("the long-name matrix does not say %q; texts=%v", want, got.Texts())
+		}
+		if box.W != wantBox.W || box.Y != wantBox.Y {
+			t.Errorf("%s is %.1f wide at y=%.1f against %.1f at y=%.1f under a long window name: the name cut the number",
+				want, box.W, box.Y, wantBox.W, wantBox.Y)
+		}
+	}
+}
+
+// The width at which a matrix cell's name fits on the number's line is a
+// measure of text like the caption column, so it scales with the type and it
+// has to hold the line it gates. At 140 it did neither: a four-account matrix
+// cut "Monthly" in the windows between 946 and 1010, and at 1.5x text it cut it
+// at the default 1040.
+func TestTheMatrixRowHeaderFitsTheLineItRidesOn(t *testing.T) {
+	header := func(w int, scale float32) float32 {
+		a := manyAccountApp(t)
+		a.navigate("provider:opencode-go")
+		tr := ui.NewTester(a.view, w, mainHeight)
+		if scale != 1 {
+			tr.SetPreferences(ui.Preferences{TextScale: scale})
+		}
+		tr.Frame()
+		box, ok := tr.Find("Monthly")
+		if !ok {
+			t.Fatalf("no row header at %dx/%vx; texts=%v", w, scale, tr.Texts())
+		}
+		return box.W
+	}
+	for _, tc := range []struct {
+		w     int
+		scale float32
+	}{
+		{946, 1},         // the narrow band where the row still rides the line
+		{mainWidth, 1.5}, // the same row set in type a third larger
+	} {
+		// A window this wide gives the header room to spare, so its box is the
+		// width the text itself needs.
+		natural := header(1400, tc.scale)
+		if got := header(tc.w, tc.scale); got != natural {
+			t.Errorf("at %dx/%vx the matrix row header is %v against the %v it needs: the name is cut to fit a line measured at 1x",
+				tc.w, tc.scale, got, natural)
+		}
+	}
+}
+
+// A window whose only reading is its reset keeps that reading beside the number:
+// the spacers spread the readings across the card, and with one reading the
+// slack belongs after it — before it, the reading lands at the card's far edge,
+// which is the pattern the readings row was rebuilt to remove.
+func TestTheOnlyReadingSitsBesideTheNumber(t *testing.T) {
+	a := testApp(t)
+	a.out = fakeOutput(a.now())
+	rewriteWindows(t, a, func(i int) []model.RateWindow {
+		pct, reset := 42.0, a.lastAt.Add(48*time.Hour)
+		return []model.RateWindow{{ID: "weekly", Title: "Weekly", UsedPercent: &pct, ResetsAt: &reset}}
+	})
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	fact, ok := tester.Find("2 天")
+	if !ok {
+		t.Fatalf("the lead card does not read its reset; texts=%v", tester.Texts())
+	}
+	if fact.X > 600 {
+		t.Errorf("the only reading starts at x=%.0f in a %d-wide window: the slack landed in front of it", fact.X, mainWidth)
+	}
+}
+
+// The history head does not claim a last record over a card that says there is
+// none: a probe that answered without producing a window is exactly the
+// first-run machine.
+func TestTheEmptyHistoryHeadDoesNotClaimARecord(t *testing.T) {
+	a := testApp(t)
+	a.lastAt = pinned
+	a.navigate("history")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	if saysText(tester, "最近一次") {
+		t.Errorf("the empty history head claims a last record; texts=%v", tester.Texts())
+	}
+	if !saysText(tester, "还没有记录") {
+		t.Errorf("the empty history page does not say it has no record; texts=%v", tester.Texts())
+	}
+}
+
+// The skeleton's bars are the landed line boxes, so they take the size the
+// reader asked for: at fixed heights the lead card was 55px short at 1.5x, and
+// the answer then moved what the skeleton had just drawn. This measures the
+// tallest bar in the card — the number's — at 1x and at 1.5x.
+func TestTheProbingSkeletonScalesWithTheText(t *testing.T) {
+	numberBar := func(scale float32) int {
+		a := testApp(t)
+		a.out = nil
+		a.fetching = true
+		tester := ui.NewTester(a.view, mainWidth, mainHeight)
+		tester.SetPreferences(ui.Preferences{TextScale: scale})
+		tester.Frame()
+		img := tester.Image()
+		best, run := 0, 0
+		for y := 120; y < mainHeight-10; y++ {
+			long := false
+			for _, r := range barRuns(img, y) {
+				if r[1]-r[0] >= 90 {
+					long = true
+				}
+			}
+			if !long {
+				run = 0
+				continue
+			}
+			if run++; run > best {
+				best = run
+			}
+		}
+		return best
+	}
+	one, big := numberBar(1), numberBar(1.5)
+	if big*4 < one*5 {
+		t.Errorf("the skeleton's number bar is %dpx at 1.5x against %dpx at 1x: the bars do not scale with the text", big, one)
+	}
 }
 
 // The two preferences a reader can set that change what the window looks like
@@ -1803,6 +2294,253 @@ func TestTheContrastAndFocusStatesAreVisible(t *testing.T) {
 	snapshot(t, ring, "overview-focus")
 }
 
+// The history page is a grid of charts, and every percentage chart on it is
+// drawn on the same 0–100 axis with the same two thresholds, out of the same
+// queries. Under each chart that is the page repeating itself; under the head
+// it is a legend, and the line each chart keeps is the one about that chart.
+func TestTheHistoryPageSaysWhatItsChartsShareOnce(t *testing.T) {
+	a := testApp(t)
+	addSeries(a, "codex", "default", "primary", 30, 6, true, 0)
+	addSeries(a, "codex", "default", "secondary", 10, 2, true, 0)
+	addSeries(a, "cursor", "default", "included", 0.4, 0.28, false, 0)
+	addSeries(a, "kimi", "home", "primary", 55, 3, true, 7)
+	a.navigate("history")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	shared, charts := 0, 0
+	for _, text := range tester.Texts() {
+		if strings.Contains(text, "50% 提醒") {
+			shared++
+		}
+		// The legend carries the range of the record, a chart the range of its
+		// own series.
+		if strings.Contains(text, " → ") && !strings.Contains(text, "查询：") {
+			charts++
+		}
+	}
+	if shared != 1 {
+		t.Errorf("the shared scale is said %d times, want once; texts=%v", shared, tester.Texts())
+	}
+	if charts != 4 {
+		t.Errorf("%d charts say the range of their own series, want 4; texts=%v", charts, tester.Texts())
+	}
+}
+
+// A window pulled across a wide display is not a reason for a bar 1600px long
+// or a number 1500px from the label it belongs to. Past the measure the page
+// stops growing and centers itself in what is left, so the widest thing on it
+// is the measure rather than the window.
+func TestThePageStopsGrowingOnAWideWindow(t *testing.T) {
+	const wide = 2400
+	a := testApp(t)
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, wide, 900)
+	img := tester.Image()
+	// The rule under the page's head spans the page's column, so it is exactly
+	// as wide as the content and the only line on the page that is.
+	rule := func(x, y int) bool { return rgbSum(img, x, y) < rgbSum(img, x, y-3)-30 }
+	best, left, right := 0, 0, 0
+	for y := 60; y < 300; y++ {
+		n, x0, x1 := 0, -1, -1
+		for x := sidebarWidth; x < wide-8; x++ {
+			if rule(x, y) {
+				n++
+				if x0 < 0 {
+					x0 = x
+				}
+				x1 = x
+			}
+		}
+		if n > best {
+			best, left, right = n, x0, x1
+		}
+	}
+	if best > contentMax+1 || best < contentMax-1 {
+		t.Errorf("the page's column is %d wide on a %dpx window, want the %d measure", best, wide, contentMax)
+	}
+	// Centered in the scroll area: the room the cap leaves is split evenly, not
+	// left as a gutter beside the sidebar.
+	l := float32(left) - sidebarWidth - pagePad
+	r := float32(wide) - pagePad - float32(right)
+	if l-r > 2 || r-l > 2 {
+		t.Errorf("the column sits %.0f from the sidebar and %.0f from the edge, want the same", l, r)
+	}
+}
+
+// The matrix's numbers have to stay on one line across the table: the row's
+// name shares the number's line while the column is wide enough for both, and
+// takes a line of its own when it is not — kept, empty, in every other column.
+// Both are pinned here, with the bars, because a name that pushes its own
+// column's bar down is a table that no longer reads across.
+func TestTheMatrixKeepsItsNumbersOnOneLine(t *testing.T) {
+	for _, tc := range []struct {
+		width   int
+		stacked bool
+	}{{mainWidth, false}, {780, true}} {
+		a := manyAccountApp(t)
+		a.navigate("provider:opencode-go")
+		tester := ui.NewTester(a.view, tc.width, 700)
+		tester.Frame()
+		title, ok := tester.Find("5-hour")
+		if !ok {
+			t.Fatalf("width %d: the row has no name", tc.width)
+		}
+		value, ok := tester.Find("20%")
+		if !ok {
+			t.Fatalf("width %d: the row has no number", tc.width)
+		}
+		if stacked := value.Y > title.Y+2; stacked != tc.stacked {
+			t.Errorf("width %d: the name is on a line of its own = %v, want %v", tc.width, stacked, tc.stacked)
+		}
+		img := tester.Image()
+		// The bar under a number: a row of continuous ink where the number's
+		// own width was card before. Text does not fill a run like that.
+		bar := func(v ui.Rect) int {
+			for y := int(v.Y + v.H); y < int(v.Y+v.H)+40; y++ {
+				n := 0
+				for x := int(v.X); x < int(v.X+v.W); x++ {
+					if rgbSum(img, x, y) < rgbSum(img, x, y-7)-24 {
+						n++
+					}
+				}
+				if n >= int(v.W)-4 {
+					return y
+				}
+			}
+			return -1
+		}
+		first := bar(value)
+		if first < 0 {
+			t.Fatalf("width %d: no bar under the number", tc.width)
+		}
+		for _, text := range []string{"40%", "60%", "80%"} {
+			v, ok := tester.Find(text)
+			if !ok {
+				t.Fatalf("width %d: the row has no %s", tc.width, text)
+			}
+			if got := bar(v); got != first {
+				t.Errorf("width %d: %s's bar starts at y=%d, the first column's at y=%d: the numbers are not on one line", tc.width, text, got, first)
+			}
+		}
+	}
+}
+
+// The lead number's unit is a caption, not a digit: the % is set smaller than
+// the digits it counts and sits on their baseline. The two are one text, so
+// the number is still one string to read and to announce.
+func TestTheLeadNumbersUnitIsSetSmaller(t *testing.T) {
+	a := testApp(t)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	box, ok := tester.Find("78%")
+	if !ok {
+		t.Fatalf("the lead card has no number; texts=%v", tester.Texts())
+	}
+	img := tester.Image()
+	// The glyphs' ink, column by column, so the first glyph (a 7) can be
+	// measured against the last (the %).
+	top, bottom := map[int]int{}, map[int]int{}
+	for x := int(box.X); x < int(box.X+box.W); x++ {
+		for y := int(box.Y); y < int(box.Y+box.H); y++ {
+			if rgbSum(img, x, y) >= 600 {
+				continue
+			}
+			if _, seen := top[x]; !seen {
+				top[x] = y
+			}
+			bottom[x] = y
+		}
+	}
+	var runs [][2]int // first and last ink column of each glyph
+	for x := int(box.X); x < int(box.X+box.W); x++ {
+		if _, seen := top[x]; !seen {
+			continue
+		}
+		if n := len(runs); n > 0 && x-runs[n-1][1] <= 1 {
+			runs[n-1][1] = x
+			continue
+		}
+		runs = append(runs, [2]int{x, x})
+	}
+	if len(runs) < 3 {
+		t.Fatalf("the number drew %d glyphs, want the digits and the unit; runs=%v", len(runs), runs)
+	}
+	height := func(r [2]int) (int, int) {
+		lo, hi := int(box.Y+box.H), int(box.Y)
+		for x := r[0]; x <= r[1]; x++ {
+			if top[x] < lo {
+				lo = top[x]
+			}
+			if bottom[x] > hi {
+				hi = bottom[x]
+			}
+		}
+		return lo, hi
+	}
+	_, digitBottom := height(runs[0])
+	unitTop, unitBottom := height(runs[len(runs)-1])
+	digitTop, _ := height(runs[0])
+	if unit := unitBottom - unitTop; unit*2 >= digitBottom-digitTop {
+		t.Errorf("the unit is %d tall against the digits' %d: it is not set smaller", unit, digitBottom-digitTop)
+	}
+	if d := unitBottom - digitBottom; d < -2 || d > 2 {
+		t.Errorf("the unit's baseline is %d off the digits', want them on one line", d)
+	}
+}
+
+// inkBottom is the lowest row of dark ink inside a box. That is the line a
+// reader sees the text sitting on; the box bottom is not, because a box carries
+// its face's descent and two faces of different sizes descend differently.
+func inkBottom(img *image.RGBA, box ui.Rect) int {
+	bottom := -1
+	for y := int(box.Y); y < int(box.Y+box.H) && y < img.Bounds().Dy(); y++ {
+		for x := int(box.X); x < int(box.X+box.W) && x < img.Bounds().Dx(); x++ {
+			c := img.RGBAAt(x, y)
+			if int(c.R)+int(c.G)+int(c.B) < 740 {
+				bottom = y
+				break
+			}
+		}
+	}
+	return bottom
+}
+
+// The lead card's readings share the number's baseline instead of taking a row
+// each under a rule: the card is the page's headline, and the band of nothing
+// between the number and the facts that support it is what this saves. The
+// readings are compared by their ink, not their boxes: the 40px number's box
+// descends 5px further than a 16px reading's, so box bottoms that match put the
+// readings' ink 5px low.
+func TestTheHeroReadsAcrossNotDown(t *testing.T) {
+	a := testApp(t)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	img := tester.Image()
+	number, ok := tester.Find("78%")
+	if !ok {
+		t.Fatalf("the lead card has no number; texts=%v", tester.Texts())
+	}
+	base := inkBottom(img, number)
+	for _, want := range []string{"2 天 4 小时", "¥12.50"} {
+		fact, ok := tester.Find(want)
+		if !ok {
+			t.Fatalf("the lead card does not say %q; texts=%v", want, tester.Texts())
+		}
+		if got := inkBottom(img, fact); got-base < -2 || got-base > 2 {
+			t.Errorf("%q sits %d off the number's baseline, want it on the number's own", want, got-base)
+		}
+	}
+	// What the number counts is named above it, where the number can have the
+	// line to itself.
+	scope, ok := tester.Find("Weekly")
+	if !ok {
+		t.Fatal("the lead card does not name the window")
+	}
+	if scope.Y+scope.H > number.Y {
+		t.Errorf("the window's name is at y=%0.f, below the number at y=%0.f", scope.Y, number.Y)
+	}
+}
+
 // The pointer on a chart names the observation under it. There is no tooltip:
 // the caption that describes the series appends the point it is on, and the
 // chart marks it — the reading is added, nothing above it moves, and the
@@ -1822,8 +2560,10 @@ func TestTheChartReadsThePointUnderThePointer(t *testing.T) {
 	if !tester.HasText("近 11 次查询") {
 		t.Fatalf("the chart has no summary caption to replace; texts=%v", tester.Texts())
 	}
-	// The caption sits under the chart; the chart is the row above it.
-	summary := joinNonEmpty([]string{chartScale(pts), historyCaption(pts)}, " · ")
+	// The caption sits under the chart; the chart is the row above it. What it
+	// says is what is left of the summary once the page has said its own part
+	// above the grid: the range the series moved over.
+	summary := trendRange(pts)
 	at, ok := tester.Find(summary)
 	if !ok {
 		t.Fatalf("no caption showing the summary; texts=%v", tester.Texts())

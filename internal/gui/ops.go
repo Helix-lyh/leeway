@@ -320,10 +320,10 @@ func importAuthFile(providerID, account, src string) (string, error) {
 		}
 		dst = p
 	default:
-		return "", fmt.Errorf("%s 的登录文件不是导入的", providerID)
+		return "", fmt.Errorf("%s 的登录文件不是导入的", providerName(providerID))
 	}
 	if check, ok := sessionChecks[providerID]; ok && !check(raw) {
-		return "", fmt.Errorf("这份文件不能用作 %s 的登录文件", providerID)
+		return "", fmt.Errorf("这份文件不能用作 %s 的登录文件", providerName(providerID))
 	}
 	if err := writeFileAtomic(dst, raw); err != nil {
 		return "", err
@@ -341,7 +341,7 @@ func importAuthFile(providerID, account, src string) (string, error) {
 			_ = cfg.SetAccountEmail("grok", displayAccount(account), email)
 		}
 	}
-	return fmt.Sprintf("已备份 %s 账号 %s", providerID, displayAccount(account)), nil
+	return fmt.Sprintf("已备份 %s 账号 %s", providerName(providerID), displayAccount(account)), nil
 }
 
 func writeFileAtomic(dst string, raw []byte) error {
@@ -377,7 +377,7 @@ func officialLogin(ctx context.Context, providerID, account string, log func(str
 	case "kimi":
 		return loginKimiCLI(ctx, name, log)
 	default:
-		return fmt.Errorf("%s 用 API 密钥登录", providerID)
+		return fmt.Errorf("%s 用 API 密钥登录", providerName(providerID))
 	}
 }
 
@@ -565,7 +565,7 @@ func useAccount(providerID, account string) (switcher.Result, error) {
 	case "codex":
 		return switcher.Result{}, errors.New("codex 不写 ~/.codex（避免刷新把官方登录作废）")
 	}
-	return switcher.Result{}, fmt.Errorf("本机没有 %s 的官方工具可同步", providerID)
+	return switcher.Result{}, fmt.Errorf("本机没有 %s 的官方工具可同步", providerName(providerID))
 }
 
 // accountSwitchReady reports whether `让本机用它` can work for this account: the
@@ -778,7 +778,7 @@ func logoutAccount(providerID, account string) (string, error) {
 		if err := clearProviderCredentials(providerID, account); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("已清除 cursor 账号 %s 的登录信息", name), nil
+		return fmt.Sprintf("已清除 %s 账号 %s 的登录信息", providerName(providerID), name), nil
 	case "grok", "codex", "kimi":
 		msg, err := logoutIsolated(providerID, account)
 		if err != nil {
@@ -806,7 +806,7 @@ func logoutAccount(providerID, account string) (string, error) {
 			}
 		}
 	}
-	return fmt.Sprintf("已移除 %s 账号 %s", providerID, name), nil
+	return fmt.Sprintf("已移除 %s 账号 %s", providerName(providerID), name), nil
 }
 
 // clearProviderCredentials drops the provider-level key and cookie, which is
@@ -859,7 +859,7 @@ func logoutIsolated(providerID, account string) (string, error) {
 		return "", err
 	}
 	removeAccountFromConfig(providerID, name)
-	return fmt.Sprintf("已清除 %s 账号 %s 的私有登录", providerID, name), nil
+	return fmt.Sprintf("已清除 %s 账号 %s 的私有登录", providerName(providerID), name), nil
 }
 
 func removeAccountFromConfig(providerID, name string) {

@@ -238,29 +238,29 @@ func periodText(period string) string {
 func (a *App) windowRow(c *ui.Context, p palette, providerID string, w model.RateWindow, points []history.Point, chart float32) {
 	label := windowTitle(providerID, w.ID, w.Title)
 	ui.Column(c).FillWidth().Gap(space2).Children(func() {
-		line := ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space2)
+		line := ui.Row(c).FillWidth().Wrap().AlignItems(ui.End).Gap(space2)
 		line.Children(func() {
 			ui.Text(c, label).FontSize(sizeBody).FontWeight(600).SingleLine()
 			if detail := amountDetail(w); detail != "" {
 				muted(c, p, detail)
 			}
+			// When the window resets, and how far it moved, sit on the name's
+			// line rather than on one of their own: that line had the width
+			// for them, and the bar keeps the width it had. The bar is the one
+			// thing here that has to be read against the other bars, so it
+			// spans the card and no row starts it somewhere else.
+			if meta := windowMeta(w, points, a.now()); meta != "" {
+				muted(c, p, meta)
+			}
 			ui.Spacer(c)
 			value(c, p, tweenText(w, tweenValue(line, "value", windowValue(w))), p.amountColor(w))
 		})
-		if fraction, ok := windowFraction(w); ok {
-			bar(c, p, fraction, barColor(p, w), 7)
-		}
-		if meta := windowMeta(w, points, a.now()); meta != "" {
-			muted(c, p, meta)
-		}
+		meter(c, p, w, 7)
 		if chart > 0 && len(points) >= 2 {
 			_, over := a.sparkline(c, p, "provider-trend:"+providerID+"/"+w.ID, "用量走势："+windowTitle(providerID, w.ID, w.Title), points, p.toneColor(windowTone(w)), float32(chart), nil)
 			summary := joinNonEmpty([]string{chartScale(points), historyCaption(points)}, " · ")
 			muted(c, p, chartCaption(points, over, summary))
 		}
-		// The reset label sits above the bar, so the projection below it does
-		// not say when the reset comes: one row states the countdown once.
-		burnAlarmNoReset(c, p, points, w)
 		resetNote(c, p, points)
 	})
 }

@@ -195,7 +195,7 @@ func (a *App) submitPrompt() {
 					return
 				}
 				a.prompt.reset()
-				a.afterCredentialChange("已保存 " + providerID + " 的 API 密钥")
+				a.afterCredentialChange("已保存 " + providerName(providerID) + " 的 API 密钥")
 			})
 		}()
 	case promptCookieImport:
@@ -245,7 +245,7 @@ func (a *App) submitPrompt() {
 		}
 		a.prompt.reset()
 		a.reloadConfig()
-		a.toast = fmt.Sprintf("已添加账号 %s（%s）", name, providerID)
+		a.toast = fmt.Sprintf("已添加账号 %s（%s）", name, providerName(providerID))
 	case promptCLI:
 		if p.cancel != nil {
 			p.cancel()
@@ -268,7 +268,7 @@ func (a *App) afterCredentialChange(msg string) {
 func (a *App) askUse(providerID, account string) {
 	a.confirm = confirm{
 		open:     true,
-		title:    fmt.Sprintf("让本机的 %s 改用 %s？", providerID, displayAccount(account)),
+		title:    fmt.Sprintf("让本机的 %s 改用 %s？", providerName(providerID), displayAccount(account)),
 		message:  "leeway 会把该账号的登录文件写给官方工具。官方工具当前的登录会被覆盖。",
 		label:    "启用",
 		kind:     "use",
@@ -281,10 +281,10 @@ func (a *App) askUse(providerID, account string) {
 // has no session to exit, so the wording says what it deletes.
 func (a *App) askLogout(providerID, account string) {
 	session := accountUsesSession(a, providerID, account)
-	title := fmt.Sprintf("移除 %s 的账号 %s？", providerID, displayAccount(account))
+	title := fmt.Sprintf("移除 %s 的账号 %s？", providerName(providerID), displayAccount(account))
 	message := "会删除 leeway 里保存的这个账号的登录文件、浏览器登录状态和 API 密钥。官方工具里的登录不受影响。"
 	if !session {
-		title = fmt.Sprintf("删除 %s 账号 %s 的 API 密钥？", providerID, displayAccount(account))
+		title = fmt.Sprintf("删除 %s 账号 %s 的 API 密钥？", providerName(providerID), displayAccount(account))
 		message = "只删 leeway 里存的这一份，别处不受影响。"
 	}
 	a.confirm = confirm{

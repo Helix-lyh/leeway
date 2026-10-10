@@ -13,7 +13,7 @@
 |---|---|---|
 | Provider 探测体系（descriptor + fetch strategy 思想） | 数据模型（只留 RateWindow/Snapshot，砍 ProviderDetailSection 等扩展结构） | 菜单栏 UI、SwiftUI、Widget、Sparkle 更新、iCloud 同步、Hooks、用户插件、图标渲染、不自建 Keychain（0600 文件替代）；cursor 无私有 auth.json 时仍可读官方 keychain。**边界已变更**：窗口界面已实现（见 [GUI.md](GUI.md)），菜单栏仍未做但不再是禁止项 |
 | 多窗口语义（primary/secondary/tertiary + reset 时间） | 自适应刷新（固定 TTL + watch 间隔） | confetti、统计分享 |
-| 认证适配（env key / cookie / CLI 会话复用） | 呈现层（一张表 + JSON + 窗口） | 成本历史图表、历史 pace 预测（**边界已变更**：窗口历史页已有走势与用满预测，见 [GUI.md](GUI.md)） |
+| 认证适配（env key / cookie / CLI 会话复用） | 呈现层（一张表 + JSON + 窗口） | 成本历史图表、历史 pace 预测（**边界已变更**：窗口历史页已有走势与变化量，但用满预测已按要求移除，见 [GUI.md](GUI.md)） |
 | 多账户机制（OpenCode Go 多 session token） | 窗口界面（总览 / provider / 历史 / 设置，见 [GUI.md](GUI.md)） | — |
 
 ## 2. 技术选型

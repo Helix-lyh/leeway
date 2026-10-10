@@ -213,7 +213,7 @@ win := mygo.NewWindow(mygo.WindowOptions{
 - inspector（`ui/inspector*.go`）能看到每个元素的盒子和"为什么是这个盒子"。
 - 元素自己的盒子：`Element.Bounds()` 返回**上一帧**的盒子（`ui/api_gen.go:3242`–`3247`）；
   本帧的盒子在绘制回调里拿：`Element.Draw(func(p *ui.Painter, r ui.Rect){...})`
-  （`ui/api_gen.go:2783`）。本仓库的 `bar()`/走势图就是这么画的（`internal/gui/theme.go` 的 `bar()`）。
+  （`ui/api_gen.go:2783`）。本仓库的 `meter()`/走势图就是这么画的（`internal/gui/theme.go` 的 `meter()`）。
 
 ## 2. 渲染与测试
 
@@ -352,7 +352,7 @@ w2, h2 := c.MeasureText(60, ui.Span{Text: "hello world", Size: 13})
 **快照可复现性有个尾巴**：本仓库把"现在"钉在 `pinned`（`internal/gui/gui_test.go:48`，
 `a.clock` 见 `internal/gui/app.go:58`–`60`），所以同一份代码两次跑出的快照基本一致。
 实测两张不是逐字节可复现，而且它们坏得不一样：
-- `provider-many-burn.png` 两次运行差 13745 个像素，**最大通道差 2/255**，集中在底部一条还在跑
+- `provider-many-burn.png`（用满预测删掉后已不再产出的那张快照）两次运行差 13745 个像素，**最大通道差 2/255**，集中在底部一条还在跑
   颜色过渡的带（y 628..698）——"颜色过渡会漂一个最低位"。
 - 同一张图在**另一对运行**里（冻结帧 vs 重跑）差到 **最大通道差 13/255、11739 个像素**，同一段
   y 626–699：`snapshotStill` 抓的是 toast 淡入的中途帧，相位不同就差得多。
@@ -617,6 +617,8 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 | 27 🆕 | 只想让某个元素"占满剩下高度"，不知道写 `Grow` 还是 `FillHeight` | 两者语义不同：`Grow(1)` 分剩余空间（按父容器主轴），`FillHeight` = 父容器 content box 的 100% | Column 里 `Grow(1)` 就够；Row 里 `Grow` 管宽度，高度必须靠 `FillHeight()` 或 `AlignItems(Stretch)`，且 Row 要有确定高度 | mygo `docs/ui/layout.md:33`–`41`、`ui/layout.go:513`–`565`；实测 300 ✓ / 619.3 ✗ / 300 ✓ |
 | 28 🆕 | 想知道"这个控件在测试里点得到吗" | `Find`/`Click` 只认可见元素，被裁掉的返回 `W=0 H=0` | 断言前先看 `Find` 的 Rect；不可见就先 `navigate` 到那一页或先 `Scroll` | mygo `ui/runtime.go:804`–`837`、`ui/headless.go:227`–`264`；实测 `{W:0 H:0}` vs `{W:46.7 H:14.1}` |
 
+| 29 🆕 | `ui.Grid` 的 cell 里放一张自己 `FillWidth()` 的卡片，两张卡叠在一起、右边那张冲出窗口 | grid 给每个 item 的宽度是**cell 的宽**（`gridPlaceIn(c, area, …)`），但 item 自己写了百分比宽度时按**父容器 content box** 解析——父容器是 grid，不是 cell，于是卡片宽 = 整个 grid | grid item 自己别写宽度：cell 里套一层不设宽度的 `ui.Column(c)`（grid item 默认 `Stretch`，它就被撑成 cell 宽），卡片对它解析。flex 的 `Row` 没这个问题——`Grow(1)` 直接定宽，百分比对着 item 解析 | mygo `ui/grid.go:443`–`477`、`ui/element.go:56`–`66`、`ui/layout.go:411`–`420`；实测正文 740、两列 cell 362（两张卡各自 322 宽的 header 横线相距 378，正好是 cell + gap）：不套 Column 时**只有独占一行的那张卡**画 **700** 宽，并排的两张各画 354 / 356（`TestTheHistoryCardsAreTheSameWidth` 报 "found 3 rows of card rules, 0 of them side by side"），套上之后两张的 header 横线都是 **322** |
+
 ## 6. 下次加一个页面 / 一个控件
 
 ### 6.1 加一个页面（最小骨架）
@@ -715,7 +717,7 @@ ui.MenuButton(c, loginButtonLabel(id), func(m *ui.Menu) {
 
 // 数值 + 条：数字和条共用同一个 Animate，刷新时一起走
 value(c, p, amountText(w), p.amountColor(w))       // FontFeatures("tnum") 等宽数字
-bar(c, p, fraction, barColor(p, w), 7)             // internal/gui/theme.go 的 bar()
+meter(c, p, w, 7)                                  // internal/gui/theme.go 的 meter()
 
 // 需要量宽度再决定文案长短：在构建期量，别猜
 if w, _ := c.MeasureText(0, ui.Span{Text: label, Size: sizeBody}); w > columnWidth {

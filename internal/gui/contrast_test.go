@@ -322,13 +322,18 @@ func TestTheStructuralLinesCarryTheirOwnContrast(t *testing.T) {
 			// The level a percentage chart turns warn and critical at is drawn
 			// as a line over its own band: a 1.18:1 wash cannot carry it, so
 			// the line does. At 0.55 alpha it measured 2.12:1.
-			{"the warn level on its band", p.toneColor(toneWarn).Alpha(chartBandRule), over(p.toneColor(toneWarn).Alpha(chartBandWarn), card)},
-			{"the critical level on its band", p.toneColor(toneCritical).Alpha(chartBandRule), over(p.toneColor(toneCritical).Alpha(chartBandCritical), card)},
-			// The quarter marks on a quota bar and the run that says how much
-			// is left before it runs out. Both are drawn over the empty part of
-			// the bar; at 0.38 and 0.5 alpha they measured 1.58:1 and 2.08:1.
-			{"the quarter marks on a bar", p.t.TextMuted.Alpha(barTickAlpha), over(p.track, card)},
-			{"the projection dashes on a bar", p.toneColor(toneCritical).Alpha(barRunAlpha), over(p.track, card)},
+			{"the warn level on its band", p.rule, over(p.toneColor(toneWarn).Alpha(chartBandWarn), card)},
+			{"the critical level on its band", p.rule, over(p.toneColor(toneCritical).Alpha(chartBandCritical), card)},
+			// A bar's levels are cut out of the fill, so the mark a reader
+			// measures against is the empty track itself, and the fill's own
+			// leading edge is the other end of the same reading. Both are the
+			// track against the fill, in every color a bar takes: the gradient
+			// that used to lighten the fill's leading end left that edge at
+			// 2.66:1 in the light theme.
+			{"a bar's fill on its track", p.toneColor(toneOK), over(p.track, card)},
+			{"a warn bar's fill on its track", p.toneColor(toneWarn), over(p.track, card)},
+			{"a critical bar's fill on its track", p.toneColor(toneCritical), over(p.track, card)},
+			{"a money bar's fill on its track", p.money, over(p.track, card)},
 		} {
 			if r := contrast(check.fg, check.bg); r < 3 {
 				t.Errorf("dark=%v: %s is %.2f:1, under the 3:1 a graphic needs", dark, check.what, r)

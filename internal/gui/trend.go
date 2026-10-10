@@ -2,7 +2,6 @@ package gui
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/egoist/mygo/ui"
 
@@ -48,9 +47,9 @@ func changeChip(points []history.Point) (text string, dir int) {
 	return "", 0
 }
 
-// liveWindow finds the window a series belongs to as the last probe saw it.
-// History knows what the value was; only the probe knows when the window
-// resets next, and the two halves make the projection.
+// liveWindow finds the window a series belongs to as the last probe saw it:
+// history records the window's ID, and the name the provider gives that window
+// only the probe knows.
 func (a *App) liveWindow(s history.Series) *model.RateWindow {
 	if a.out == nil {
 		return nil
@@ -90,58 +89,6 @@ func chipText(text string, dir int) string {
 	return text
 }
 
-// rateText is a rate in points per hour: one decimal until the number is big
-// enough that the decimal is noise, and never "0" for a window that is
-// climbing.
-func rateText(rate float64) string {
-	if rate < 10 {
-		return fmt.Sprintf("%.1f%%", rate)
-	}
-	return fmt.Sprintf("%.0f%%", rate)
-}
-
-// burnAlarm draws the projection under a bar, when there is one to draw: the
-// only line in the window that is allowed to be red. The sentence ends with
-// when the provider gives the window back, for a row that has no reset label
-// of its own.
-func burnAlarm(c *ui.Context, p palette, points []history.Point, w model.RateWindow) {
-	burnAlarmLine(c, p, points, w, true)
-}
-
-// burnAlarmNoReset is burnAlarm for a row whose own reset label already sits
-// above the bar: the sentence stops at when the window is full, so the
-// countdown is read once on the row rather than twice.
-func burnAlarmNoReset(c *ui.Context, p palette, points []history.Point, w model.RateWindow) {
-	burnAlarmLine(c, p, points, w, false)
-}
-
-func burnAlarmLine(c *ui.Context, p palette, points []history.Point, w model.RateWindow, withReset bool) {
-	text, t := burnLine(points, &w, withReset)
-	if text == "" {
-		return
-	}
-	// Two lines are what a card row can hold, and a sentence that needs three
-	// has to say so: the mark is the ellipsis, and the whole sentence is on the
-	// tooltip — a matrix column is 98px wide at the window's own minimum, which
-	// is not enough for "刚重置：78% → 12%，额度已恢复".
-	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(t)).MaxLines(2).Ellipsis("…").Focusable().Tooltip(text)
-}
-
-// burnAlarmInColumn draws the projection the way a matrix column can hold it:
-// whose window it is and how long until it is full. The measured rate stays on
-// the provider's own page, and the reset is already on the line above.
-func burnAlarmInColumn(c *ui.Context, p palette, who string, points []history.Point, w model.RateWindow) {
-	b, ok := burnOf(points, &w)
-	if !ok {
-		return
-	}
-	text := fmt.Sprintf("按这个速度，约 %s后用完", spanText(b.in))
-	if who != "" {
-		text = who + "：" + text
-	}
-	ui.Text(c, text).FontSize(sizeBody).TextColor(p.toneColor(toneCritical)).MaxLines(2).Ellipsis("…").Focusable().Tooltip(text)
-}
-
 // resetDrop is what the newest reset in a series fell from and to. A reset can
 // also be nothing but the provider moving the window's end, and then the two
 // numbers tell no story: only a real drop is reported.
@@ -172,9 +119,8 @@ func resetLine(points []history.Point) (string, tone) {
 	return "刚重置，额度已恢复", toneOK
 }
 
-// resetNote draws a reset under a bar, in the place and the weight the alarm
-// uses. The two never appear together: a window that just reset has one point
-// on its new quota, and one point is not a rate.
+// resetNote draws a reset under a bar, in the place and the weight the value
+// above it uses.
 func resetNote(c *ui.Context, p palette, points []history.Point) {
 	text, t := resetLine(points)
 	if text == "" {
@@ -191,119 +137,4 @@ func sign(v float64) int {
 		return -1
 	}
 	return 0
-}
-
-// burn is what a window's own rate says about its limit: how fast it is
-// filling, when it would be full, and when the provider gives it back.
-type burn struct {
-	span time.Duration // the run the rate was read over
-	rate float64       // points an hour
-	in   time.Duration // until the window is full at that rate
-	left time.Duration // until the window resets
-}
-
-// burnOf reads a series against the window it records, and reports whether
-// that window is on course to fill before it resets. It needs both halves to
-// be honest — how fast the window is filling and when the reset comes — so it
-// says no when it does not know, and when the reset wins.
-func burnOf(points []history.Point, w *model.RateWindow) (burn, bool) {
-	if w == nil || w.UsedPercent == nil || w.ResetsAt == nil {
-		return burn{}, false
-	}
-	leg := seriesLeg(points)
-	// Two points a minute apart can be a burst or a glitch; the reading
-	// waits for a leg with enough of a run in it to be worth believing.
-	if len(leg) < 3 {
-		return burn{}, false
-	}
-	first, last := leg[0], leg[len(leg)-1]
-	if first.UsedPercent == nil || last.UsedPercent == nil {
-		return burn{}, false
-	}
-	span := last.T.Sub(first.T)
-	if span < 10*time.Minute {
-		return burn{}, false
-	}
-	moved := *last.UsedPercent - *first.UsedPercent
-	remaining := 100 - *last.UsedPercent
-	if moved <= 0 || remaining <= 0 {
-		return burn{}, false
-	}
-	b := burn{
-		span: span,
-		rate: moved / span.Hours(),
-		left: w.ResetsAt.Sub(last.T),
-	}
-	b.in = time.Duration(remaining / b.rate * float64(time.Hour))
-	if b.left <= 0 || b.in >= b.left {
-		return burn{}, false
-	}
-	return b, true
-}
-
-// burnLine is the sentence no other tool says: this window runs out before
-// the provider gives it back. withReset adds when the provider gives it back,
-// for the rows that have no reset label of their own.
-func burnLine(points []history.Point, w *model.RateWindow, withReset bool) (text string, t tone) {
-	b, ok := burnOf(points, w)
-	if !ok {
-		return "", toneNeutral
-	}
-	text = fmt.Sprintf("最近 %s 每小时涨 %s，约 %s后用完",
-		spanText(b.span), rateText(b.rate), spanText(b.in))
-	if withReset {
-		text += "；重置还有 " + spanText(b.left)
-	}
-	return text, toneCritical
-}
-
-// burnWarning is the projection worth telling the user about without being
-// asked, and the key naming the window it is about: the most urgent one across
-// everything the app is showing.
-func (a *App) burnWarning() (key, text string) {
-	var worst burn
-	for _, s := range a.series {
-		w := a.liveWindow(s)
-		if w == nil {
-			continue
-		}
-		b, ok := burnOf(s.Points, w)
-		if !ok {
-			continue
-		}
-		if key != "" && b.in >= worst.in {
-			continue
-		}
-		worst = b
-		key = s.Provider + "/" + s.Account + "/" + s.Window
-		text = fmt.Sprintf("%s %s 按现在的速度，%s后用完",
-			providerName(s.Provider), windowTitle(s.Provider, s.Window, w.Title), spanText(b.in))
-	}
-	return key, text
-}
-
-// burnToast tells the user about the projection as it appears, wherever they
-// are looking. A probe that repeats the same warning is not news, so the
-// window it named is remembered until some other window takes over.
-func (a *App) burnToast(c *ui.Context) {
-	key, text := a.burnWarning()
-	if key == a.burned {
-		return
-	}
-	a.burned = key
-	if text == "" {
-		return
-	}
-	// The overview and the history both say this themselves — the overview's
-	// lead card carries the sentence beside the bar the projection is drawn
-	// on, and the history lists every series with the same sentence in its own
-	// row. A toast there would cover what is underneath to repeat what is
-	// already on screen, so those two pages get the announcement without the
-	// box; a provider page may be showing a different provider, so it gets
-	// both.
-	if a.page == "overview" || a.page == "history" {
-		c.Announce(text)
-		return
-	}
-	c.AddToast(ui.Toast{ID: "burn", Title: text})
 }

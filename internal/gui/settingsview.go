@@ -47,7 +47,6 @@ func (a *App) settingsView(c *ui.Context) {
 		c.Toast(a.toast)
 		a.toast = ""
 	}
-	a.burnToast(c)
 	tb := c.TitleBar()
 	left := float32(space4)
 	if tb.Left > 0 {
@@ -77,7 +76,8 @@ func (a *App) settingsView(c *ui.Context) {
 					muted(c, p, settingsSubtitle).
 						SingleLine().
 						Ellipsis("…").
-						Tooltip(settingsSubtitle)
+						Tooltip(settingsSubtitle).
+						Focusable()
 					ui.Spacer(c)
 					ui.Tabs(c, &a.settingsTab, "通用", "服务商", "数据")
 				})

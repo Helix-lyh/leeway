@@ -46,9 +46,8 @@ type App struct {
 	settingsWin *mygo.Window
 	settingsTab int
 
-	toast  string
-	scrub  chartScrub
-	burned string // the window the burn warning last named, so it warns once
+	toast string
+	scrub chartScrub
 
 	// spoken is what the next frame asks a screen reader to read out. The
 	// view empties it, so nothing is said twice.
