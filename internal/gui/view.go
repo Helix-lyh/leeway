@@ -242,8 +242,8 @@ func (a *App) titleBar(c *ui.Context, p palette) {
 		DragWindow().
 		Material(glass.Glass{}).
 		Children(func() {
-			// The mark is ink, not accent: it is the app's name written
-			// twice, and the one accent in the frame belongs to the one
+			// The mark is the app icon, drawn in ink rather than the
+			// accent: the one accent in the frame belongs to the one
 			// action in it.
 			ui.Icon(c, iconApp).FontSize(sizeChrome).TextColor(p.t.Text)
 			ui.Text(c, "leeway").
