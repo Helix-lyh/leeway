@@ -855,7 +855,7 @@ CLI 侧 45 条错误逐条看下来：说清原因的 38 条，**给出可照抄
 PROVIDER     ACCOUNT                 CREDENTIAL                  STATUS  EXPIRES
 deepseek     default                 apiKey (config)             ok      —
 cursor       codesmallstar           cursor auth.json (private)  ok      23d · 2026-11-02
-config: /Users/helix/.config/leeway/config.json
+config: /Users/…/.config/leeway/config.json
 ```
 
 表头（`PROVIDER` / `ACCOUNT` / `CREDENTIAL` / `STATUS` / `EXPIRES`）和值
@@ -979,11 +979,12 @@ provider 显示名、`provider %q already registered` 这种面向开发者的 p
 **两条机器原文回到末尾**：`kimi/localsession.go:161 / 175` 原先把网络错误 `%v` 夹在句子中间，
 按 8.7 同样的理由挪到末尾的全角冒号之后。
 
-### 8.7 三条消息的顺序修正：把机器原文赶回 tooltip
+### 8.7 五条消息的顺序修正：把机器原文赶回 tooltip
 
 中文化之后，`internal/gui` 的 `failureText()` 走向变了。它只在**机器的话位于消息最末**时
 （最后一个全角冒号之后）才把机器原文切进 tooltip；中文化把机器原文 `%v` 挤到了句子中间，
-于是机器原文跟着上了屏——这正是 `internal/gui/view.go` 那套判据要避免的事。三条：
+于是机器原文跟着上了屏——这正是 `internal/gui/view.go` 那套判据要避免的事。全轮共五条，
+`internal/auth` / `internal/gui` 三条列在下面，`internal/provider/kimi` 两条见 8.6。
 
 | 位置 | 原（中文化后） | 现 | 效果 |
 | --- | --- | --- | --- |
@@ -991,7 +992,7 @@ provider 显示名、`provider %q already registered` 这种面向开发者的 p
 | `chrome.go:536` | `从 %s 读登录状态失败：%v — 先登录 %s…` | `从 %s 读登录状态失败，先登录 %s…：%v` | `unable to open database file` 进 tooltip |
 | `chrome.go:48` | 建议被 `%v` 截断进 tooltip，且 tooltip 以 `: ` 开头 | 建议留在句子里，`security: …` 进 tooltip | 顺带删掉了只为补冒号存在的 `detail = ": " + detail` |
 
-用真实 `failureText()` 探针复核了分流，三条都变成「中文建议上屏 + 机器原文进 tooltip」。
+用真实 `failureText()` 探针逐条复核了分流，五条都变成「中文建议上屏 + 机器原文进 tooltip」。
 `chrome.go:48` 的 stderr 为空时句子会留一个尾冒号——低概率、低危害，留着。
 
 ### 8.8 更正 7.5 的两处
@@ -1013,4 +1014,28 @@ provider 显示名、`provider %q already registered` 这种面向开发者的 p
   （右上角刷新转轮 19–34 行、`正在查询…` 转轮 150–165 行、底部 tooltip 覆盖层 627–700 行）；
   连跑两次相同代码，`provider-many-burn.png` 之间仍有差异，证明是动画而非文案。
 - 4 条 GUI 不变量测试（`TestAFailureKeepsTheMachinesWordsOutOfTheSentence` 等）全绿。
+
+### 8.10 合回主干后的一轮整体 review
+
+合入 `main` 后按「整体 review + 测试」又跑了一遍，结论与这一节的数字一致，另加：
+
+- **格式串完整性**：真实输出里 `help` / `help login` / `help usage` / `status` / `usage` /
+  `status --json` / `usage --json` 全部 **0 处 `%!`**；`internal/provider` 的 146 行 −/+
+  逐行配对，格式动词 **0 处不一致**。
+- **`AGENTS.md` / `CLAUDE.md`**：去掉 AGENTS 独有的代码生成规则块后共有部分**逐字一致**，
+  该块仍只在 `AGENTS.md`（2 处 vs 0 处）。
+- **残留英文**：全仓只剩 29 条，逐条核对过——内部 token（`codex auth.json` / `local session` /
+  `not configured` / `not logged in` / `expires today `，都由 `statusLabel` / `credLabel` /
+  `expiresLabel` 在表格里映射成中文）、可照抄的命令、JSON needle、OAuth scope、窗口标题、
+  SVG、以及 `auth.go:327` 里被 `err == nil` 吞掉的 `no usable entry`。
+- **真窗口截图自检**：`LEEWAY_GUI_CAPTURE` 跑了一次真实窗口（深色主题，1171×796），
+  侧栏「用量 / 数据」、标题栏「正在查询…」、右上「每 15 分钟」、主区「总览 / 刷新」全部中文，
+  版式正常。
+- **Review 改掉两处自己的问题**：账本 7.5 的示例里留着**真实用户名路径**
+  （而这一节本身就在抱怨 CLI 打印真实路径）→ 换成 `/Users/…` 占位；
+  8.7 的标题写「三条」而全轮共五条 → 改成五条并把 8.6 的两条指出来。
+
+**注意**：`status --json` / `usage --json` 的字节数会随你自己的配置和缓存变（复验时
+`config.json` 刚被改过、`opencode-go` 少了一个账号），所以字节数不能当契约，字段名与取值
+token 才是。
 
