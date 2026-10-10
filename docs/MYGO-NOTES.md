@@ -520,7 +520,7 @@ go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build -skip-dmg
 
 ```
 build/darwin-arm64/leeway.app
-build/darwin-arm64/leeway 0.2.0.dmg        # dmgFileName = "<Name> <Version>.dmg"
+build/darwin-arm64/leeway 0.2.0 arm64.dmg  # dmgFileName = "<Name> <Version> <arch>.dmg"
 ```
 
 依据：`cmd/mygo/build.go:22`–`52`（命令说明）、`:130`–`141`（`<out>/<goos>-<goarch>` 与 staging 后替换）、
@@ -559,7 +559,7 @@ guarded（.metadata_never_index + .noindex）→ …/guarded/guardprobe222.app  
 
 ```sh
 codesign --verify --deep --strict --verbose=1 /Applications/leeway.app
-hdiutil verify "build/darwin-arm64/leeway 0.2.0.dmg"
+hdiutil verify "build/darwin-arm64/leeway 0.2.0 arm64.dmg"
 ```
 
 实测两条都通过：`valid on disk` / `satisfies its Designated Requirement`，
