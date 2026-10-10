@@ -148,13 +148,22 @@ func (a *App) theme(c *ui.Context) palette {
 // that sets its sizes explicitly opts out of that, so it has to do it here.
 // Every step is at least 1.2x the one below it, so no two sizes read as the
 // same size with a mistake in it.
+const (
+	baseHero   = 40   // the one number the page is about
+	baseTitle  = 25   // a page or a provider's name
+	baseValue  = 20   // a window's number on a card
+	baseChrome = 16   // the wordmark, a card's title, a column head
+	baseBody   = 13   //
+	baseLabel  = 10.5 // captions and the smallest print
+)
+
 var (
-	sizeHero   float32 = 40   // the one number the page is about
-	sizeTitle  float32 = 25   // a page or a provider's name
-	sizeValue  float32 = 20   // a window's number on a card
-	sizeChrome float32 = 16   // the wordmark, a card's title, a column head
-	sizeBody   float32 = 13   //
-	sizeLabel  float32 = 10.5 // captions and the smallest print
+	sizeHero   float32 = baseHero
+	sizeTitle  float32 = baseTitle
+	sizeValue  float32 = baseValue
+	sizeChrome float32 = baseChrome
+	sizeBody   float32 = baseBody
+	sizeLabel  float32 = baseLabel
 )
 
 const trackLabel = 0.7
@@ -165,7 +174,7 @@ func typeScale(scale float32) (hero, title, value, chrome, body, label float32) 
 	if scale <= 0 {
 		scale = 1
 	}
-	return 40 * scale, 25 * scale, 20 * scale, 16 * scale, 13 * scale, 10.5 * scale
+	return baseHero * scale, baseTitle * scale, baseValue * scale, baseChrome * scale, baseBody * scale, baseLabel * scale
 }
 
 func scaleType(scale float32) {

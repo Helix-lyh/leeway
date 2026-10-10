@@ -69,19 +69,24 @@ func TestTheInkAPageDrawsClearsItsSurface(t *testing.T) {
 	seen := map[string][]string{}
 	for _, state := range []struct {
 		name  string
+		dark  bool
 		setup func(*App)
 	}{
-		{"the answer", func(a *App) {}},
-		{"a probe that failed", func(a *App) {
+		{"the answer", false, func(a *App) {}},
+		{"a probe that failed", false, func(a *App) {
 			a.fetchErr = "unexpected EOF"
 			a.lastAt = pinned.Add(-12 * time.Minute)
 		}},
-		{"a provider's own page", func(a *App) { a.navigate("provider:deepseek") }},
+		{"a provider's own page", false, func(a *App) { a.navigate("provider:deepseek") }},
+		// The dark palette is authored separately, so its inks are a separate
+		// set of pairs: a fade that only shows at night used to pass every
+		// check in this file.
+		{"the answer at night", true, func(a *App) {}},
 	} {
 		a := testApp(t)
 		state.setup(a)
-		checkInk(t, state.name, a)
-		seen[state.name] = labels(a)
+		checkInk(t, state.name, a, state.dark)
+		seen[state.name] = labels(a, state.dark)
 	}
 	// A state that quietly renders another state's page guards nothing: the
 	// third state's setup was once navigate("provider") — not a page id — and
@@ -98,8 +103,9 @@ func TestTheInkAPageDrawsClearsItsSurface(t *testing.T) {
 }
 
 // labels is the set of texts the view publishes in its settled frame.
-func labels(a *App) []string {
+func labels(a *App, dark bool) []string {
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.SetDark(dark)
 	tester.Frame()
 	return tester.Texts()
 }
@@ -123,9 +129,10 @@ func sameLabels(a, b []string) bool {
 	return true
 }
 
-func checkInk(t *testing.T, state string, a *App) {
+func checkInk(t *testing.T, state string, a *App, dark bool) {
 	t.Helper()
 	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.SetDark(dark)
 	tester.Frame()
 	img := tester.Image()
 	checked := 0

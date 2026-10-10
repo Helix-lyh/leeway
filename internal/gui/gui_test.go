@@ -1362,11 +1362,26 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 		{"cookie 已过期，重新登录", "切换失败 · cookie 已过期，重新登录", ""},
 		// A machine's alone: the sentence is ours and the tooltip has it.
 		{"unexpected EOF", "切换失败", "unexpected EOF"},
+		// A quoted path is the OS naming a file it could not open, and it is
+		// the machine's whole message even when a shell command trails it: the
+		// colon split must not pull the OS's own sentence back on screen.
+		{`无法打开"/Users/张三/auth.json"：没有那个文件或目录：exit status 1`, "切换失败", `无法打开"/Users/张三/auth.json"：没有那个文件或目录：exit status 1`},
+		// Our half, then a library's: the split is what keeps the English tail
+		// out of the sentence (switcher.go writes this shape with %w).
+		{"读取 /Users/张三/.codex/auth.json 失败：no such file or directory", "切换失败 · 读取 /Users/张三/.codex/auth.json 失败", "no such file or directory"},
+		{"打开 Cursor state.vscdb：unable to open database file", "切换失败 · 打开 Cursor state.vscdb", "unable to open database file"},
 		// A machine's in Chinese: a localised OS error is still a machine's,
 		// and the path in it gives that away where the language does not.
 		{"open /Users/张三/Library/auth.json: no such file or directory", "切换失败", "open /Users/张三/Library/auth.json: no such file or directory"},
 		{"打开 /Users/张三/x 被拒绝", "切换失败", "打开 /Users/张三/x 被拒绝"},
 		{"Codex auth.json unreadable: open /Users/张三/.codex/auth.json: no such file", "切换失败", "Codex auth.json unreadable: open /Users/张三/.codex/auth.json: no such file"},
+		// Ours, ending on the path it names, or naming its tool in Latin: a
+		// path in the middle of a Chinese sentence with no Latin anywhere is
+		// the OS's shape, but these are not that shape and must stay readable.
+		{`kimi 账号 "work" 的会话文件不在 /Users/张三/.leeway/sessions/kimi-work`, `切换失败 · kimi 账号 "work" 的会话文件不在 /Users/张三/.leeway/sessions/kimi-work`, ""},
+		{"无法写入 /Users/me/auth.json", "切换失败 · 无法写入 /Users/me/auth.json", ""},
+		{"没有找到 cursor-agent：/opt/homebrew/bin 里没有它", "切换失败 · 没有找到 cursor-agent：/opt/homebrew/bin 里没有它", ""},
+		{"cookie 已过期: 请重新登录", "切换失败 · cookie 已过期: 请重新登录", ""},
 		// Ours, with a path or a URL inside the sentence: those stay on
 		// screen. A rule that fired on any "/" hid them, and on the toast
 		// paths — which throw the detail away — that lost the sentence
@@ -2017,5 +2032,48 @@ func TestTheAttentionRowKeepsAMachinesPathOffTheRow(t *testing.T) {
 	}
 	if !tester.HasText("查询失败 · cookie 已过期，重新登录") && !tester.HasText("查询失败") {
 		t.Errorf("the row lost the app's own sentence; texts=%v", tester.Texts())
+	}
+}
+
+// The matrix is the densest page, and at the window's enforced minimum width
+// (780) a column is about 57 px wide. The name is the column's identity, so it
+// keeps a floor there instead of collapsing: measured 0x0 without the floor
+// (every column, seven accounts) and 20x18.8 with it. The floor must not cost
+// the column its control, so this pins that too.
+func TestTheColumnNameSurvivesTheNarrowestMatrix(t *testing.T) {
+	a := testApp(t)
+	idx := -1
+	for i := range a.out.Providers {
+		if a.out.Providers[i].ID == "kimi" {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		t.Fatal("the fixture no longer reports kimi")
+	}
+	first := a.out.Providers[idx].Accounts[0]
+	a.out.Providers[idx].Accounts = nil
+	for i := 0; i < 7; i++ {
+		cp := first
+		cp.Name = fmt.Sprintf("acct-%d", i)
+		cp.Snapshot = nil
+		a.out.Providers[idx].Accounts = append(a.out.Providers[idx].Accounts, cp)
+	}
+	a.reloadConfig()
+	a.navigate("provider:kimi")
+	tester := ui.NewTester(a.view, 780, 700)
+	tester.Frame()
+	for i := 0; i < 7; i++ {
+		name := fmt.Sprintf("acct-%d", i)
+		r, ok := tester.Find(name)
+		if !ok {
+			t.Fatalf("%s is not on the page at all", name)
+		}
+		if r.W < 12 || r.H < 6 {
+			t.Errorf("%s is squeezed to %v at the minimum width", name, r)
+		}
+		if r, ok := tester.Find("账号"); !ok || r.W < 12 {
+			t.Errorf("the column lost its menu control: %v %v", r, ok)
+		}
 	}
 }
