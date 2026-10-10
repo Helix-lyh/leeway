@@ -244,14 +244,12 @@ func (a *App) heroWindow(c *ui.Context, p palette, providerID string, w model.Ra
 				})
 				hero(c, p, tweenText(w, tweenValue(line, "value", windowValue(w))), p.amountColor(w))
 			})
-			for i, f := range facts {
-				// The spacers go between the readings, not before each of them:
-				// the first reading belongs beside the number, and a window whose
-				// only reading is its reset must not have it thrown to the far
-				// edge of the card.
-				if i > 0 {
-					ui.Spacer(c)
-				}
+			for _, f := range facts {
+				// The readings stay on the number's own line, as one group with
+				// it. They used to be pushed apart to the card's edges, which
+				// left a hole in the middle of the hero: a gap at the edge of a
+				// group reads as margin, and the same gap inside one reads as
+				// something missing.
 				ui.Column(c).
 					Gap(space1).
 					// A row's End alignment matches box bottoms, and the 40px
@@ -421,8 +419,8 @@ func (a *App) skeletonHero(c *ui.Context, p palette) ui.Element {
 			// prediction of the page, and a short one moves the page twice.
 			// The number bar is as wide as the caption above it because that
 			// is what the landed column measures — its number ("78%") is
-			// narrower than the window's name — and the readings sit where the
-			// spacers below leave them, not against the card's right edge.
+			// narrower than the window's name — and the readings stay on the
+			// number's line as one group with it, where the answer draws them.
 			// The bars are the landed line boxes at the size the reader asked
 			// for: fixed heights left the card 55px short at 1.5x, and the answer
 			// then moved what the skeleton had just drawn.
@@ -431,13 +429,7 @@ func (a *App) skeletonHero(c *ui.Context, p palette) ui.Element {
 				placeholder(c, p, 96*f, sizeBody*1.2, 8)
 				placeholder(c, p, 96*f, sizeHero*1.2, 12)
 			})
-			// The spacers sit between the readings, as the answer draws them:
-			// with one before each, the two placeholders sat at the card's edge
-			// and the first reading jumped 219px left when the probe landed.
 			for i := 0; i < 2; i++ {
-				if i > 0 {
-					ui.Spacer(c)
-				}
 				ui.Column(c).Gap(space1).Children(func() {
 					placeholder(c, p, 48*f, sizeLabel*1.2, 6)
 					placeholder(c, p, 72*f, sizeChrome*1.2, 7)
@@ -457,7 +449,7 @@ func (a *App) skeletonHero(c *ui.Context, p palette) ui.Element {
 func (a *App) skeletonAttention(c *ui.Context, p palette) ui.Element {
 	return card(c, p, func() {
 		section(c, p, "需要处理")
-		ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
 			placeholder(c, p, 28, 28, 8)
 			placeholder(c, p, 96, 12, 6)
 			placeholder(c, p, 52, 16, 8)
@@ -590,7 +582,7 @@ func (a *App) unconfiguredRow(c *ui.Context, p palette, list []providerView) {
 	for _, v := range list {
 		names = append(names, v.DisplayName)
 	}
-	ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
 		ui.Box(c).Width(28)
 		// SingleLine, not MaxLines: a row with more in it than fits has to
 		// truncate its words rather than stack them one character per line.
@@ -618,7 +610,7 @@ func (a *App) unconfiguredRow(c *ui.Context, p palette, list []providerView) {
 // the state and the buttons are what the row is for; a list of these has to
 // stay short enough that the providers that are fine are still on the screen.
 func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
-	ui.Row(c).FillWidth().Gap(10).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Center).Children(func() {
 		mark(c, p, v.ID, v.DisplayName, 28, v.Status)
 		ui.Text(c, v.DisplayName).
 			Role(ui.RoleHeading).
@@ -628,7 +620,7 @@ func (a *App) attentionRow(c *ui.Context, p palette, v providerView) {
 			SingleLine()
 		pill(c, p, statusLabel(v.Status, v.firstCred()), statusTone(v.Status))
 		ui.Box(c).Grow(1).Clip().Children(func() { attentionLine(c, p, v) })
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 			switch {
 			case !v.Enabled:
 				if btnSmall(ui.Button(c, "添加")).Clicked() {

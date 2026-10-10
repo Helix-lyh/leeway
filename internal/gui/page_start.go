@@ -45,10 +45,10 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 	case !v.Enabled:
 		line = "已移除，不会被查询。"
 	}
-	ui.Row(c).FillWidth().PaddingY(11).Gap(12).AlignItems(ui.Center).Children(func() {
+	ui.Row(c).FillWidth().PaddingY(space3).Gap(space3).AlignItems(ui.Center).Children(func() {
 		mark(c, p, v.ID, v.DisplayName, 32, v.Status)
-		ui.Column(c).Grow(1).Gap(3).Children(func() {
-			ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Column(c).Grow(1).Gap(space1).Children(func() {
+			ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 				ui.Text(c, v.DisplayName).
 					Role(ui.RoleHeading).
 					Level(2).
@@ -61,7 +61,7 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 			})
 			muted(c, p, line)
 		})
-		ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
+		ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 			switch {
 			case !v.Enabled:
 				if btnSmall(ui.Button(c, "添加")).Clicked() {
@@ -77,7 +77,18 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 					method.open(a, v.ID, defaultAccount(v))
 				}
 			}
-			if btnSmall(ui.Button(c, "详情")).Clicked() {
+			// 详情 is the way to the provider's own page, not a second action.
+			// At the weight of the button that gets the provider working it
+			// competed with it on every row of a seven-row guide, so it is a
+			// quiet control: muted ink that comes up to full strength under the
+			// pointer, which is also the only thing saying it can be pressed.
+			detail := btnSmall(ui.ButtonBase(c).Label("详情")).
+				Cursor(ui.CursorPointer).
+				TextColor(p.t.TextMuted)
+			if detail.Hovered() {
+				detail.TextColor(p.t.Text)
+			}
+			if detail.Clicked() {
 				a.navigate("provider:" + v.ID)
 			}
 		})

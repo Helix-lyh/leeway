@@ -174,12 +174,12 @@ func (a *App) view(c *ui.Context) {
 				ui.Sidebar(c, &a.page, func() { a.sidebarItems(c, p) }).
 					Width(sidebarWidth).
 					FillHeight().
-					Padding(12, 10).
+					Padding(space3, space3).
 					Material(glass.Glass{})
 				ui.Scroll(c).
 					Grow(1).
 					FillHeight().
-					Padding(26, pagePad, pageBottomPad, pagePad).
+					Padding(space5, pagePad, pageBottomPad, pagePad).
 					Children(func() {
 						// The measure. A window pulled across a wide display
 						// is not a reason for a bar 1600px long or a number
@@ -283,14 +283,14 @@ func (a *App) titleState(c *ui.Context, p palette) {
 		entries = []entry{{0, "查询失败", p.toneColor(toneCritical)}}
 	}
 	shown := 0
-	ui.Row(c).Gap(14).AlignItems(ui.Center).Role(ui.RoleStatus).Children(func() {
+	ui.Row(c).Gap(space3).AlignItems(ui.Center).Role(ui.RoleStatus).Children(func() {
 		for _, e := range entries {
 			if e.n == 0 && !busy {
 				continue
 			}
 			shown++
 			entry := e
-			ui.Row(c).Gap(6).AlignItems(ui.Center).Children(func() {
+			ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(func() {
 				dot(c, entry.color)
 				spans := []ui.Span{{Text: entry.text, Color: p.t.TextMuted}}
 				if entry.n > 0 {
@@ -336,7 +336,7 @@ func (a *App) titleActions(c *ui.Context, p palette) {
 // interval menu and the settings button share one padding and one corner, so
 // the row reads as a cluster rather than three buttons that happen to be near.
 func titleControl(e ui.Element) ui.Element {
-	return e.Padding(6, 10).Radius(radiusControl).FontSize(sizeBody)
+	return e.Padding(space1, space2).Radius(radiusControl).FontSize(sizeBody)
 }
 
 var refreshOptions = []struct {
@@ -379,14 +379,25 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 			// row so a keyboard or screen-reader user reads the state too.
 			item = item.Tooltip(view.DisplayName + " · " + statusLabel(view.Status, view.firstCred()))
 			item.Children(func() {
-				// Every provider listed here has at least one subscription, so
-				// the count is always worth showing: a row without a number
-				// reads as "unknown", not as "one".
-				if n := len(view.Accounts); n > 0 {
+				// The row leads with the provider's own headroom, not with how
+				// many accounts it has: the question the overview answers is
+				// which provider is closest to its cap, and a sidebar that only
+				// counted accounts made that unanswerable without opening each
+				// one. A provider with nothing to report yet falls back to the
+				// count — a row without a number reads as "unknown", not as
+				// "one".
+				if left, ok := headlineLeft(view); ok {
 					// Text, not a badge: a filled chip 9px from the state dot
-					// reads as a second state badge, and the count has no label
-					// to say which is which.
-					muted(c, p, fmt.Sprintf("%d", n))
+					// reads as a second state badge. Tabular, because the
+					// number changes under the reader.
+					//
+					// Full-strength ink, not the muted one: the sidebar sits on
+					// glass, and the muted ink measures 3.90:1 there — under the
+					// 4.5:1 a 13px number needs. It is a reading, and the row's
+					// hierarchy comes from its order, not from fading the data.
+					label(c, p, left).TextColor(p.t.Text).FontFeatures("tnum")
+				} else if n := len(view.Accounts); n > 0 {
+					muted(c, p, fmt.Sprintf("%d", n)).TextColor(p.t.Text)
 				}
 				// A dot means leeway has something to say: green is fine, red
 				// is not, and a ring means it has not answered yet.
@@ -401,6 +412,34 @@ func (a *App) sidebarItems(c *ui.Context, p palette) {
 		sidebarItem(c, "history", iconHistory, "历史", a.page == "history")
 		sidebarItem(c, "about", iconAbout, "关于", a.page == "about")
 	})
+}
+
+// headlineLeft is the number a provider's sidebar row leads with: what is left
+// of its fullest window, as a percentage of that window's cap. It reads across
+// the provider's accounts rather than the first of them, because the row
+// answers for the provider — the same "closest to its cap" the lead card picks
+// its subject by.
+//
+// It is what is left rather than what is spent, which is what the rest of the
+// window counts, because the sidebar is the one place the question is "how much
+// do I have" and not "what did it cost": a row that answered in spent
+// percentages made the reader invert every one of them to compare. The word in
+// front is what keeps the two readings from being mistaken for each other.
+func headlineLeft(v providerView) (string, bool) {
+	var windows []model.RateWindow
+	for _, av := range v.Accounts {
+		if av.Status == "ok" && av.Snapshot != nil {
+			windows = append(windows, displayWindows(av.Snapshot)...)
+		}
+	}
+	if len(windows) == 0 {
+		return "", false
+	}
+	spent, ok := windowFraction(fullestWindow(windows))
+	if !ok {
+		return "", false
+	}
+	return "剩 " + percentText((1-spent)*100), true
 }
 
 // statusColor colors a provider's dot in the sidebar and its badge in a card.
@@ -450,19 +489,19 @@ func pageHead(c *ui.Context, p palette, name, subtitle string, actions func()) u
 
 // pageHeadMarked is a page head with a provider's mark in front of its name.
 func pageHeadMarked(c *ui.Context, p palette, id, status, name, subtitle string, actions func()) ui.Element {
-	return ui.Column(c).FillWidth().Gap(14).Children(func() {
-		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(16).Children(func() {
+	return ui.Column(c).FillWidth().Gap(space3).Children(func() {
+		ui.Row(c).FillWidth().AlignItems(ui.End).Gap(space4).Children(func() {
 			if id != "" {
 				mark(c, p, id, name, 46, status)
 			}
-			ui.Column(c).Grow(1).Gap(6).Children(func() {
+			ui.Column(c).Grow(1).Gap(space2).Children(func() {
 				title(c, p, name)
 				if subtitle != "" {
 					muted(c, p, subtitle)
 				}
 			})
 			if actions != nil {
-				ui.Row(c).Gap(8).AlignItems(ui.Center).Children(actions)
+				ui.Row(c).Gap(space2).AlignItems(ui.Center).Children(actions)
 			}
 		})
 		hairline(c, p)
@@ -599,7 +638,7 @@ func hasBarePath(message string) bool {
 // window is not a log, and "unexpected EOF" in front of a reader explains
 // nothing. What fixes the failure is a button beside this line, not a string.
 func errorLine(c *ui.Context, p palette, text, detail string) ui.Element {
-	return ui.Row(c).FillWidth().Gap(7).AlignItems(ui.Start).Children(func() {
+	return ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.Start).Children(func() {
 		ui.Icon(c, iconAlert).FontSize(iconSmall).TextColor(p.toneColor(toneCritical)).Padding(1, 0, 0, 0)
 		// Focusable so the detail is not pointer-only: MyGo shows a keyboard
 		// tooltip as soon as the focus ring is visible.

@@ -993,6 +993,45 @@ func TestTheSidebarListsOnlyWhatThisMachineHas(t *testing.T) {
 	}
 }
 
+// Every provider with an answer says in the sidebar how much of its tightest
+// window is left, so the comparison across providers is readable without
+// opening any of them: the page itself shows one card per provider, and at the
+// default window that puts the last of them below the fold.
+func TestTheSidebarSaysWhatEachProviderHasLeft(t *testing.T) {
+	a := testApp(t)
+	a.navigate("overview")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	left := 0
+	first := ""
+	for _, text := range tester.Texts() {
+		if strings.HasPrefix(text, "剩 ") {
+			left++
+			if first == "" {
+				first = text
+			}
+		}
+	}
+	ready := 0
+	for _, v := range a.providers() {
+		if v.Enabled && v.Status == "ok" && hasWindows(v) {
+			ready++
+		}
+	}
+	if left != ready {
+		t.Errorf("%d providers have an answer and %d say what is left of it", ready, left)
+	}
+	// And it is in the first viewport, which is the whole reason it is in the
+	// sidebar: a number the reader has to scroll to is not a comparison.
+	box, ok := tester.Find(first)
+	if !ok {
+		t.Fatalf("%q was listed and cannot be found", first)
+	}
+	if box.X >= sidebarWidth || box.Y+box.H >= mainHeight {
+		t.Errorf("%q sits at %.0f,%.0f, outside the sidebar's first screen", first, box.X, box.Y)
+	}
+}
+
 // A window with nothing configured says so where the list would be.
 func TestASidebarWithNothingConfiguredSaysSo(t *testing.T) {
 	a := freshApp(t)
