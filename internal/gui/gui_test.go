@@ -2121,6 +2121,120 @@ func rewriteWindows(t *testing.T, a *App, windows func(i int) []model.RateWindow
 	a.out = &out
 }
 
+// sevenAccountApp is the widest matrix the page has to hold: seven accounts in
+// one provider, each reporting a different number, the first of them the widest
+// string the cell ever holds ("100%").
+func sevenAccountApp(t *testing.T) *App {
+	a := testApp(t)
+	names := []string{"a", "b", "c", "d", "e", "f", "g"}
+	for _, n := range names {
+		if err := loginAPIKey("opencode-go", n, "oc_sk-test"); err != nil {
+			t.Fatalf("loginAPIKey: %v", err)
+		}
+		if _, err := config.Load(); err != nil {
+			t.Fatalf("config: %v", err)
+		}
+	}
+	a.reloadConfig()
+	var results []model.AccountResult
+	for i, n := range names {
+		pct := float64(100 - 10*i)
+		reset := a.lastAt.Add(time.Duration(i+1) * 24 * time.Hour)
+		results = append(results, model.AccountResult{
+			Name: n, Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: a.lastAt,
+				Identity:  &model.Identity{Account: n + "@example.com", Plan: "Go"},
+				Windows: []model.RateWindow{
+					{ID: "weekly", Title: "Weekly", UsedPercent: &pct, ResetsAt: &reset},
+				},
+			},
+		})
+	}
+	a.out = &model.Output{Version: 1, GeneratedAt: a.lastAt, Providers: []model.ProviderResult{{
+		ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok", UpdatedAt: a.lastAt, Accounts: results,
+	}}}
+	return a
+}
+
+// inkSpan is the first and last column of dark ink inside a box: what a reader
+// sees of a string, which its box is not. A number the column cannot hold is
+// laid out at its own width and borrows from the gutter, so it draws ink wider
+// than the cell it belongs to.
+func inkSpan(img *image.RGBA, box ui.Rect) (int, int) {
+	lo, hi := -1, -1
+	for x := int(box.X); x < int(box.X+box.W) && x < img.Bounds().Dx(); x++ {
+		for y := int(box.Y); y < int(box.Y+box.H) && y < img.Bounds().Dy(); y++ {
+			c := img.RGBAAt(x, y)
+			if int(c.R)+int(c.G)+int(c.B) < 400 {
+				if lo < 0 {
+					lo = x
+				}
+				hi = x
+				break
+			}
+		}
+	}
+	return lo, hi
+}
+
+// Seven accounts is the worst matrix the page holds: at the narrowest window a
+// column is 49px, which at 1x holds every number but "100%" (55px) and at 1.5x
+// holds none of them (60px). Two things must stay true there: a number the cell
+// cannot hold is shortened rather than drawn over its neighbour — two numbers the
+// eye runs together read as one, which is the worst thing a monitor can do — and
+// it is never shortened away to nothing.
+func TestTheMatrixNumbersSurviveSevenColumns(t *testing.T) {
+	ink := func(w int, scale float32) [][2]int {
+		a := sevenAccountApp(t)
+		a.navigate("provider:opencode-go")
+		tester := ui.NewTester(a.view, w, mainHeight)
+		if scale != 1 {
+			tester.SetPreferences(ui.Preferences{TextScale: scale})
+		}
+		tester.Frame()
+		img := tester.Image()
+		spans := make([][2]int, 0, 7)
+		for i := 0; i < 7; i++ {
+			want := fmt.Sprintf("%d%%", 100-10*i)
+			box, ok := tester.Find(want)
+			if !ok {
+				t.Fatalf("at %dx/%vx the matrix does not say %s; texts=%v", w, scale, want, tester.Texts())
+			}
+			lo, hi := inkSpan(img, box)
+			if lo < 0 {
+				t.Fatalf("at %dx/%vx %s drew no ink", w, scale, want)
+			}
+			spans = append(spans, [2]int{lo, hi})
+		}
+		return spans
+	}
+	for _, scale := range []float32{1, 1.5} {
+		wide := ink(mainWidth, scale)
+		narrow := ink(780, scale)
+		for i := range wide {
+			label := fmt.Sprintf("%d%%", 100-10*i)
+			whole, cut := wide[i][1]-wide[i][0], narrow[i][1]-narrow[i][0]
+			if scale == 1 && i > 0 && cut < whole {
+				t.Errorf("at 780/1x %s draws %dpx of ink against %dpx at the default width: the cell holds it, so it must not be cut",
+					label, cut+1, whole+1)
+			}
+			// Even cut, a number keeps a third of its ink: a cell that ends up
+			// drawing the ellipsis alone tells the reader nothing at all.
+			if cut < whole/3 {
+				t.Errorf("at 780/%vx %s draws %dpx of ink against %dpx at the default width: the number is cut away to nothing",
+					scale, label, cut+1, whole+1)
+			}
+			if i > 0 {
+				if gap := narrow[i][0] - narrow[i-1][1]; gap < 2 {
+					t.Errorf("at 780/%vx %s and %d%% are %dpx apart: the numbers ran together",
+						scale, label, 100-10*(i-1), gap)
+				}
+			}
+		}
+	}
+}
+
 // A provider names its own windows, and those names are not all short: with
 // "Codex Spark Weekly" on the row header's line, the number — the one thing in
 // the cell that must not be cut — was what got cut, drawing "20%" as "2…" and

@@ -218,7 +218,13 @@ func (a *App) matrixCell(c *ui.Context, p palette, providerID string, av account
 			// The number is the one thing in the cell that must not be cut, and
 			// a provider's window title ("Codex Spark Weekly") can eat the whole
 			// line: the value keeps its width and the name is what ellipsizes.
-			value(c, p, amountText(cw), p.amountColor(cw)).Shrink(0)
+			// It is capped at the cell all the same — past that it would be drawn
+			// over its neighbour, and two numbers the eye runs together are worse
+			// than one that says it is short.
+			value(c, p, amountText(cw), p.amountColor(cw)).
+				Shrink(0).
+				MaxWidthPercent(100).
+				Ellipsis("…")
 		}
 	})
 	if !ok || (cw.UsedPercent == nil && cw.Used == nil) {
