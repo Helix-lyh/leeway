@@ -29,13 +29,13 @@ type usageError struct {
 func (e *usageError) Error() string {
 	switch e.kind {
 	case kindInvalidCredentials:
-		return "OpenCode Go session cookie is invalid or expired."
+		return "OpenCode Go 的登录状态不合法或已过期。"
 	case kindNetwork:
-		return "OpenCode Go network error: " + e.message
+		return "OpenCode Go 网络出错：" + e.message
 	case kindAPI:
-		return "OpenCode Go API error: " + e.message
+		return "OpenCode Go 接口出错：" + e.message
 	default:
-		return "OpenCode Go parse error: " + e.message
+		return "OpenCode Go 解析出错：" + e.message
 	}
 }
 
@@ -60,7 +60,7 @@ func isMissingUsageFields(err error) bool {
 	if !errors.As(err, &ue) {
 		return false
 	}
-	return ue.kind == kindParse && strings.Contains(ue.message, "Missing usage fields")
+	return ue.kind == kindParse && strings.Contains(ue.message, "用量字段缺失")
 }
 
 func sprintf(format string, args ...any) string {

@@ -25,7 +25,7 @@ const ImportTTL = 12 * time.Hour
 
 // ErrCookieCacheUnreadable is returned when cookies.json exists but cannot
 // be parsed or read. Missing cookies are a different error.
-var ErrCookieCacheUnreadable = errors.New("cookie cache unreadable")
+var ErrCookieCacheUnreadable = errors.New("登录状态缓存读不了")
 
 // CookieCache is one imported cookie header stored on disk.
 type CookieCache struct {
@@ -193,7 +193,7 @@ func ResolveCookieHeader(providerID string, pc config.ProviderConfig, account st
 	if ok && cc.Header != "" {
 		return sanitizeHeader(cc.Header), nil
 	}
-	return "", fmt.Errorf("no cookie credentials for %q — run: leeway login %s --cookie (or: leeway login %s --manual ...)", providerID, providerID, providerID)
+	return "", fmt.Errorf("没有 %q 的登录状态 — 请跑 leeway login %s --cookie（或 leeway login %s --manual ...）", providerID, providerID, providerID)
 }
 
 // cacheUnreadableError distinguishes a corrupt/unreadable cookie cache from
@@ -204,7 +204,10 @@ func cacheUnreadableError(err error) error {
 	if perr != nil {
 		p = "(unresolvable)"
 	}
-	return fmt.Errorf("%w: %v — delete %s and re-run leeway login --cookie", ErrCookieCacheUnreadable, err, p)
+	// The machine's own words go last: failureText only splits off a tail that
+	// follows the final colon, so a %v parked mid-sentence would drag the raw
+	// parser error onto the screen.
+	return fmt.Errorf("%w：删掉 %s，再跑一次 leeway login --cookie：%v", ErrCookieCacheUnreadable, p, err)
 }
 
 // RemoveCookieCacheFile deletes cookies.json. A missing file is success.

@@ -352,7 +352,7 @@ func TestFetchMissingCookie(t *testing.T) {
 	if err == nil {
 		t.Fatalf("missing cookie must error")
 	}
-	if !strings.Contains(err.Error(), "missing cookies") {
+	if !strings.Contains(err.Error(), "没有登录状态") {
 		t.Fatalf("expected missing-cookies hint, got %v", err)
 	}
 }
@@ -365,7 +365,7 @@ func TestFetchCookieWithoutAuthCookie(t *testing.T) {
 	req := defaultCookieReq()
 	req.Creds.CookieHeader = "session=abc; other=x"
 	_, err := f.provider().Fetch(context.Background(), req)
-	if err == nil || !strings.Contains(err.Error(), "invalid or expired") {
+	if err == nil || !strings.Contains(err.Error(), "不合法或已过期") {
 		t.Fatalf("expected invalid credentials, got %v", err)
 	}
 }
@@ -376,7 +376,7 @@ func TestFetchUnauthorized(t *testing.T) {
 		w.WriteHeader(http.StatusUnauthorized)
 	})
 	_, err := f.provider().Fetch(context.Background(), defaultCookieReq())
-	if err == nil || !strings.Contains(err.Error(), "invalid or expired") {
+	if err == nil || !strings.Contains(err.Error(), "不合法或已过期") {
 		t.Fatalf("expected invalid credentials, got %v", err)
 	}
 }
@@ -388,7 +388,7 @@ func TestFetchSignedOutPage(t *testing.T) {
 		w.Write([]byte(`<html><a href="/auth/login">Log in</a></html>`))
 	})
 	_, err := f.provider().Fetch(context.Background(), defaultCookieReq())
-	if err == nil || !strings.Contains(err.Error(), "invalid or expired") {
+	if err == nil || !strings.Contains(err.Error(), "不合法或已过期") {
 		t.Fatalf("expected invalid credentials for signed-out page, got %v", err)
 	}
 }
@@ -403,7 +403,7 @@ func TestFetchAPIErrorWithMessage(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected API error")
 	}
-	if !strings.Contains(err.Error(), "OpenCode Go API error: HTTP 500: rate limited") {
+	if !strings.Contains(err.Error(), "OpenCode Go 接口出错：HTTP 500: rate limited") {
 		t.Fatalf("error classification wrong: %v", err)
 	}
 }
@@ -414,7 +414,7 @@ func TestFetchNonUTF8Body(t *testing.T) {
 		w.Write([]byte{0xff, 0xfe, 0x00, 0x41})
 	})
 	_, err := f.provider().Fetch(context.Background(), defaultCookieReq())
-	if err == nil || !strings.Contains(err.Error(), "Response was not UTF-8") {
+	if err == nil || !strings.Contains(err.Error(), "返回的内容不是 UTF-8") {
 		t.Fatalf("expected UTF-8 parse error, got %v", err)
 	}
 }
@@ -490,7 +490,7 @@ func TestFetchNoWorkspaceIDError(t *testing.T) {
 	req := defaultCookieReq()
 	req.WorkspaceID = ""
 	_, err := f.provider().Fetch(context.Background(), req)
-	if err == nil || !strings.Contains(err.Error(), "Missing workspace id") {
+	if err == nil || !strings.Contains(err.Error(), "缺少工作区 ID") {
 		t.Fatalf("expected missing workspace id error, got %v", err)
 	}
 }
@@ -529,7 +529,7 @@ func TestFetchAPIKeyUnauthorized(t *testing.T) {
 	})
 	_, err := f.provider().Fetch(context.Background(),
 		provider.FetchRequest{Creds: provider.Credentials{APIKey: "sk-bad"}})
-	if err == nil || !strings.Contains(err.Error(), "invalid or expired") {
+	if err == nil || !strings.Contains(err.Error(), "不合法或已过期") {
 		t.Fatalf("expected invalid credentials, got %v", err)
 	}
 }
@@ -539,7 +539,7 @@ func TestFetchAPIKeyMissingUsage(t *testing.T) {
 	f.usageAPI = `{"error": "no usage"}`
 	_, err := f.provider().Fetch(context.Background(),
 		provider.FetchRequest{Creds: provider.Credentials{APIKey: "sk-sub"}})
-	if err == nil || !strings.Contains(err.Error(), "Missing usage fields") {
+	if err == nil || !strings.Contains(err.Error(), "用量字段缺失") {
 		t.Fatalf("expected missing usage fields, got %v", err)
 	}
 }

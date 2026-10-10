@@ -37,7 +37,7 @@ func LookupCursorEmail(ctx context.Context, token string) (string, error) {
 		return "", err
 	}
 	if status < 200 || status >= 300 {
-		return "", fmt.Errorf("Cursor GetMe failed (HTTP %d)", status)
+		return "", fmt.Errorf("查询 Cursor 账号信息失败（HTTP %d）", status)
 	}
 	var me struct {
 		Email string `json:"email"`

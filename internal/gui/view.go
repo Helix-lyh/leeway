@@ -468,7 +468,7 @@ func hasQuotedPath(message string) bool {
 
 // tailIsAMachine reports whether what follows a colon is a machine's words: a
 // phrase with no Chinese in it, like "exit status 51" or "no such file or
-// directory". Our own tails are Chinese — "官方 CLI 没写出令牌", "写入 64 字节，
+// directory". Our own tails are Chinese — "官方工具没有写出登录信息", "写入 64 字节，
 // 读回 32 字节" — and those belong in the sentence with the head that leads to
 // them.
 func tailIsAMachine(tail string) bool {
@@ -510,9 +510,9 @@ func looksLikeAMachine(message string) bool {
 	// Chinese with a path in the *middle* of it, and no Latin anywhere outside
 	// that path, is an OS error: macOS writes 打开 /Users/张三/x 被拒绝. One of
 	// ours either ends on the path — "请先导入 ~/.grok/auth.json", "kimi 账号
-	// "work" 的会话文件不在 /Users/…" — or names its tool in Latin letters:
+	// "work" 的登录文件不在 /Users/…" — or names its tool in Latin letters:
 	// "找到 3 个 Cursor state.vscdb（/a, /b）——用 LEEWAY_CURSOR_STATE_DB 指定
-	// 要写哪一个", "拒绝删除 /Users/…：不在 leeway 会话目录里". Those stay.
+	// 要写哪一个", "不删除 /Users/…：它不是 leeway 的登录目录". Those stay.
 	words := strings.Fields(message)
 	for i, word := range words {
 		if strings.HasPrefix(word, "/") || strings.HasPrefix(word, "~") {

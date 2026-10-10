@@ -141,7 +141,7 @@ func (a *App) settingsGeneral(c *ui.Context, p palette) {
 			on := mygo.App.IsReady() && mygo.App.OpenAtLogin()
 			if ui.Switch(c, &on).Label(name).Changed() && mygo.App.IsReady() {
 				if err := mygo.App.SetOpenAtLogin(on); err != nil {
-					log.Printf("gui: open at login: %v", err)
+					log.Printf("窗口：设置开机自启失败：%v", err)
 					a.toast, _ = failureText("开机自启设置失败", err.Error())
 				}
 			}

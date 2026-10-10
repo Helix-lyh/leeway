@@ -339,10 +339,10 @@ func TestFetchUsageStatusClassification(t *testing.T) {
 		wantErr string
 	}{
 		{"ok", "usage_partial.json", 200, ""},
-		{"unauthorized", "usage_partial.json", 401, "session expired — run: leeway login codex"},
-		{"forbidden", "usage_partial.json", 403, "session expired — run: leeway login codex"},
-		{"server error with body", "usage_partial.json", 500, "Codex API error 500: boom"},
-		{"server error empty", "", 502, "Codex API error 502."},
+		{"unauthorized", "usage_partial.json", 401, "登录已过期 — 请跑 leeway login codex"},
+		{"forbidden", "usage_partial.json", 403, "登录已过期 — 请跑 leeway login codex"},
+		{"server error with body", "usage_partial.json", 500, "Codex 接口出错 500：boom"},
+		{"server error empty", "", 502, "Codex 接口出错 502。"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -369,7 +369,7 @@ func TestFetchUsageStatusClassification(t *testing.T) {
 func TestFetchUsageInvalidJSON(t *testing.T) {
 	c := clientFor(t, []byte("<html>not json</html>"), 200)
 	_, err := c.fetchUsage(context.Background(), "tok", "")
-	if err == nil || !strings.Contains(err.Error(), "Invalid response from Codex usage API.") {
+	if err == nil || !strings.Contains(err.Error(), "Codex 用量接口返回的内容不对。") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -564,7 +564,7 @@ func TestFetchNoRateLimits(t *testing.T) {
 		t.Run(fixture, func(t *testing.T) {
 			c := clientFor(t, readFixture(t, fixture), 200)
 			_, err := fetchCodex(context.Background(), c, "tok", "")
-			if err == nil || !strings.Contains(err.Error(), "no rate limit events") {
+			if err == nil || !strings.Contains(err.Error(), "还没有额度记录") {
 				t.Fatalf("err = %v", err)
 			}
 		})

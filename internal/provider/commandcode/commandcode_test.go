@@ -176,7 +176,7 @@ func TestFetchUnauthorized(t *testing.T) {
 	_, err := p.Fetch(context.Background(), provider.FetchRequest{
 		Creds: provider.Credentials{APIKey: "user_testkey"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "invalid Command Code API key") {
+	if err == nil || !strings.Contains(err.Error(), "Command Code API 密钥不合法") {
 		t.Fatalf("expected invalid-key error, got %v", err)
 	}
 }
@@ -184,7 +184,7 @@ func TestFetchUnauthorized(t *testing.T) {
 func TestFetchMissingKey(t *testing.T) {
 	p := newProvider(nil, "http://127.0.0.1:1", func() time.Time { return fixedNow })
 	_, err := p.Fetch(context.Background(), provider.FetchRequest{})
-	if err == nil || !strings.Contains(err.Error(), "missing Command Code API key") {
+	if err == nil || !strings.Contains(err.Error(), "没有 Command Code API 密钥") {
 		t.Fatalf("expected missing-key error, got %v", err)
 	}
 }

@@ -9,10 +9,10 @@ import (
 // errMissingSession is the clear error for absent Codex credentials; the
 // fetch orchestrator maps missing credentials to "not_configured" before
 // Fetch is called, so this is a defensive backstop (never panic).
-var errMissingSession = errors.New("missing Codex session — run: leeway login codex")
+var errMissingSession = errors.New("没有 Codex 登录信息 — 请跑 leeway login codex")
 
 // errNoRateLimitsFound mirrors CodexBar's UsageError.noRateLimitsFound.
-var errNoRateLimitsFound = errors.New("found sessions, but no rate limit events yet")
+var errNoRateLimitsFound = errors.New("找到了登录信息，但还没有额度记录")
 
 // fetchError classifies Codex API failures the way CodexOAuthFetchError and
 // CodexOpenAIWorkspaceResolverError do.
@@ -38,22 +38,22 @@ func (e *fetchError) Error() string {
 	case kindUnauthorized:
 		// CodexBar: "Codex OAuth token expired or invalid. Run `codex` to
 		// re-authenticate."; leeway contract keeps the same hint shorter.
-		return "session expired — run: leeway login codex"
+		return "登录已过期 — 请跑 leeway login codex"
 	case kindInvalidResponse:
-		return "Invalid response from Codex usage API."
+		return "Codex 用量接口返回的内容不对。"
 	case kindServerError:
 		if body := strings.TrimSpace(e.body); body != "" {
-			return fmt.Sprintf("Codex API error %d: %s", e.code, body)
+			return fmt.Sprintf("Codex 接口出错 %d：%s", e.code, body)
 		}
-		return fmt.Sprintf("Codex API error %d.", e.code)
+		return fmt.Sprintf("Codex 接口出错 %d。", e.code)
 	case kindInvalidAccountsResponse:
-		return "OpenAI account lookup returned an invalid response."
+		return "查询 OpenAI 账号时返回的内容不对。"
 	case kindNetworkError:
 		// Provider-prefixed like every other provider's network error, so a
 		// multi-provider table shows which probe failed.
-		return fmt.Sprintf("Codex network error: %v", e.cause)
+		return fmt.Sprintf("Codex 网络出错：%v", e.cause)
 	default:
-		return "Codex API error."
+		return "Codex 接口出错。"
 	}
 }
 

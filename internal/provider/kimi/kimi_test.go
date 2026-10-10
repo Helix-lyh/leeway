@@ -325,10 +325,10 @@ func TestFetchWebHTTPStatus(t *testing.T) {
 		status int
 		want   string
 	}{
-		{401, "Kimi auth token is invalid or expired"},
-		{403, "Kimi auth token is invalid or expired"},
-		{400, "Invalid request: Bad request"},
-		{500, "Kimi API error: HTTP 500"},
+		{401, "Kimi 登录令牌不合法或已过期"},
+		{403, "Kimi 登录令牌不合法或已过期"},
+		{400, "请求不合法：HTTP 400"},
+		{500, "Kimi 接口出错：HTTP 500"},
 	}
 	for _, tc := range cases {
 		p, _ := newTestProvider(t, func(*http.Request) (*http.Response, error) {
@@ -391,10 +391,10 @@ func TestFetchCodeAPIHTTPStatus(t *testing.T) {
 		status int
 		want   string
 	}{
-		{400, "Invalid request: Bad request"},
-		{401, "Kimi Code API key is invalid or expired"},
+		{400, "请求不合法：HTTP 400"},
+		{401, "Kimi Code API 密钥不合法或已过期"},
 		{403, "HTTP 403"},
-		{500, "Kimi API error: HTTP 500"},
+		{500, "Kimi 接口出错：HTTP 500"},
 	}
 	for _, tc := range cases {
 		p, _ := newTestProvider(t, func(*http.Request) (*http.Response, error) {
@@ -532,7 +532,7 @@ func TestFetchMissingCredentials(t *testing.T) {
 	// must report the missing-token error.
 	p, _ := newTestProvider(t, defaultHandler(t))
 	_, err := p.Fetch(context.Background(), provider.FetchRequest{Creds: provider.Credentials{}})
-	if err == nil || !strings.Contains(err.Error(), "auth token is missing") {
+	if err == nil || !strings.Contains(err.Error(), "没有 Kimi 登录令牌") {
 		t.Fatalf("err = %v, want missing token error", err)
 	}
 	var kerr *Error
@@ -557,8 +557,8 @@ func TestFetchUnreadableLocalSessionHint(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error from the unreadable local session")
 	}
-	if !strings.Contains(err.Error(), "parsing kimi-code.json") && !strings.Contains(err.Error(), "no access_token") {
-		t.Fatalf("err = %v, want parsing kimi-code.json or no access_token", err)
+	if !strings.Contains(err.Error(), "解析 kimi-code.json") && !strings.Contains(err.Error(), "没有 access_token") {
+		t.Fatalf("err = %v, want 解析 kimi-code.json or 没有 access_token", err)
 	}
 	var kerr *Error
 	if errors.As(err, &kerr) && kerr.Kind == KindMissingToken {

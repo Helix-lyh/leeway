@@ -92,7 +92,7 @@ OpenUsage.ai 与 OpenUsage.sh **不是同一个产品**。前者盯订阅窗口�
 | Command Code | 无会话文件 | ai-usagebar **明确只读**，过期报过期 | **学只读** |
 | Claude | 无 | ai-usagebar 会 refresh；旋转后的 refresh_token 写失败视为登出 | 若以后做 Claude，refresh 要 fail-closed |
 
-原则：**探测和登录不要把官方 CLI 的 token 写回官方文件，除非你就是那个 CLI。** leeway 现在只对 Grok（以及 Kimi CLI）在刷新时写回，路径隔离或原子更新。`leeway use cursor|grok` 是用户明确要求的本机切号：cursor 写本机所有已有的官方凭据位置（cursor-agent 的 macOS keychain 项、Cursor IDE `state.vscdb`、`~/.cursor/auth.json`，缺的跳过），grok 写 `~/.grok/auth.json`。
+原则：**探测和登录不要把官方 CLI 的 token 写回官方文件，除非你就是那个 CLI。** leeway 现在只对 Grok（以及 Kimi CLI）在刷新时写回，路径隔离或原子更新。`leeway use cursor|grok` 是用户明确要求的本机切换账号：cursor 写本机所有已有的官方登录位置（cursor-agent 的 macOS keychain 项、Cursor IDE `state.vscdb`、`~/.cursor/auth.json`，缺的跳过），grok 写 `~/.grok/auth.json`。
 
 ---
 
@@ -165,7 +165,7 @@ leeway 已有 credits + 可选 summary。缺：读官方 `auth.json`、whoami/pl
 - 登录只走 **leeway 自己隔离的凭据**：粘贴/配置的 API key，或 `leeway login` 写进私有 HOME 的文件。
 - 多账号靠命名账号 + 私有目录，不 Implicit 读 `default`。
 
-> 边界变更（2026-10）：`leeway use cursor` 是用户显式要求的本机切号，会写 cursor-agent keychain、Cursor IDE `state.vscdb`、`~/.cursor/auth.json` 三处。上面的「不扫、不复用」仍只针对探测与登录路径。
+> 边界变更（2026-10）：`leeway use cursor` 是用户显式要求的本机切换账号，会写 cursor-agent keychain、Cursor IDE `state.vscdb`、`~/.cursor/auth.json` 三处。上面的「不扫、不复用」仍只针对探测与登录路径。
 
 按这个筛过之后，竞品里「读官方 CLI 文件 / spawn 官方 CLI」整条划掉。还值得做的只剩：已经有凭据之后，把官方接口用全、显示对、缓存别串号。
 
@@ -180,7 +180,7 @@ leeway 已有 credits + 可选 summary。缺：读官方 `auth.json`、whoami/pl
    现在一份 `snapshots.json`、60s。换一把 Go / GOAT key，短时间内可能看到上一号。缓存键加上账号名或 `sha256(key)` 即可。
 
 4. **Cursor 只加读、不加写**（OpenUsage.ai）— 只保留「同一把隔离 token 多打几个官方接口」。  
-   同一次 Bearer 可加 `GetPlanInfo` / `GetCreditGrantsBalance` / `GetSandUsageStatus`。不要 IDE sqlite、不要默认 keychain、不要 `oauth/token` 写回。（探测/刷新仍如此；本机切号只在用户显式 `leeway use cursor` 时写，见 §5 边界变更。）Connect 被挡时用**这把** JWT 拼 cookie 是退路，不是去刮 Cursor 应用。
+   同一次 Bearer 可加 `GetPlanInfo` / `GetCreditGrantsBalance` / `GetSandUsageStatus`。不要 IDE sqlite、不要默认 keychain、不要 `oauth/token` 写回。（探测/刷新仍如此；本机切换账号只在用户显式 `leeway use cursor` 时写，见 §5 边界变更。）Connect 被挡时用**这把** JWT 拼 cookie 是退路，不是去刮 Cursor 应用。
 
 5. **发现，不当成隐式 default**（OpenUsage.sh）— **划掉自动发现。** 继续：不写 `--account` 就不读 `default`。OpenCode key 只来自 env / `leeway login opencode-go NAME`。
 

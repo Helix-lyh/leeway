@@ -193,28 +193,28 @@ func loginCodex(ctx context.Context, account string) int {
 	}
 	home, err := isolatedSessionHome("codex", name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "codex home:", err)
+		fmt.Fprintln(os.Stderr, "找 codex 目录失败：", err)
 		return 1
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "create home:", err)
+		fmt.Fprintln(os.Stderr, "建目录失败：", err)
 		return 1
 	}
 	cmd.Env = overrideEnv("CODEX_HOME", home)
 	authFile := filepath.Join(home, "auth.json")
 
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "codex login:", err)
+		fmt.Fprintln(os.Stderr, "委托 codex 登录失败：", err)
 		return 1
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	if err := cfg.SetAccountAuthFile("codex", name, authFile); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 1
 	}
 	fmt.Fprintf(os.Stderr, "\n已登录 codex 账号 %s → %s\n", displayAccount(name), authFile)
@@ -236,11 +236,11 @@ func loginKimi(ctx context.Context, account string, noBrowser bool) int {
 	}
 	home, err := isolatedSessionHome("kimi", name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "kimi home:", err)
+		fmt.Fprintln(os.Stderr, "找 kimi 目录失败：", err)
 		return 1
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "create home:", err)
+		fmt.Fprintln(os.Stderr, "建目录失败：", err)
 		return 1
 	}
 
@@ -248,18 +248,18 @@ func loginKimi(ctx context.Context, account string, noBrowser bool) int {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.Env = overrideEnv("KIMI_CODE_HOME", home)
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "kimi login:", err)
+		fmt.Fprintln(os.Stderr, "委托 kimi 登录失败：", err)
 		return 1
 	}
 
 	authFile := filepath.Join(home, "credentials", "kimi-code.json")
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	if err := cfg.SetAccountAuthFile("kimi", name, authFile); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 1
 	}
 	fmt.Fprintf(os.Stderr, "\n已登录 kimi 账号 %s → %s\n", displayAccount(name), authFile)

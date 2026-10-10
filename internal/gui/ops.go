@@ -401,7 +401,7 @@ func loginCursorCLI(ctx context.Context, account string, log func(string)) error
 	)
 	cmd.Stdout, cmd.Stderr = logWriter(log), logWriter(log)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("cursor-agent login: %w", err)
+		return fmt.Errorf("委托 cursor-agent 登录失败：%w", err)
 	}
 	ca, ok, err := auth.LoadCursorAuth(staging)
 	if err != nil {
@@ -456,7 +456,7 @@ func loginGrokCLI(ctx context.Context, name string, log func(string)) error {
 	cmd.Env = overrideEnv("GROK_HOME", home)
 	cmd.Stdout, cmd.Stderr = logWriter(log), logWriter(log)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("grok login: %w", err)
+		return fmt.Errorf("委托 grok 登录失败：%w", err)
 	}
 	cfg, err := config.Load()
 	if err != nil {
@@ -491,7 +491,7 @@ func loginCodexCLI(ctx context.Context, name string, log func(string)) error {
 	cmd.Env = overrideEnv("CODEX_HOME", home)
 	cmd.Stdout, cmd.Stderr = logWriter(log), logWriter(log)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("codex login: %w", err)
+		return fmt.Errorf("委托 codex 登录失败：%w", err)
 	}
 	authFile := filepath.Join(home, "auth.json")
 	cfg, err := config.Load()
@@ -521,7 +521,7 @@ func loginKimiCLI(ctx context.Context, name string, log func(string)) error {
 	cmd.Env = overrideEnv("KIMI_CODE_HOME", home)
 	cmd.Stdout, cmd.Stderr = logWriter(log), logWriter(log)
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("kimi login: %w", err)
+		return fmt.Errorf("委托 kimi 登录失败：%w", err)
 	}
 	authFile := filepath.Join(home, "credentials", "kimi-code.json")
 	cfg, err := config.Load()

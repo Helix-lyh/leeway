@@ -87,14 +87,14 @@ func loadGrokSession(authFile string) (*grokSession, error) {
 	}
 	raw, err := os.ReadFile(p)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("grok auth.json not found (%s) — run: leeway login grok", p)
+		return nil, fmt.Errorf("没找到 grok 的 auth.json（%s） — 请跑 leeway login grok", p)
 	}
 	if err != nil {
 		return nil, err
 	}
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("parsing grok auth.json: %w", err)
+		return nil, fmt.Errorf("解析 grok 的 auth.json 失败：%w", err)
 	}
 	var oidc, first *grokSession
 	for scope, rawEntry := range m {
@@ -116,7 +116,7 @@ func loadGrokSession(authFile string) (*grokSession, error) {
 	if first != nil {
 		return first, nil
 	}
-	return nil, errors.New("grok auth.json contains no usable access tokens — run: leeway login grok")
+	return nil, errors.New("grok 的 auth.json 里没有可用的访问令牌 — 请跑 leeway login grok")
 }
 
 func (e *grokSessionEntry) expired(now time.Time) bool {
@@ -138,7 +138,7 @@ func (e *grokSessionEntry) expired(now time.Time) bool {
 func (s *grokSession) refresh(ctx context.Context) error {
 	e := s.entry
 	if e.OIDCIssuer == "" || e.RefreshToken == "" {
-		return errors.New("grok session has no refresh_token/issuer — run: leeway login grok")
+		return errors.New("grok 登录信息里没有 refresh_token/issuer — 请跑 leeway login grok")
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
@@ -153,11 +153,11 @@ func (s *grokSession) refresh(ctx context.Context) error {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("grok session refresh failed: %w", err)
+		return fmt.Errorf("刷新 grok 登录失败：%w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("grok session refresh failed (HTTP %d) — run: leeway login grok", resp.StatusCode)
+		return fmt.Errorf("刷新 grok 登录失败（HTTP %d）——请重跑 leeway login grok", resp.StatusCode)
 	}
 	var body struct {
 		AccessToken  string `json:"access_token"`
@@ -165,10 +165,10 @@ func (s *grokSession) refresh(ctx context.Context) error {
 		ExpiresIn    int64  `json:"expires_in"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return fmt.Errorf("grok session refresh response unreadable: %w", err)
+		return fmt.Errorf("grok 登录信息刷新返回的内容读不出来：%w", err)
 	}
 	if body.AccessToken == "" {
-		return errors.New("grok session refresh returned no access_token — run: leeway login grok")
+		return errors.New("grok 登录信息刷新后没有返回 access_token — 请跑 leeway login grok")
 	}
 	e.Key = body.AccessToken
 	if body.RefreshToken != "" {

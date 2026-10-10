@@ -77,7 +77,7 @@ purego 带来的那个 cgo 阻塞。剩下唯一需要 cgo 的地方是 FFI 桥�
   `os.UserHomeDir()` 在 Android 返回 `/sdcard`。给 Go 核心一个 app 私有目录即可（§8.3）。
 - `0/7` 是**产品问题**：leeway 的核心卖点是「自动发现这台机器登了谁」，靠的是 macOS
   keychain、Chrome cookie 库解密、Cursor `state.vscdb`、`~/.codex/auth.json`、
-  `~/.grok/auth.json`、kimi 桌面会话、官方 CLI。这些在 Android 沙箱下**全部不存在**。
+  `~/.grok/auth.json`、kimi 桌面会话、官方工具。这些在 Android 沙箱下**全部不存在**。
 
 ### 发现 3：「出桌面端」是既成事实（`实测`）
 
@@ -466,6 +466,6 @@ go list -deps ./cmd/leeway-gui | grep -c 'egoist/mygo'            # E11：应为
 2. **未在 iOS 上做任何实测**。iOS 的 FFI / 签名 / 沙箱结论全部是 `推断`。
 3. **未在真实 Android 设备上跑**，只有 Android 16 arm64 模拟器。
 4. **未评估 Flutter UI 与现有 mygo 观感的差距**。PoC 只有一个页面，玻璃材质、入场错峰、
-   走势点阵、键盘导航、VoiceOver 语义树都**没做**，[GUI.md](GUI.md) 描述的那套视觉没有对照。
+   走势图、键盘导航、VoiceOver 语义树都**没做**，[GUI.md](GUI.md) 描述的那套视觉没有对照。
 5. **139 人日那类工时估算未采用**。本仓可辩护的说法是「单人、一个季度以上」，
    不是「几周就能port完」；具体人日属判断而非测量。

@@ -138,7 +138,7 @@ func (e *jsonEncoder) Encode(v any) int {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(v); err != nil {
-		fmt.Fprintln(os.Stderr, "json:", err)
+		fmt.Fprintln(os.Stderr, "输出 JSON 失败：", err)
 		return 2
 	}
 	return 0

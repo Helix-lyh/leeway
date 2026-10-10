@@ -41,15 +41,15 @@ func keychainKey(service, providerID string) (string, error) {
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
+		// The security(1) output goes last: failureText splits off only the tail
+		// after the final colon, so the advice stays on screen and the tool's
+		// own words drop to the tooltip.
 		detail := strings.TrimSpace(stderr.String())
-		if detail != "" {
-			detail = ": " + detail
-		}
-		return "", fmt.Errorf("could not read the %q keychain key%v — grant keychain access (first import prompts) or use manual cookies: leeway login %s --manual \"name=value; ...\"", service, detail, providerID)
+		return "", fmt.Errorf("读不了 %q 的 keychain 密钥 — 请授权访问 keychain（首次导入会弹窗）或手动填登录状态（leeway login %s --manual \"name=value; ...\"）：%v", service, providerID, detail)
 	}
 	key := strings.TrimSpace(string(out))
 	if key == "" {
-		return "", fmt.Errorf("the %q keychain key is empty — grant keychain access or use manual cookies: leeway login %s --manual \"name=value; ...\"", service, providerID)
+		return "", fmt.Errorf("%q 的 keychain 密钥是空的 — 请授权访问 keychain，或手动填登录状态（leeway login %s --manual \"name=value; ...\"）", service, providerID)
 	}
 	return key, nil
 }
@@ -58,7 +58,7 @@ func keychainKey(service, providerID string) (string, error) {
 func chromeUserDataDir(browser string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot locate home directory: %w", err)
+		return "", fmt.Errorf("找不到主目录：%w", err)
 	}
 	switch browser {
 	case "chrome":
@@ -66,7 +66,7 @@ func chromeUserDataDir(browser string) (string, error) {
 	case "edge":
 		return filepath.Join(home, "Library", "Application Support", "Microsoft", "Edge"), nil
 	default:
-		return "", fmt.Errorf("unsupported chromium browser %q", browser)
+		return "", fmt.Errorf("还不支持 %q 这个浏览器", browser)
 	}
 }
 
@@ -121,7 +121,7 @@ func walSidecarsMissing(path string) bool {
 // golang.org/x/crypto as a dependency).
 func pbkdf2SHA1(password, salt []byte, iterations, keyLen int) ([]byte, error) {
 	if iterations <= 0 || keyLen <= 0 {
-		return nil, errors.New("pbkdf2: iterations and key length must be positive")
+		return nil, errors.New("pbkdf2：迭代次数和密钥长度必须大于 0")
 	}
 	h := hmac.New(sha1.New, password)
 	hashLen := h.Size()
@@ -182,11 +182,11 @@ func decryptValue(encrypted []byte, password, hostKey string, dbVersion int) ([]
 	}
 	if dbVersion >= 24 {
 		if len(plain) < sha256.Size {
-			return nil, errors.New("plaintext shorter than the host-key hash prefix")
+			return nil, errors.New("明文比主机名哈希前缀还短")
 		}
 		hash := sha256.Sum256([]byte(hostKey))
 		if !hmac.Equal(hash[:], plain[:sha256.Size]) {
-			return nil, errors.New("cookie host-key hash mismatch")
+			return nil, errors.New("登录状态的主机名哈希对不上")
 		}
 		plain = plain[sha256.Size:]
 	}
@@ -196,7 +196,7 @@ func decryptValue(encrypted []byte, password, hostKey string, dbVersion int) ([]
 // decryptCBC decrypts AES-128-CBC with PKCS7 padding validation.
 func decryptCBC(encrypted, key, iv []byte) ([]byte, error) {
 	if len(encrypted) == 0 || len(encrypted)%aes.BlockSize != 0 {
-		return nil, errors.New("blob length is not a multiple of the AES block size")
+		return nil, errors.New("数据长度不是 AES 块大小的整数倍")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -207,11 +207,11 @@ func decryptCBC(encrypted, key, iv []byte) ([]byte, error) {
 	// Strip PKCS7 padding.
 	padLen := int(plain[len(plain)-1])
 	if padLen == 0 || padLen > aes.BlockSize || padLen > len(plain) {
-		return nil, errors.New("blob has invalid PKCS7 padding")
+		return nil, errors.New("数据的 PKCS7 填充不合法")
 	}
 	for _, b := range plain[len(plain)-padLen:] {
 		if int(b) != padLen {
-			return nil, errors.New("blob has invalid PKCS7 padding")
+			return nil, errors.New("数据的 PKCS7 填充不合法")
 		}
 	}
 	return plain[:len(plain)-padLen], nil
@@ -275,7 +275,7 @@ WHERE host_key LIKE '%' || ? || '%'`
 		hasHttpOnly := err == nil
 		if err != nil {
 			if rows, err = db.Query(basicQuery, domain); err != nil {
-				return nil, fmt.Errorf("querying cookies for %q: %w", domain, err)
+				return nil, fmt.Errorf("查询 %q 的登录状态：%w", domain, err)
 			}
 		}
 		for rows.Next() {
@@ -284,12 +284,12 @@ WHERE host_key LIKE '%' || ? || '%'`
 				var h int64
 				if err := rows.Scan(&r.name, &r.value, &r.encrypted, &r.hostKey, &r.path, &r.expiresUTC, &h); err != nil {
 					rows.Close()
-					return nil, fmt.Errorf("scanning cookie row: %w", err)
+					return nil, fmt.Errorf("读登录状态那一行失败：%w", err)
 				}
 				r.httpOnly = h != 0
 			} else if err := rows.Scan(&r.name, &r.value, &r.encrypted, &r.hostKey, &r.path, &r.expiresUTC); err != nil {
 				rows.Close()
-				return nil, fmt.Errorf("scanning cookie row: %w", err)
+				return nil, fmt.Errorf("读登录状态那一行失败：%w", err)
 			}
 			key := r.name + "|" + r.hostKey + "|" + r.path
 			if old, ok := seen[key]; ok {
@@ -302,7 +302,7 @@ WHERE host_key LIKE '%' || ? || '%'`
 		}
 		rows.Close()
 		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("iterating cookie rows: %w", err)
+			return nil, fmt.Errorf("逐行读登录状态失败：%w", err)
 		}
 	}
 	out := make([]cookieRow, 0, len(seen))
@@ -470,20 +470,20 @@ func pickCookieDB(userData, profile string, domains []string) (string, error) {
 	if profile != "" {
 		path, ok := cookieDBForProfile(userData, profile)
 		if !ok {
-			return "", fmt.Errorf("profile %q not found under %s", profile, userData)
+			return "", fmt.Errorf("配置 %q 不在 %s 下", profile, userData)
 		}
 		n, err := countMatchingCookies(path, domains)
 		if err != nil {
-			return "", fmt.Errorf("profile %q cookie store unreadable: %w", profile, err)
+			return "", fmt.Errorf("配置 %q 的登录状态读不了：%w", profile, err)
 		}
 		if n <= 0 {
-			return "", fmt.Errorf("no cookies for %v found in profile %q", domains, profile)
+			return "", fmt.Errorf("没找到 %v 的登录状态（配置 %q）", domains, profile)
 		}
 		return path, nil
 	}
 	profiles, err := scanProfileDirs(userData)
 	if err != nil {
-		return "", fmt.Errorf("no %s profile directory found: %w", userData, err)
+		return "", fmt.Errorf("没找到 %s 的配置目录：%w", userData, err)
 	}
 	best, bestCount := "", -1
 	for _, p := range profiles {
@@ -500,7 +500,7 @@ func pickCookieDB(userData, profile string, domains []string) (string, error) {
 		}
 	}
 	if bestCount <= 0 {
-		return "", fmt.Errorf("no cookies for %v found in any profile under %s", domains, userData)
+		return "", fmt.Errorf("没找到 %v 的登录状态，%s 下哪个配置里都没有", domains, userData)
 	}
 	return best, nil
 }
@@ -514,14 +514,14 @@ func importChrome(providerID, browser, profile string) (string, error) {
 		return "", err
 	}
 	if runtime.GOOS != "darwin" {
-		return "", fmt.Errorf("browser cookie import is macOS-only — on Linux use: leeway login %s --manual \"name=value; ...\"", providerID)
+		return "", fmt.Errorf("读浏览器登录状态只能在 macOS 上用 — Linux 上请用 leeway login %s --manual \"name=value; ...\"", providerID)
 	}
 	userData, err := chromeUserDataDir(browser)
 	if err != nil {
 		return "", err
 	}
 	if fi, err := os.Stat(userData); err != nil || !fi.IsDir() {
-		return "", fmt.Errorf("%s is not installed or its profile directory %s is missing — log in to %s first, or use manual cookies: leeway login %s --manual \"name=value; ...\"", browser, userData, browser, providerID)
+		return "", fmt.Errorf("%s 没装，或者它的配置目录 %s 不在 — 请先在 %s 里登录，或手动填登录状态（leeway login %s --manual \"name=value; ...\"）", browser, userData, browser, providerID)
 	}
 	service := "Chrome Safe Storage"
 	if browser == "edge" {
@@ -533,21 +533,21 @@ func importChrome(providerID, browser, profile string) (string, error) {
 	}
 	dbPath, err := pickCookieDB(userData, profile, domains)
 	if err != nil {
-		return "", fmt.Errorf("%s cookie import failed: %v — log in to %s in %s, then retry `leeway login %s --cookie --force`; or use --manual", browser, err, providerID, browser, providerID)
+		return "", fmt.Errorf("从 %s 读登录状态失败：%v — 先登录 %s（用 %s），再跑 `leeway login %s --cookie --force`；或改用 --manual", browser, err, providerID, browser, providerID)
 	}
 	db, err := openCookieDB(dbPath)
 	if err != nil {
-		return "", fmt.Errorf("could not open %s cookie database %s: %v — close the browser or use manual cookies", browser, dbPath, err)
+		return "", fmt.Errorf("打不开 %s 的登录状态数据库 %s，请关掉浏览器或手动填登录状态：%v", browser, dbPath, err)
 	}
 	defer db.Close()
 	rows, err := loadCookieRows(db, domains)
 	if err != nil {
-		return "", fmt.Errorf("could not read %s cookies from %s: %v", browser, dbPath, err)
+		return "", fmt.Errorf("读不了 %s 里的登录状态（%s）：%v", browser, dbPath, err)
 	}
 	dbVersion := cookieDatabaseVersion(db)
 	decoded, dropped, decrypted := decryptRows(rows, password, dbVersion)
 	if encryptedCookiesUnusable(dropped, decrypted) {
-		return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway login %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
+		return "", fmt.Errorf("找到 %d 条 %s 的登录状态（%s），但一条都解不开 — Chrome Safe Storage 密钥可能过期，或者 keychain 访问被拒绝；请授权 keychain（security find-generic-password -s %q）后重试，或手动填登录状态（leeway login %s --manual \"name=value; ...\"）", dropped, providerID, browser, service, providerID)
 	}
 	header := buildHeader(decoded)
 	if header == "" {
@@ -555,9 +555,9 @@ func importChrome(providerID, browser, profile string) (string, error) {
 			// Cookies were found but every encrypted value failed to decrypt:
 			// re-logging-in cannot fix that, the key is stale or keychain access
 			// was denied mid-import.
-			return "", fmt.Errorf("found %d %s cookie(s) in %s but none could be decrypted — the Chrome Safe Storage key may be stale or keychain access was denied; grant keychain access (security find-generic-password -s %q) and retry, or use manual cookies: leeway login %s --manual \"name=value; ...\"", dropped, providerID, browser, service, providerID)
+			return "", fmt.Errorf("找到 %d 条 %s 的登录状态（%s），但一条都解不开 — Chrome Safe Storage 密钥可能过期，或者 keychain 访问被拒绝；请授权 keychain（security find-generic-password -s %q）后重试，或手动填登录状态（leeway login %s --manual \"name=value; ...\"）", dropped, providerID, browser, service, providerID)
 		}
-		return "", fmt.Errorf("no %s session cookies for %v found in %s — log in to %s in %s, then retry `leeway login %s --cookie --force`", providerID, domains, browser, providerID, browser, providerID)
+		return "", fmt.Errorf("没找到 %s 的登录状态（%v），%s 里没有 — 请先登录 %s（用 %s），再跑 `leeway login %s --cookie --force`", providerID, domains, browser, providerID, browser, providerID)
 	}
 	return header, nil
 }

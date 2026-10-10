@@ -262,14 +262,14 @@ func TestImportDispatchErrors(t *testing.T) {
 		t.Fatalf("unsupported browser should suggest leeway login --manual, got %v", err)
 	}
 	// Unknown provider must fail before any keychain access.
-	if _, err := Import("bogus", "chrome", ""); err == nil || !strings.Contains(err.Error(), "unknown provider") {
+	if _, err := Import("bogus", "chrome", ""); err == nil || !strings.Contains(err.Error(), `不认识 "bogus" 这个服务商`) {
 		t.Fatalf("unknown provider should error before touching the keychain, got %v", err)
 	}
 	if runtime.GOOS == "darwin" {
 		return
 	}
 	_, err := Import("grok", "chrome", "")
-	if err == nil || !strings.Contains(err.Error(), "macOS-only") {
+	if err == nil || !strings.Contains(err.Error(), "只能在 macOS 上用") {
 		t.Fatalf("linux chrome import = %v, want macOS-only hint", err)
 	}
 }
@@ -320,7 +320,7 @@ func TestKimiDesktopImport(t *testing.T) {
 	if err := os.Remove(dbPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Import("kimi", "kimi-desktop", ""); err == nil || !strings.Contains(err.Error(), "kimi-desktop cookie store") {
+	if _, err := Import("kimi", "kimi-desktop", ""); err == nil || !strings.Contains(err.Error(), "kimi-desktop 的登录状态库") {
 		t.Fatalf("expected an actionable missing-store error, got %v", err)
 	}
 }

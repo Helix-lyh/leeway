@@ -1274,10 +1274,10 @@ func TestNavigationAndToastsAreAnnounced(t *testing.T) {
 		t.Errorf("navigating to a provider announced %v, want [DeepSeek]", got)
 	}
 	// A toast is often the only answer a click gives.
-	a.toast = "已复制 JSON"
+	a.toast = "已复制"
 	tester.Frame()
-	if got := tester.Announcements(); len(got) != 1 || got[0] != "已复制 JSON" {
-		t.Errorf("a toast announced %v, want [已复制 JSON]", got)
+	if got := tester.Announcements(); len(got) != 1 || got[0] != "已复制" {
+		t.Errorf("a toast announced %v, want [已复制]", got)
 	}
 }
 
@@ -1378,7 +1378,7 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 		// Ours, ending on the path it names, or naming its tool in Latin: a
 		// path in the middle of a Chinese sentence with no Latin anywhere is
 		// the OS's shape, but these are not that shape and must stay readable.
-		{`kimi 账号 "work" 的会话文件不在 /Users/张三/.leeway/sessions/kimi-work`, `切换失败 · kimi 账号 "work" 的会话文件不在 /Users/张三/.leeway/sessions/kimi-work`, ""},
+		{`kimi 账号 "work" 的登录文件不在 /Users/张三/.leeway/sessions/kimi-work`, `切换失败 · kimi 账号 "work" 的登录文件不在 /Users/张三/.leeway/sessions/kimi-work`, ""},
 		{"无法写入 /Users/me/auth.json", "切换失败 · 无法写入 /Users/me/auth.json", ""},
 		{"没有找到 cursor-agent：/opt/homebrew/bin 里没有它", "切换失败 · 没有找到 cursor-agent：/opt/homebrew/bin 里没有它", ""},
 		{"cookie 已过期: 请重新登录", "切换失败 · cookie 已过期: 请重新登录", ""},
@@ -1392,10 +1392,10 @@ func TestAFailureKeepsTheMachinesWordsOutOfTheSentence(t *testing.T) {
 		// Ours on both sides of the colon: the split is only for a machine's
 		// tail, so our own explanation is not demoted to a tooltip and the
 		// sentence does not stutter ("登录没有完成 · 登录似乎没完成").
-		{"登录似乎没完成：官方 CLI 没写出令牌", "切换失败 · 登录似乎没完成：官方 CLI 没写出令牌", ""},
+		{"登录似乎没完成：官方工具没有写出登录信息", "切换失败 · 登录似乎没完成：官方工具没有写出登录信息", ""},
 		{"写 Cursor keychain 后回读不一致：写入 64 字节，读回 32 字节", "切换失败 · 写 Cursor keychain 后回读不一致：写入 64 字节，读回 32 字节", ""},
 		// Ours, naming a file it refused to touch: the path is the point.
-		{"拒绝删除 /Users/张三/.leeway/sessions/x：不在 leeway 会话目录里", "切换失败 · 拒绝删除 /Users/张三/.leeway/sessions/x：不在 leeway 会话目录里", ""},
+		{"拒绝删除 /Users/张三/.leeway/sessions/x：不在 leeway 的目录里", "切换失败 · 拒绝删除 /Users/张三/.leeway/sessions/x：不在 leeway 的目录里", ""},
 		// A machine's, quoting the file it could not open, in Chinese.
 		{`无法打开"/Users/张三/auth.json"：没有那个文件或目录`, "切换失败", `无法打开"/Users/张三/auth.json"：没有那个文件或目录`},
 	} {
@@ -1477,7 +1477,7 @@ func TestProviderActionsMatchWhatTheProviderSupports(t *testing.T) {
 	// Key-only providers are configured; the four with an official CLI log in.
 	for _, id := range []string{"deepseek", "opencode-go", "commandcode"} {
 		if got := loginButtonLabel(id); got != "设置密钥" {
-			t.Errorf("%s button = %q, want 配置 key", id, got)
+			t.Errorf("%s button = %q, want 设置密钥", id, got)
 		}
 	}
 	for _, id := range []string{"cursor", "grok", "codex", "kimi"} {

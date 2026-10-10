@@ -87,15 +87,15 @@ var (
 func parseAPIUsage(text string, now time.Time) (*subscription, error) {
 	object, ok := decodeJSON(text)
 	if !ok {
-		return nil, parseErrorf("invalid usage JSON.")
+		return nil, parseErrorf("用量 JSON 不合法。")
 	}
 	root, ok := object.(map[string]any)
 	if !ok {
-		return nil, parseErrorf("usage response is not an object.")
+		return nil, parseErrorf("用量返回不是一个对象。")
 	}
 	usage, ok := root["usage"].(map[string]any)
 	if !ok {
-		return nil, parseErrorf("Missing usage fields.")
+		return nil, parseErrorf("用量字段缺失。")
 	}
 	var rolling parsedWindow
 	var weekly, monthly *parsedWindow
@@ -111,7 +111,7 @@ func parseAPIUsage(text string, now time.Time) (*subscription, error) {
 		monthly = &w
 	}
 	if !hasRolling {
-		return nil, parseErrorf("Missing usage fields.")
+		return nil, parseErrorf("用量字段缺失。")
 	}
 	return newSubscription(rolling, weekly, monthly, nil), nil
 }
@@ -490,7 +490,7 @@ func parseSubscriptionRegex(text string, now time.Time) (*subscription, error) {
 	rollingPercent, ok1 := extractDouble(rollingUsageRegex, text)
 	rollingReset, ok2 := extractInt(rollingResetRegex, text)
 	if !ok1 || !ok2 {
-		return nil, parseErrorf("Missing usage fields.")
+		return nil, parseErrorf("用量字段缺失。")
 	}
 	weeklyPercent, okW1 := extractDouble(weeklyUsageRegex, text)
 	weeklyReset, okW2 := extractInt(weeklyResetRegex, text)

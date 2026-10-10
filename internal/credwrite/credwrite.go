@@ -24,17 +24,17 @@ func Patch(path, key, value string) error {
 	set(root, key, value)
 	out, err := yaml.Marshal(root)
 	if err != nil {
-		return fmt.Errorf("encode %s: %w", path, err)
+		return fmt.Errorf("编码 %s 失败：%w", path, err)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("mkdir: %w", err)
+		return fmt.Errorf("建目录失败：%w", err)
 	}
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, out, 0o600); err != nil {
-		return fmt.Errorf("write: %w", err)
+		return fmt.Errorf("写文件失败：%w", err)
 	}
 	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename: %w", err)
+		return fmt.Errorf("改名失败：%w", err)
 	}
 	return nil
 }
@@ -48,21 +48,21 @@ func load(path string) (*yaml.Node, error) {
 		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, fmt.Errorf("读 %s 失败：%w", path, err)
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}, nil
 	}
 	root := &yaml.Node{}
 	if err := yaml.Unmarshal(raw, root); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", path, err)
+		return nil, fmt.Errorf("解析 %s 失败：%w", path, err)
 	}
 	// Unmarshalling into a Node wraps the real root in a Document node.
 	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 {
 		root = root.Content[0]
 	}
 	if root.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("%s is not a YAML mapping", path)
+		return nil, fmt.Errorf("%s 不是 YAML 映射", path)
 	}
 	return root, nil
 }

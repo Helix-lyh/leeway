@@ -35,7 +35,7 @@ type Error struct {
 var ErrMissingCredentials = &Error{Kind: kindMissingCredentials}
 
 // reauthMessage mirrors GrokWebBillingError.reauthMessage.
-const reauthMessage = "Grok web billing rejected credentials. Sign in to grok.com in Chrome or run `leeway login grok` to refresh xAI auth."
+const reauthMessage = "Grok 网页版账单拒绝了登录信息。请在 Chrome 里登录 grok.com，或跑 `leeway login grok` 刷新 xAI 登录信息。"
 
 func (e *Error) Error() string {
 	switch e.Kind {
@@ -43,25 +43,25 @@ func (e *Error) Error() string {
 		if e.Message != "" {
 			return e.Message
 		}
-		return "Grok web billing requires a signed-in grok.com browser session or `leeway login grok`."
+		return "Grok 网页版账单需要 grok.com 的浏览器登录状态，或 `leeway login grok`。"
 	case kindEmptyResponse:
-		return "Grok web billing returned no protobuf payload."
+		return "Grok 网页版账单没有返回 protobuf 数据。"
 	case kindInvalidResponse:
-		return "Grok web billing returned an invalid response."
+		return "Grok 网页版账单返回的内容不对。"
 	case kindRequestFailed:
 		if e.Status == 401 || e.Status == 403 {
 			return reauthMessage
 		}
-		return fmt.Sprintf("Grok web billing request failed with HTTP %d: %s", e.Status, e.Body)
+		return fmt.Sprintf("Grok 网页版账单请求失败（HTTP %d）：%s", e.Status, e.Body)
 	case kindRPCFailed:
 		if isAuthenticationFailure(e.Status, e.Message) {
 			return reauthMessage
 		}
-		return fmt.Sprintf("Grok web billing RPC failed with status %d: %s", e.Status, e.Message)
+		return fmt.Sprintf("Grok 网页版账单 RPC 失败（状态 %d）：%s", e.Status, e.Message)
 	case kindParseFailed:
-		return "Could not parse Grok web billing usage."
+		return "解析 Grok 网页版账单用量失败。"
 	default:
-		return "Grok web billing error"
+		return "Grok 网页版账单出错"
 	}
 }
 

@@ -57,7 +57,7 @@ func (*commandCode) AuthSpec() provider.AuthSpec {
 	return provider.AuthSpec{
 		EnvAPIKey:        []string{"COMMAND_CODE_API_KEY", "COMMANDCODE_API_KEY"},
 		SupportsAccounts: true,
-		LoginHint:        "run: leeway login commandcode",
+		LoginHint:        "请跑 leeway login commandcode",
 	}
 }
 
@@ -93,7 +93,7 @@ func (p *commandCode) Fetch(ctx context.Context, req provider.FetchRequest) (*mo
 		planID = parsePlanID(body)
 	}
 	if !u.fiveHour.ok && !u.weekly.ok && !u.monthly.ok && u.remaining == nil {
-		return nil, errParse("missing usage windows")
+		return nil, errParse("没有用量窗口")
 	}
 	return buildSnapshot(u, now, req.Account, planID), nil
 }

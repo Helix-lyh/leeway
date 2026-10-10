@@ -76,7 +76,7 @@ func PromptSecret(prompt string) (string, error) {
 
 	line = strings.TrimSpace(line)
 	if line == "" {
-		return "", errors.New("no input")
+		return "", errors.New("没有输入")
 	}
 	return line, nil
 }

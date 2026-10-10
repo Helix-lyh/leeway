@@ -42,11 +42,11 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 
 	home, err := auth.CursorHome(account)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cursor home:", err)
+		fmt.Fprintln(os.Stderr, "找 cursor 目录失败：", err)
 		return 1
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "create home:", err)
+		fmt.Fprintln(os.Stderr, "建目录失败：", err)
 		return 1
 	}
 
@@ -61,7 +61,7 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	}
 	cmd.Env = overrideEnv(pairs...)
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "cursor-agent login:", err)
+		fmt.Fprintln(os.Stderr, "委托 cursor-agent 登录失败：", err)
 		return 1
 	}
 
@@ -71,7 +71,7 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	}
 	ca, ok, err := auth.LoadCursorAuth(staging)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read auth:", err)
+		fmt.Fprintln(os.Stderr, "读 cursor 登录文件失败：", err)
 		return 1
 	}
 	if !ok || ca.AccessToken == "" {
@@ -84,7 +84,7 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	name := strings.TrimSpace(account)
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	if name == "" || name == "default" {
@@ -100,12 +100,12 @@ func loginCursor(ctx context.Context, account string, noBrowser bool) int {
 	}
 	if name != staging {
 		if err := auth.RelocateCursorHome(staging, name); err != nil {
-			fmt.Fprintln(os.Stderr, "move cursor home:", err)
+			fmt.Fprintln(os.Stderr, "挪 cursor 目录失败：", err)
 			return 1
 		}
 	}
 	if err := cfg.SetAccountEmail("cursor", name, email); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 1
 	}
 
@@ -133,7 +133,7 @@ func loginGrok(ctx context.Context, account string) int {
 	}
 	home, err := grokHome(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "grok home:", err)
+		fmt.Fprintln(os.Stderr, "找 grok 目录失败：", err)
 		return 1
 	}
 	authFile := filepath.Join(home, "auth.json")
@@ -152,18 +152,18 @@ func loginGrok(ctx context.Context, account string) int {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	cmd.Env = overrideEnv("GROK_HOME", home)
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(os.Stderr, "grok login:", err)
+		fmt.Fprintln(os.Stderr, "委托 grok 登录失败：", err)
 		return 1
 	}
 
 	shaped := grok.HasOfficialShape(authFile)
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	if err := cfg.SetAccountAuthFile("grok", name, authFile); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 1
 	}
 	label := name
@@ -207,7 +207,7 @@ func loginAPIKey(providerID, account, email string, noBrowser bool, key string) 
 		var err error
 		key, err = auth.PromptSecret("粘贴 API 密钥（不回显）: ")
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "read key:", err)
+			fmt.Fprintln(os.Stderr, "读 API 密钥失败：", err)
 			return 2
 		}
 	}
@@ -217,7 +217,7 @@ func loginAPIKey(providerID, account, email string, noBrowser bool, key string) 
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	if account != "" && account != "default" {
@@ -226,7 +226,7 @@ func loginAPIKey(providerID, account, email string, noBrowser bool, key string) 
 		err = cfg.SetAPIKey(providerID, key)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "save key:", err)
+		fmt.Fprintln(os.Stderr, "保存 API 密钥失败：", err)
 		return 1
 	}
 	// A key alone does not say whose subscription it is. With several accounts
@@ -532,7 +532,7 @@ func keychainCursorToken() string {
 func logoutCursor(account string) int {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	name := account
@@ -541,7 +541,7 @@ func logoutCursor(account string) int {
 	}
 	home, _ := auth.CursorHome(name)
 	if err := auth.RemoveCursorHome(name); err != nil {
-		fmt.Fprintln(os.Stderr, "clear cursor auth:", err)
+		fmt.Fprintln(os.Stderr, "删 cursor 的登录失败：", err)
 		return 1
 	}
 	_ = cfg.RemoveAccount("cursor", name)
@@ -556,12 +556,12 @@ func logoutGrok(account string) int {
 	}
 	home, err := grokHome(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "grok home:", err)
+		fmt.Fprintln(os.Stderr, "找 grok 目录失败：", err)
 		return 1
 	}
 	root, err := auth.SessionDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "session dir:", err)
+		fmt.Fprintln(os.Stderr, "找登录目录失败：", err)
 		return 1
 	}
 	if !underDir(root, home) {
@@ -569,7 +569,7 @@ func logoutGrok(account string) int {
 		return 1
 	}
 	if err := os.RemoveAll(home); err != nil {
-		fmt.Fprintln(os.Stderr, "clear grok auth:", err)
+		fmt.Fprintln(os.Stderr, "删 grok 的登录失败：", err)
 		return 1
 	}
 	if cfg, err := config.Load(); err == nil {

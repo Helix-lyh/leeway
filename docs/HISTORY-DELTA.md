@@ -70,7 +70,7 @@ cmd/leeway/main.go
 - **不**做 GUI、菜单栏、常驻进程、本地 HTTP 服务、bubbletea TUI（见 Key Decisions；若将来要改产品边界，见 Open Questions，默认仍是否）。（已过时：GUI 已实现、菜单栏与常驻不再是禁止项，见文首说明；本地 HTTP 服务仍未做。）
 - **不**恢复 CodexBar 成本曲线、sparkline、pace / 耗尽预测、告警。
 - **不**把 `snapshots.json` 扩成时序库，也不用 sqlite 做用量仓。
-- **不**做独立的 `history` 子命令或 `usage --since` 回放。点阵是 `usage --last`。
+- **不**做独立的 `history` 子命令或 `usage --since` 回放。走势是 `usage --last`。
 - **不**把 error 字符串、cookie、token、fingerprint（`cacheFingerprint` 含凭据）写入历史。
 - **不**发明未实现的 provider。
 - **不**为理论上的恶意 JSONL 做解析器级防御；坏行跳过即可。
@@ -764,8 +764,8 @@ func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
 3. **保留 200 条还是 30 天？**  
    默认：**200 条**，无时间窗。
 
-4. **v1 是否做点阵回放？**  
-   已做：`usage --last` 只读点阵 / `--json`，无 `--since`。没有独立 `history` 命令。
+4. **v1 是否做走势回放？**  
+   已做：`usage --last` 只读走势 / `--json`，无 `--since`。没有独立 `history` 命令。
 
 5. **`--watch` 是否每 60s 探测都落盘（便于事后看曲线）？**  
    默认：**否**（每进程一条）。要曲线就是 DESIGN.md 已砍的东西。
@@ -807,7 +807,7 @@ func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
 
 7. **历史写入非致命；投影白名单防 P0 泄密。** 与 `saveSnapshotCache` 同一失败姿势；禁止 marshal 完整 `Output`。
 
-8. **v1 有 `usage --last` 点阵，不做 `--since` / 预测 / WebUI。** `usage` 负责相邻差；`--last` 只读 JSONL。
+8. **v1 有 `usage --last` 走势，不做 `--since` / 预测 / WebUI。** `usage` 负责相邻差；`--last` 只读 JSONL。
 
 ---
 

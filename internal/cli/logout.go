@@ -45,12 +45,12 @@ func runLogout(args []string) int {
 func logoutIsolated(providerID, account string) int {
 	home, err := isolatedSessionHome(providerID, account)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, providerID+" home:", err)
+		fmt.Fprintln(os.Stderr, "找 "+providerID+" 目录失败：", err)
 		return 1
 	}
 	root, err := auth.SessionDir()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "session dir:", err)
+		fmt.Fprintln(os.Stderr, "找登录目录失败：", err)
 		return 1
 	}
 	if !underDir(root, home) {
@@ -58,7 +58,7 @@ func logoutIsolated(providerID, account string) int {
 		return 1
 	}
 	if err := os.RemoveAll(home); err != nil {
-		fmt.Fprintln(os.Stderr, "clear "+providerID+" auth:", err)
+		fmt.Fprintln(os.Stderr, "删 "+providerID+" 的登录失败：", err)
 		return 1
 	}
 
@@ -76,7 +76,7 @@ func logoutIsolated(providerID, account string) int {
 func logoutAPIKey(providerID, account string) int {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	name := account
@@ -84,14 +84,14 @@ func logoutAPIKey(providerID, account string) int {
 		name = "default"
 	}
 	if err := cfg.RemoveAccount(providerID, name); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 1
 	}
 	if account == "" || account == "default" {
 		if cfg.APIKeys != nil {
 			delete(cfg.APIKeys, providerID)
 			if err := cfg.Save(); err != nil {
-				fmt.Fprintln(os.Stderr, "config save:", err)
+				fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 				return 1
 			}
 		}

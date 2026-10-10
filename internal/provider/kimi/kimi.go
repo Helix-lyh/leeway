@@ -89,7 +89,7 @@ func (kimiProvider) AuthSpec() provider.AuthSpec {
 		OfficialCLI:     true,                                           // `leeway login kimi` runs the official kimi CLI
 		EnvAuthToken:    []string{"KIMI_AUTH_TOKEN", "kimi_auth_token"}, // KimiSettingsReader.authToken
 		LocalAuthFiles:  []string{"~/.kimi-code/credentials/kimi-code.json"},
-		LoginHint:       "run: leeway login kimi",
+		LoginHint:       "请跑 leeway login kimi",
 		UsesCookies:     true,
 		CookieDomains:   []string{"www.kimi.com", "kimi.com"},
 		CookieFallbacks: []string{"kimi-desktop"},
@@ -180,7 +180,7 @@ func (p kimiProvider) fetchWeb(ctx context.Context, token, account string) (*mod
 	case r := <-subCh:
 		stats = r.stats
 	case <-time.After(p.subscriptionGrace):
-		log.Printf("kimi: subscription stats timed out")
+		log.Printf("kimi：订阅统计超时")
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
@@ -209,7 +209,7 @@ func (p kimiProvider) fetchRequiredUsage(ctx context.Context, token string, sess
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return nil, InvalidToken()
 		case http.StatusBadRequest:
-			return nil, InvalidRequest("Bad request")
+			return nil, InvalidRequest("HTTP 400")
 		default:
 			return nil, APIError(fmt.Sprintf("HTTP %d", status))
 		}
@@ -224,7 +224,7 @@ func (p kimiProvider) fetchRequiredUsage(ctx context.Context, token string, sess
 			return &usageResp.Usages[i], nil
 		}
 	}
-	return nil, ParseFailed("FEATURE_CODING scope not found in response")
+	return nil, ParseFailed("返回里找不到 FEATURE_CODING")
 }
 
 // fetchSubscriptionStats mirrors KimiUsageFetcher.fetchSubscriptionStats:
@@ -243,16 +243,16 @@ func (p kimiProvider) fetchSubscriptionStats(ctx context.Context, token string, 
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		log.Printf("kimi: subscription stats unavailable: %v", err)
+		log.Printf("kimi：订阅统计拿不到：%v", err)
 		return nil, nil
 	}
 	if status != http.StatusOK {
-		log.Printf("kimi: subscription stats returned %d", status)
+		log.Printf("kimi：订阅统计返回 %d", status)
 		return nil, nil
 	}
 	var stats kimiSubscriptionStatsResponse
 	if err := json.Unmarshal(data, &stats); err != nil {
-		log.Printf("kimi: subscription stats unavailable: %v", err)
+		log.Printf("kimi：订阅统计拿不到：%v", err)
 		return nil, nil
 	}
 	return &stats, nil
@@ -288,11 +288,11 @@ func (p kimiProvider) fetchCodeAPI(ctx context.Context, apiKey, webToken, accoun
 		// Mirrors KimiUsageFetcher.codeAPIError.
 		switch status {
 		case http.StatusBadRequest:
-			return nil, InvalidRequest("Bad request")
+			return nil, InvalidRequest("HTTP 400")
 		case http.StatusUnauthorized:
 			return nil, InvalidAPIKey()
 		case http.StatusForbidden:
-			return nil, APIError("HTTP 403 (permission or quota denied)")
+			return nil, APIError("HTTP 403（权限或额度不足）")
 		default:
 			return nil, APIError(fmt.Sprintf("HTTP %d", status))
 		}
@@ -328,10 +328,10 @@ func (p kimiProvider) fetchCodeAPI(ctx context.Context, apiKey, webToken, accoun
 // presenting it as zero usage.
 func (p kimiProvider) buildFromUsage(u *kimiUsage, stats *kimiSubscriptionStatsResponse, account string) (*model.Snapshot, error) {
 	if u == nil {
-		return nil, ParseFailed("FEATURE_CODING usage is missing")
+		return nil, ParseFailed("没有 FEATURE_CODING 的用量")
 	}
 	if _, ok := parseCounts(u.Detail); !ok {
-		return nil, ParseFailed("weekly usage counters are missing or invalid")
+		return nil, ParseFailed("每周用量计数缺失或不合法")
 	}
 	var rateLimitDetail *kimiUsageDetail
 	var rateLimitWindow *kimiWindow
@@ -364,7 +364,7 @@ func codeBaseURLFromEnv() (string, error) {
 	}
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Host == "" {
-		return "", InvalidRequest("Kimi Code API base URL must use HTTPS without user info")
+		return "", InvalidRequest("Kimi Code API 地址必须用 HTTPS，且不能带用户名密码")
 	}
 	return u.String(), nil
 }

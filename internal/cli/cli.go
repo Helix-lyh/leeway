@@ -118,7 +118,7 @@ func runUsage(args []string) int {
 	runOnce := func() (*model.Output, int) {
 		cfg, err := config.Load()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "config:", err)
+			fmt.Fprintln(os.Stderr, "读配置失败：", err)
 			return nil, 2
 		}
 		out, err := fetch.FetchAll(ctx, cfg, fetch.Options{
@@ -127,13 +127,13 @@ func runUsage(args []string) int {
 			AccountFilter:  accountFilter,
 		})
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "fetch:", err)
+			fmt.Fprintln(os.Stderr, "查询失败：", err)
 			return nil, 2
 		}
 		nextPrev := history.LastSeenFromOutput(out)
 		seen, lerr := history.LoadLastSeenBefore(out.GeneratedAt)
 		if lerr != nil {
-			log.Printf("history: load failed: %v", lerr)
+			log.Printf("读历史失败：%v", lerr)
 			seen = nil
 		}
 		if watchPrev != nil {
@@ -147,14 +147,14 @@ func runUsage(args []string) int {
 			AccountFilter:  accountFilter,
 			Skip:           watchSecs > 0 && watchRecorded,
 		}); err != nil {
-			log.Printf("history: write failed (data is still valid): %v", err)
+			log.Printf("记历史失败（数据仍然有效）：%v", err)
 		}
 		if watchSecs > 0 {
 			watchRecorded = true
 		}
 		if jsonOut {
 			if err := render.RenderJSON(os.Stdout, out); err != nil {
-				fmt.Fprintln(os.Stderr, "render:", err)
+				fmt.Fprintln(os.Stderr, "输出失败：", err)
 				return nil, 2
 			}
 		} else if noDelta {
@@ -189,7 +189,7 @@ func runUsage(args []string) int {
 func usageHistory(last int, providerFilter, accountFilter string, jsonOut bool) int {
 	series, err := history.Collect(last, providerFilter, accountFilter)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "history:", err)
+		fmt.Fprintln(os.Stderr, "读历史失败：", err)
 		return 1
 	}
 	if jsonOut {
@@ -312,7 +312,7 @@ func runUse(args []string) int {
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 2
 	}
 	switch providerID {
@@ -485,7 +485,7 @@ func saveManualCookie(providerID, header string) int {
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 2
 	}
 	pc := cfg.Provider(providerID)
@@ -493,7 +493,7 @@ func saveManualCookie(providerID, header string) int {
 	pc.CookieSource = "manual"
 	cfg.Providers[providerID] = pc
 	if err := cfg.Save(); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 2
 	}
 	fmt.Fprintf(os.Stderr, "已保存 %q 的手动登录状态\n", providerID)
@@ -509,7 +509,7 @@ func importBrowserCookies(providerID, account, browser, profile string, force bo
 	}
 	if cc, ok, err := auth.LoadCookieCache(providerID, profile); err != nil {
 		if rerr := auth.RemoveCookieCacheFile(); rerr != nil {
-			fmt.Fprintln(os.Stderr, "cache:", rerr)
+			fmt.Fprintln(os.Stderr, "清登录状态缓存失败：", rerr)
 			return 1
 		}
 	} else if ok && !force && time.Since(cc.ImportedAt) < auth.ImportTTL {
@@ -519,16 +519,16 @@ func importBrowserCookies(providerID, account, browser, profile string, force bo
 	}
 	header, err := auth.Import(providerID, browser, profile)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "import failed:", err)
+		fmt.Fprintln(os.Stderr, "读浏览器登录状态失败：", err)
 		return 1
 	}
 	if err := auth.SaveCookieCache(providerID, profile, header, browser); err != nil {
-		fmt.Fprintln(os.Stderr, "cache save:", err)
+		fmt.Fprintln(os.Stderr, "存登录状态缓存失败：", err)
 		return 1
 	}
 	if account != "" && profile != "" {
 		if err := bindAccount(providerID, account, profile); err != nil {
-			fmt.Fprintln(os.Stderr, "account bind:", err)
+			fmt.Fprintln(os.Stderr, "绑定账号失败：", err)
 			return 1
 		}
 	} else if account != "" {
@@ -606,21 +606,21 @@ func snapshotGrokAuthFile(account, src string) int {
 	name := snapshotAccountName(account)
 	srcPath, err := provider.HomePath(src)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "auth file:", err)
+		fmt.Fprintln(os.Stderr, "找登录文件失败：", err)
 		return 2
 	}
 	raw, err := os.ReadFile(srcPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read grok session:", err)
+		fmt.Fprintln(os.Stderr, "读 grok 登录文件失败：", err)
 		return 1
 	}
 	home, err := grokHome(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "grok home:", err)
+		fmt.Fprintln(os.Stderr, "找 grok 目录失败：", err)
 		return 1
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "create home:", err)
+		fmt.Fprintln(os.Stderr, "建目录失败：", err)
 		return 1
 	}
 	dst := filepath.Join(home, "auth.json")
@@ -647,7 +647,7 @@ func snapshotKimiAuthFile(account, src string) int {
 	name := snapshotAccountName(account)
 	dst, err := isolatedSessionHome("kimi", name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "kimi home:", err)
+		fmt.Fprintln(os.Stderr, "找 kimi 目录失败：", err)
 		return 1
 	}
 	return snapshotJSONFile("kimi", name, src, filepath.Join(dst, "credentials", "kimi-code.json"), kimiSessionOK)
@@ -657,7 +657,7 @@ func snapshotCursorAuthFile(account, src string) int {
 	name := snapshotAccountName(account)
 	dst, err := auth.CursorAuthFile(name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "cursor home:", err)
+		fmt.Fprintln(os.Stderr, "找 cursor 目录失败：", err)
 		return 1
 	}
 	return snapshotJSONFile("cursor", name, src, dst, cursorSessionOK)
@@ -667,7 +667,7 @@ func snapshotCodexAuthFile(account, src string) int {
 	name := snapshotAccountName(account)
 	home, err := isolatedSessionHome("codex", name)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "codex home:", err)
+		fmt.Fprintln(os.Stderr, "找 codex 目录失败：", err)
 		return 1
 	}
 	return snapshotJSONFile("codex", name, src, filepath.Join(home, "auth.json"), codexSessionOK)
@@ -676,12 +676,12 @@ func snapshotCodexAuthFile(account, src string) int {
 func snapshotJSONFile(providerID, account, src, dst string, ok func([]byte) bool) int {
 	srcPath, err := provider.HomePath(src)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "auth file:", err)
+		fmt.Fprintln(os.Stderr, "找登录文件失败：", err)
 		return 2
 	}
 	raw, err := os.ReadFile(srcPath)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read session:", err)
+		fmt.Fprintln(os.Stderr, "读登录文件：", err)
 		return 1
 	}
 	if !ok(raw) {
@@ -689,18 +689,18 @@ func snapshotJSONFile(providerID, account, src, dst string, ok func([]byte) bool
 		return 1
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "write session:", err)
+		fmt.Fprintln(os.Stderr, "写登录文件失败：", err)
 		return 1
 	}
 	tmp := dst + ".incoming"
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintln(os.Stderr, "write session:", err)
+		fmt.Fprintln(os.Stderr, "写登录文件失败：", err)
 		return 1
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintln(os.Stderr, "write session:", err)
+		fmt.Fprintln(os.Stderr, "写登录文件失败：", err)
 		return 1
 	}
 	return bindIsolatedAuthFile(providerID, account, dst)
@@ -709,11 +709,11 @@ func snapshotJSONFile(providerID, account, src, dst string, ok func([]byte) bool
 func bindIsolatedAuthFile(providerID, account, dst string) int {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "config:", err)
+		fmt.Fprintln(os.Stderr, "读配置失败：", err)
 		return 1
 	}
 	if err := cfg.SetAccountAuthFile(providerID, account, dst); err != nil {
-		fmt.Fprintln(os.Stderr, "config save:", err)
+		fmt.Fprintln(os.Stderr, "保存配置失败：", err)
 		return 1
 	}
 	if providerID == "grok" {
@@ -781,12 +781,12 @@ func useKimiSession(a config.AccountConfig, account string, jsonOut bool) int {
 	}
 	dst, err := kimi.OfficialCredentialPath()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "kimi target:", err)
+		fmt.Fprintln(os.Stderr, "找 kimi 的官方登录文件失败：", err)
 		return 1
 	}
 	raw, err := os.ReadFile(src)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read kimi session:", err)
+		fmt.Fprintln(os.Stderr, "读 kimi 登录文件失败：", err)
 		return 1
 	}
 	if !kimiSessionOK(raw) {
@@ -798,18 +798,18 @@ func useKimiSession(a config.AccountConfig, account string, jsonOut bool) int {
 		return 1
 	}
 	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		fmt.Fprintln(os.Stderr, "write kimi session:", err)
+		fmt.Fprintln(os.Stderr, "写 kimi 登录文件失败：", err)
 		return 1
 	}
 	tmp := dst + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintln(os.Stderr, "write kimi session:", err)
+		fmt.Fprintln(os.Stderr, "写 kimi 登录文件失败：", err)
 		return 1
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		os.Remove(tmp)
-		fmt.Fprintln(os.Stderr, "write kimi session:", err)
+		fmt.Fprintln(os.Stderr, "写 kimi 登录文件失败：", err)
 		return 1
 	}
 	return printUseResult(switcher.Result{

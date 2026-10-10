@@ -91,7 +91,7 @@ func TestParseBalanceAuthError(t *testing.T) {
 func TestParseBalanceEnvelopeError(t *testing.T) {
 	_, err := parseBalance([]byte(`{"code": 42, "data": {"biz_code": 0}}`))
 	assertKind(t, err, KindAPI)
-	if !strings.Contains(err.Error(), "user summary code 42") {
+	if !strings.Contains(err.Error(), "用户概览返回 code 42") {
 		t.Errorf("message = %q, want it to mention the code", err.Error())
 	}
 }
@@ -102,7 +102,7 @@ func TestParseBalanceNonNumeric(t *testing.T) {
 	]}`
 	_, err := parseBalance([]byte(raw))
 	assertKind(t, err, KindParse)
-	if !strings.Contains(err.Error(), "Non-numeric balance value") {
+	if !strings.Contains(err.Error(), "返回里的余额值不是数字") {
 		t.Errorf("message = %q, want the Swift failure message", err.Error())
 	}
 }
@@ -206,7 +206,7 @@ func TestParseUsageSummaryBizCodeError(t *testing.T) {
 	cost := `{"code": 0, "data": {"biz_code": 0, "biz_data": [{"currency": "USD"}]}}`
 	_, err := parseUsageSummary([]byte(amount), []byte(cost), fixedNow)
 	assertKind(t, err, KindAPI)
-	if !strings.Contains(err.Error(), "amount biz_code 12345") {
+	if !strings.Contains(err.Error(), "用量返回 biz_code 12345") {
 		t.Errorf("message = %q, want it to mention the biz_code", err.Error())
 	}
 }
@@ -216,7 +216,7 @@ func TestParseUsageSummaryMissingBizData(t *testing.T) {
 	cost := `{"code": 0, "data": {"biz_code": 0, "biz_data": [{"currency": "USD"}]}}`
 	_, err := parseUsageSummary([]byte(amount), []byte(cost), fixedNow)
 	assertKind(t, err, KindParse)
-	if !strings.Contains(err.Error(), "Missing amount biz_data") {
+	if !strings.Contains(err.Error(), "用量里没有 biz_data") {
 		t.Errorf("message = %q", err.Error())
 	}
 }
@@ -367,7 +367,7 @@ func TestFetchBalance401(t *testing.T) {
 		Creds:   provider.Credentials{APIKey: "bad"},
 	})
 	assertKind(t, err, KindInvalidAPIKey)
-	if !strings.Contains(err.Error(), "HTTP 401") || !strings.Contains(err.Error(), "invalid API key") {
+	if !strings.Contains(err.Error(), "HTTP 401") || !strings.Contains(err.Error(), "API 密钥不合法") {
 		t.Errorf("message = %q, want status and classification", err.Error())
 	}
 }

@@ -50,10 +50,10 @@ func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error
 		return "", err
 	} else if ok {
 		if ca.AccessToken == "" {
-			return "", errors.New("Cursor auth file is empty — re-run: leeway login cursor" + accountSuffix(req.Account))
+			return "", errors.New("Cursor 登录文件是空的 — 请重跑 leeway login cursor" + accountSuffix(req.Account))
 		}
 		if exp, ok := auth.JWTExpiry(ca.AccessToken); ok && !exp.After(time.Now()) {
-			return "", fmt.Errorf("Cursor session for account %q expired at %s — re-run: leeway login cursor%s",
+			return "", fmt.Errorf("账号 %q 的 Cursor 登录已于 %s 过期 — 请重跑 leeway login cursor%s",
 				req.Account, exp.Local().Format("2006-01-02 15:04"), accountSuffix(req.Account))
 		}
 		return ca.AccessToken, nil
@@ -63,7 +63,7 @@ func resolveToken(ctx context.Context, req provider.FetchRequest) (string, error
 	} else if err != nil && !auth.IsKeychainItemMissing(err) {
 		return "", err
 	}
-	return "", errors.New("no Cursor token — set CURSOR_ACCESS_TOKEN, run `leeway login cursor`, or sign in with the Cursor CLI")
+	return "", errors.New("没有 Cursor 登录信息 — 请设置 CURSOR_ACCESS_TOKEN、跑 `leeway login cursor`，或用 Cursor 官方工具登录")
 }
 
 // accountSuffix appends a named account to a suggested command.
@@ -84,7 +84,7 @@ func keychainToken(ctx context.Context) (string, error) {
 		if auth.IsKeychainItemMissing(err) {
 			return "", err
 		}
-		return "", fmt.Errorf("keychain lookup failed: %w", err)
+		return "", fmt.Errorf("读 keychain 失败：%w", err)
 	}
 	return tok, nil
 }
@@ -125,13 +125,13 @@ func (p *cursorProvider) fetchUsage(ctx context.Context, token string) (*usageDa
 	}
 	switch {
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return nil, fmt.Errorf("Cursor token rejected (HTTP %d) — re-run: leeway login cursor", status)
+		return nil, fmt.Errorf("Cursor 登录信息被拒（HTTP %d） — 请重跑 leeway login cursor", status)
 	case status < 200 || status >= 300:
-		return nil, fmt.Errorf("Cursor usage request failed (HTTP %d): %.120s", status, strings.TrimSpace(string(body)))
+		return nil, fmt.Errorf("查询 Cursor 用量失败（HTTP %d）：%.120s", status, strings.TrimSpace(string(body)))
 	}
 	var data usageData
 	if err := json.Unmarshal(body, &data); err != nil {
-		return nil, fmt.Errorf("parsing Cursor usage response: %w", err)
+		return nil, fmt.Errorf("解析 Cursor 用量返回失败：%w", err)
 	}
 	return &data, nil
 }

@@ -73,7 +73,7 @@ func RenderTableNoDelta(w io.Writer, out *model.Output, color bool) {
 
 func renderTable(w io.Writer, out *model.Output, color, showDelta bool) {
 	if len(out.Providers) == 0 {
-		fmt.Fprintln(w, "(no providers)")
+		fmt.Fprintln(w, "（没有服务商）")
 		return
 	}
 	var shown []model.ProviderResult
@@ -104,11 +104,11 @@ func renderTable(w io.Writer, out *model.Output, color, showDelta bool) {
 		}
 	}
 	if n == 0 {
-		fmt.Fprintln(w, "(no providers)")
+		fmt.Fprintln(w, "（没有服务商）")
 		return
 	}
 	if !out.GeneratedAt.IsZero() {
-		fmt.Fprintln(w, colored("as of "+out.GeneratedAt.Local().Format("15:04"), cGray, color))
+		fmt.Fprintln(w, colored("截至 "+out.GeneratedAt.Local().Format("15:04"), cGray, color))
 	}
 }
 
@@ -173,9 +173,27 @@ func accountHead(pr model.ProviderResult, ar model.AccountResult, grouped bool, 
 		}
 	}
 	if ar.Status != "ok" {
-		head += " " + colored(ar.Status, statusColor(ar.Status, color), color)
+		head += " " + colored(statusText(ar.Status), statusColor(ar.Status, color), color)
 	}
 	return head
+}
+
+// statusText names a status in the table's language. The tokens themselves stay
+// English in the JSON contract; only the table spells them out.
+func statusText(status string) string {
+	switch status {
+	case "ok":
+		return "正常"
+	case "error":
+		return "失败"
+	case "not_configured":
+		return "未配置"
+	case "disabled":
+		return "已移除"
+	case "warn":
+		return "注意"
+	}
+	return status
 }
 
 // accountParts splits the tag from a differing email. Identity.Account is
@@ -222,7 +240,7 @@ func accountLine(pr model.ProviderResult, ar model.AccountResult, grouped bool, 
 		if ar.Error != "" {
 			l.err = colored("✗ "+ar.Error, cRed, color)
 		} else {
-			l.err = dim("no data")
+			l.err = dim("没有数据")
 		}
 		return l
 	}
@@ -291,7 +309,7 @@ func remainingWindow(win model.RateWindow) bool {
 
 func formatDelta(reset bool, pp, used *float64, currency string, remaining, color bool) string {
 	if reset {
-		return "  " + colored("reset", cGray, color)
+		return "  " + colored("重置", cGray, color)
 	}
 	var v float64
 	moneyish := false
@@ -370,7 +388,7 @@ func windowBody(win model.RateWindow, color bool) string {
 			body += " " + colored(r, cGray, color)
 		}
 		if win.RateLimited {
-			body += " " + colored("rate-limited", cRed, color)
+			body += " " + colored("请求太频繁", cRed, color)
 		}
 		return body
 	case win.Used != nil:

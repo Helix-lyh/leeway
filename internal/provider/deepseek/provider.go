@@ -123,7 +123,7 @@ func (p *deepseekProvider) Fetch(ctx context.Context, req provider.FetchRequest)
 		if err != nil {
 			// Best-effort, mirroring the Swift fetcher's optional-summary
 			// join: a failure only degrades the snapshot, never fails it.
-			log.Printf("deepseek: detailed usage unavailable: %v", err)
+			log.Printf("deepseek：详细用量拿不到：%v", err)
 		} else {
 			for _, d := range usage.daily {
 				tokens := float64(d.totalTokens)

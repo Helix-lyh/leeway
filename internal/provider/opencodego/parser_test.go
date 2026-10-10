@@ -196,8 +196,8 @@ func TestParseSubscriptionRegexFallback(t *testing.T) {
 func TestParseSubscriptionRegexMissingFields(t *testing.T) {
 	now := time.Date(2026, 8, 6, 12, 0, 0, 0, time.UTC)
 	_, err := parseSubscription(`<html><body>nothing useful</body></html>`, now)
-	if err == nil || !strings.Contains(err.Error(), "Missing usage fields") {
-		t.Fatalf("expected Missing usage fields error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "用量字段缺失") {
+		t.Fatalf("expected 用量字段缺失 error, got %v", err)
 	}
 	if !isMissingUsageFields(err) {
 		t.Fatalf("must classify as the balance-only fallback trigger")

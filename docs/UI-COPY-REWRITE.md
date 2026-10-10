@@ -874,3 +874,143 @@ config: /Users/helix/.config/leeway/config.json
 顺带把末尾 `config: <绝对路径>` 换成 `~` 缩写——它会把你本机用户名带进截图和录屏。
 
 `leeway usage` 的表格也是英文表头，同一类问题。
+
+---
+
+## 8. 第二轮：批准后的四类后续 + 三处范围扩大
+
+第 1–7 节是第一轮的账。第一轮合进 main 后，你批准了四件事：`internal/auth` 的英文错误、
+英文日志前缀、`status` / `usage` 的英文表头、其余文档里的旧标签。实施时又撞出三处第一轮
+没覆盖到的用户可见英文（`internal/render` 的标签、`internal/fetch` 的提示、状态词本身），
+一并做完了。这一节记第二轮。
+
+### 8.1 `internal/auth`：约 40 条英文错误
+
+7 个非测试文件（`auth.go` / `chrome.go` / `cursorfile.go` / `cursorme.go` / `importers.go` /
+`kimi_desktop.go` / `login.go`），加 `cookie_test.go` 的 3 处期望字面量。用词沿用第 1 节的
+对照表：凭据/会话/令牌 → 登录信息，cookie → 浏览器登录状态，官方 CLI → 官方工具。
+
+保留英文的是**可照抄的东西**：`leeway login kimi --manual "name=value; ..."` 这类命令、
+`--manual` / `--cookie` / `--force` 参数、环境变量、`PRAGMA` / `pbkdf2` / `AES` / `PKCS7`
+这类技术标识、`keychain` / `Chrome Safe Storage` 这类 macOS 专有名词、浏览器与品牌名。
+
+### 8.2 英文日志前缀
+
+15 个文件 98 处。原来日志前缀是英文（`cursor-agent login: …`、`read config: …`），现在统一成
+**中文短前缀**（「委托 cursor-agent 登录失败：」「读配置失败：」）。为什么保留前缀而不是删掉：
+前缀说明**是哪一步失败的**，删了就只剩一句笼统的失败。
+
+`internal/cli/login.go:43` 的 `--profile` 用法说明、`internal/cli/cli.go` 的若干 `Fprintln`
+前缀同批处理。有一处已知瑕疵：`fmt.Fprintln(os.Stderr, "读配置失败：", err)` 会在全角冒号后
+多一个空格（`Fprintln` 的行为），没改。
+
+### 8.3 `leeway status`：表头中文化，撞上 `text/tabwriter` 的真问题
+
+表头改成 `服务商 / 账号 / 登录信息 / 状态 / 过期时间`，值也给了中文（`配置里的 API 密钥` /
+`私有登录文件` / `正常` / `今天 16:31 过期`）。
+
+**`status --json` 一个字节都没动**：JSON 分支与 `HEAD` 版逐行 `diff` 完全一致，
+`credential` / `status` 的取值仍是英文 token（`apiKey (config)` / `authFile (private)` /
+`ok`）。
+
+改表头时发现一个真问题：原来用 `text/tabwriter` 排版，**它按 rune 数对齐，而 CJK 字符占两个
+终端列**，于是中文单元格和它的表头必然错位（表头起点在第 16 列、数据在第 13 列）。
+往单元格里补 ASCII 空格**修不好**——空格给 rune 数和显示宽度各加 1，差值恒定；补 U+3000
+能修但要塞不可见字符。所以换成了自己按 `displayWidth` 排版（`writeStatusTable`），
+现在表头与数据的起点都在显示列 `[0, 13, 53, 72, 78]`，且没有行尾空格。
+`internal/render` 用的是纯缩进、没有 tabwriter，所以那边不受影响。
+
+### 8.4 `leeway usage` 里漏掉的英文标签
+
+第 7.5 节末尾说「`usage` 的表格也是英文表头」——**这句是错的**，`usage` 没有表头行。
+真正漏的是散在句子里的 7 个标签：
+
+| 位置 | 原文案 | 新文案 |
+| --- | --- | --- |
+| `render.go:111` | `as of 11:28` | `截至 11:28` |
+| `render.go:225` | `no data` | `没有数据` |
+| `render.go:294` | `reset` | `重置` |
+| `render.go:373` | `rate-limited` | `请求太频繁` |
+| `render.go:76 / 107` | `(no providers)` | `（没有服务商）` |
+| `spark.go:170` | `(no history)` | `（没有历史）` |
+| `render.go:176` | 状态徽章直接印 `ar.Status` | 走新的 `statusText()`：`正常 / 失败 / 未配置 / 已移除 / 注意` |
+
+最后一条最隐蔽：`accountHead` 原来把 `ar.Status` 这个**英文 token 原样印在屏幕上**
+（`Codex not_configured  ✗ …`），而 `internal/gui/format.go` 里早就有一份一模一样的中文映射。
+现在 `render.go` 有了自己的 `statusText()`，用词与 GUI 完全一致（JSON 里的 token 不变）。
+`ok` 仍然不显示，`render_test.go:78` 的断言从 `"error"` 改成 `"失败"`。
+
+`ok` / `warn` / `error` 在 `render.go:508–512` 是**颜色码**，不是文案，保持原样。
+
+### 8.5 其余文档的旧标签
+
+9 个文件 41 处，全部 1:1 替换：`AGENTS.md` / `CLAUDE.md`（两份逐字同步，去掉 AGENTS 独有的
+代码生成规则块后共有部分仍逐字一致）、`docs/MYGO-NOTES.md`（**会照抄写出失败测试的控件名**：
+`Find("配置 key")` → `Find("设置密钥")`、`Label("账号操作")` → `Label("账号")`、
+`粘贴 API key…` → `粘贴 API 密钥…`）、`DESIGN.md` / `PROVIDER-FETCH.md` / `HISTORY-DELTA.md` /
+`docs/README.md` / `UI-MIGRATION.md` / `COMPETITORS.md`。
+
+按第 1 节的例外清单**保留**的：渲染截图义的「快照」、字面盲文点阵、架构叙述里的
+「探测 / 凭据 / 会话 / 官方 CLI」、竞品机制叙述里的「官方 CLI」（`ACKNOWLEDGMENTS.md` 一个字
+没改）、数据快照义、MYGO-NOTES 的「监控工具」。
+
+顺带修了 3 处被第一轮改名弄过期的例子：`internal/gui/view.go:471 / 513 / 515` 的注释与
+`docs/GUI.md:266 / 270 / 272` 引用的示例串。
+
+**一个已知缺口**：`docs/MYGO-NOTES.md:257 / 286 / 288` 的实测 Rect（`W=46.7` 这类）是旧标签
+宽度下量的，只换了标签文字、没重跑探针；该文件开头自己就写着行号是并行开发中的快照。
+
+### 8.6 `internal/provider`：约 95 条英文错误
+
+7 个包（deepseek / kimi / grok / codex / cursor / opencode-go / commandcode）29 个文件
++146 / −146，全是 1:1 替换，14 个测试文件的期望字面量同步。这些串会直接进 `leeway usage`
+的输出和窗口的 tooltip。
+
+**没动的**（都是「必须与外部一致」的东西）：`User-Agent`、JSON needle
+（`sign in` / `not associated with an account` / `could not be validated` / `access token`）、
+OAuth scope、窗口标题（`Codex Spark 5-hour` / `Zen balance` 等，按第 1 节的决定保持英文）、
+provider 显示名、`provider %q already registered` 这种面向开发者的 panic 文案。
+
+**分类不靠文案**：`internal/provider/kimi/errors.go` 的 `Error.Kind` 是枚举，`Msg` 只用于显示，
+翻译它不影响错误分类（已 grep 确认全仓没有 `.Msg ==` 或 `Contains(err.Error())` 这类匹配）。
+`Msg` 里那句「请在『设置 > 服务商 > Kimi』里填上」是**准确的**——leeway 自己的设置页确实有
+「服务商」这个 Tab（`internal/gui/settingsview.go:82`），比英文原文指 CodexBar 的路径更贴切。
+
+**两条机器原文回到末尾**：`kimi/localsession.go:161 / 175` 原先把网络错误 `%v` 夹在句子中间，
+按 8.7 同样的理由挪到末尾的全角冒号之后。
+
+### 8.7 三条消息的顺序修正：把机器原文赶回 tooltip
+
+中文化之后，`internal/gui` 的 `failureText()` 走向变了。它只在**机器的话位于消息最末**时
+（最后一个全角冒号之后）才把机器原文切进 tooltip；中文化把机器原文 `%v` 挤到了句子中间，
+于是机器原文跟着上了屏——这正是 `internal/gui/view.go` 那套判据要避免的事。三条：
+
+| 位置 | 原（中文化后） | 现 | 效果 |
+| --- | --- | --- | --- |
+| `auth.go:207` | `登录状态缓存读不了：%v — 删掉 %s…` | `登录状态缓存读不了：删掉 %s…：%v` | 句子只留建议，`invalid character 'o'…` 进 tooltip |
+| `chrome.go:536` | `从 %s 读登录状态失败：%v — 先登录 %s…` | `从 %s 读登录状态失败，先登录 %s…：%v` | `unable to open database file` 进 tooltip |
+| `chrome.go:48` | 建议被 `%v` 截断进 tooltip，且 tooltip 以 `: ` 开头 | 建议留在句子里，`security: …` 进 tooltip | 顺带删掉了只为补冒号存在的 `detail = ": " + detail` |
+
+用真实 `failureText()` 探针复核了分流，三条都变成「中文建议上屏 + 机器原文进 tooltip」。
+`chrome.go:48` 的 stderr 为空时句子会留一个尾冒号——低概率、低危害，留着。
+
+### 8.8 更正 7.5 的两处
+
+1. 7.5 说 `leeway status` 的表头「是别人脚本可能拿来切列的字符串，改它属于改契约」——
+   复核后判断：**真正的机器契约是 `status --json`**，表格是给人看的，所以这轮改了表头，
+   而 JSON 逐字节未动。7.5 的「建议单独开一轮」已经执行，就是 8.3。
+2. 7.5 最后一行「`leeway usage` 的表格也是英文表头」**不成立**，见 8.4。
+
+### 8.9 这一轮的验证
+
+- `gofmt -l` 干净；`go vet ./...` 退出 0；`go build ./...` 干净。
+- 通道契约复验：`help` → stdout 1120 / stderr 0；`usage -h` → stdout 0 / stderr 897 / 退出 2；
+  无参数 → stdout 0 / stderr 1121 / 退出 2；`status --json` → stdout 2270 / stderr 0；
+  `usage --json` → stdout 8808 / stderr 282（日志）。
+- JSON 契约复验：字段名与取值 token 全未变（`credential` 仍是 `apiKey (config)` 等，
+  `status` 仍是 `ok`）；`status.go` 的 JSON 分支与 `HEAD` 逐行 `diff` 一致。
+- 45 张渲染快照与上一版已验证基线逐像素比较：42 张完全相同，3 张的差异经定位**只在动画相位**
+  （右上角刷新转轮 19–34 行、`正在查询…` 转轮 150–165 行、底部 tooltip 覆盖层 627–700 行）；
+  连跑两次相同代码，`provider-many-burn.png` 之间仍有差异，证明是动画而非文案。
+- 4 条 GUI 不变量测试（`TestAFailureKeepsTheMachinesWordsOutOfTheSentence` 等）全绿。
+

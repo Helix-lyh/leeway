@@ -162,7 +162,7 @@ func codexHome() string {
 func AuthFilePath() (string, error) {
 	home := codexHome()
 	if home == "" {
-		return "", errors.New("cannot locate Codex home directory")
+		return "", errors.New("找不到 Codex 主目录")
 	}
 	return filepath.Join(home, "auth.json"), nil
 }

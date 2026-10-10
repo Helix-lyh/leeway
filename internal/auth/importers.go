@@ -14,7 +14,7 @@ func DomainsForProvider(providerID string) ([]string, error) {
 	case "opencode-go":
 		return []string{"opencode.ai"}, nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q — login --cookie supports: grok, kimi, opencode-go", providerID)
+		return nil, fmt.Errorf("不认识 %q 这个服务商 — login --cookie 只支持 grok、kimi、opencode-go", providerID)
 	}
 }
 
@@ -35,7 +35,7 @@ func importImpl(providerID, browser, profile string) (string, error) {
 }
 
 func errManualNotSupported(providerID string) error {
-	return errorString("manual cookies are configured via: leeway login " + providerID + " --manual ...")
+	return errorString("手动填登录状态请用 leeway login " + providerID + " --manual ...")
 }
 
 type errorString string
@@ -43,5 +43,5 @@ type errorString string
 func (e errorString) Error() string { return string(e) }
 
 func errBrowserNotImplemented(browser string) error {
-	return errorString("browser importer for " + browser + " not implemented on this platform — use: leeway login <id> --manual \"name=value; ...\"")
+	return errorString("这个平台上还不能用 " + browser + " 读登录状态 — 请用 leeway login <id> --manual \"name=value; ...\"")
 }

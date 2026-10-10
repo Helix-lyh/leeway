@@ -213,7 +213,7 @@ win := mygo.NewWindow(mygo.WindowOptions{
 - inspector（`ui/inspector*.go`）能看到每个元素的盒子和"为什么是这个盒子"。
 - 元素自己的盒子：`Element.Bounds()` 返回**上一帧**的盒子（`ui/api_gen.go:3242`–`3247`）；
   本帧的盒子在绘制回调里拿：`Element.Draw(func(p *ui.Painter, r ui.Rect){...})`
-  （`ui/api_gen.go:2783`）。本仓库的 `bar()`/点阵就是这么画的（`internal/gui/theme.go` 的 `bar()`）。
+  （`ui/api_gen.go:2783`）。本仓库的 `bar()`/走势图就是这么画的（`internal/gui/theme.go` 的 `bar()`）。
 
 ## 2. 渲染与测试
 
@@ -254,7 +254,7 @@ something moves.** 另外窗口被遮住时，动画会被挂起（`ui/runtime.g
 
 - **`Find`/`Click` 只认可见元素。** 被滚动区裁掉的元素 `Find` 会返回一个 `W=0 H=0` 的 Rect
   （`ui/runtime.go:804`–`837`：不可见/惰性的元素不进 `rt.labels`）。实测：默认总览页里
-  `Find("配置 key")` = `{X:912 Y:852 W:0 H:0}`（窗口 1040×700，在折叠线下面），`Click` 打在空气上；
+  `Find("设置密钥")` = `{X:912 Y:852 W:0 H:0}`（窗口 1040×700，在折叠线下面），`Click` 打在空气上；
   先 `a.navigate("provider:deepseek")` 再 `Find` 得到 `{X:871 Y:195 W:46.7 H:14.1}`，点击正常。
   **点不到先看 Rect 的 W/H 是不是 0。**
 - **`Find`/`Click` 是精确匹配，`HasText` 是子串。** 同一个 label 出现多次时 `Find` 返回第一个，
@@ -283,9 +283,9 @@ something moves.** 另外窗口被遮住时，动画会被挂起（`ui/runtime.g
 文档 `docs/ui/testing.md` 的 **Menus** 一条）。实测（把探针作为 overlay 测试挂进本仓库跑的）：
 
 ```
-Find("配置 key") = {X:871.3 Y:194.9 W:46.7 H:14.1} ok=true
-menu: []string{"粘贴 API key…"}
-after choosing "粘贴 API key…", texts: [… 粘贴 API key  DeepSeek API key 显示明文 … 取消 保存]
+Find("设置密钥") = {X:871.3 Y:194.9 W:46.7 H:14.1} ok=true
+menu: []string{"粘贴 API 密钥…"}
+after choosing "粘贴 API 密钥…", texts: [… 粘贴 API 密钥  DeepSeek API 密钥 显示出来 … 取消 保存]
 ```
 
 以及标题栏那个刷新周期菜单：`Click("手动刷新")` → `Menu()` =
@@ -296,10 +296,10 @@ after choosing "粘贴 API key…", texts: [… 粘贴 API key  DeepSeek API key
 ```go
 // 1) 端到端：点开菜单，看它列了什么，选一项，再看界面变成了什么。
 tester := ui.NewTester(a.view, mainWidth, mainHeight)
-if err := tester.Click("配置 key"); err != nil { t.Fatal(err) }
-if got := tester.Menu(); !slices.Equal(got, []string{"粘贴 API key…"}) { t.Errorf("menu = %v", got) }
-if err := tester.ChooseMenuItem("粘贴 API key…"); err != nil { t.Fatal(err) }
-if !tester.HasText("DeepSeek API key") { t.Errorf("the sheet did not open; texts=%v", tester.Texts()) }
+if err := tester.Click("设置密钥"); err != nil { t.Fatal(err) }
+if got := tester.Menu(); !slices.Equal(got, []string{"粘贴 API 密钥…"}) { t.Errorf("menu = %v", got) }
+if err := tester.ChooseMenuItem("粘贴 API 密钥…"); err != nil { t.Fatal(err) }
+if !tester.HasText("粘贴 API 密钥") { t.Errorf("the sheet did not open; texts=%v", tester.Texts()) }
 
 // 2) 只测"菜单该有什么"：把内容做成纯函数，单测纯函数。
 //    internal/gui/view.go:521 loginMethods / :553 loginButtonLabel
@@ -597,8 +597,8 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 | 8 ✏️ | 窗口初始宽高 / 记住 bounds | 待核实的机制已确认：`mygo.WindowOptions.StateKey` | 建窗口时给 `StateKey`（主窗口 `"main"`、设置 `"settings"`），mygo 存 `window-state.json`（`PathUserData`），下次启动取回并覆盖 X/Y/W/H | mygo `window.go:152`–`159`、`window_state.go:12`–`20`、`paths.go:21`–`23`；本仓库 `internal/gui/view.go:41`–`56`、`:59`–`79` |
 | 9 ✏️ | 无人值守截图只能拿到开机那一帧 | 准确说法是**帧只在有事时重建**（输入、`Update`、`Invalidate`、有东西在动），被遮住时动画还会挂起；没有输入就没有页面切换 | 要看别的页面就在测试里 `ui.NewTester`，或人工点；`LEEWAY_GUI_CAPTURE` 只够自检首屏 | mygo `ui/doc.go`、`docs/ui/transitions.md`（末句）、`ui/runtime.go:470`–`480`；本仓库 `internal/gui/app.go:183`–`198` |
 | 10 ✅ | 测试入口 | — | `ui.NewTester(view, w, h)`；另有 `Find`/`Menu`/`ChooseMenuItem`/`SetTitleBar`/`SetPreferences`/`Announcements`/`Scroll`/`Key`/`Type` 等 | mygo `ui/headless.go`、`docs/ui/testing.md`；本仓库 `internal/gui/gui_test.go:372`、`:570` |
-| 11 ✏️ | 菜单测不到 | **菜单项确实不在元素树里**（`Texts()`/`HasText()` 看不到），但 headless 宿主记下了弹出的菜单，`Tester.Menu()` 能列出、`ChooseMenuItem()` 能选。原始那次失败的真实原因是 `Find("配置 key")` 命中的按钮被滚动区裁掉了（`Rect` 的 `W=H=0`），点了个空气 | 端到端用 `Click` → `Menu()` → `ChooseMenuItem(path…)`；"菜单该有什么"仍然适合抽成纯函数单测 | mygo `ui/api_gen.go:2592`–`2632`、`:315`–`:352`、`ui/headless.go:120`–`122`、`:268`–`:325`、`ui/runtime.go:804`–`837`、`docs/ui/testing.md`（Menus）；本仓库 `internal/gui/view.go:505`–`513`、`:521`–`:549`、`internal/gui/gui_test.go:1297`；实测 `{W:0 H:0}` 与 `menu: ["粘贴 API key…"]` |
-| 12 ✅ | `Click` 匹配的是控件 label | `Find`/`Click` 精确匹配元素的 text 或 `Label`，重复时取第一个 | 可点的控件都要唯一、可读的 label：`MenuButton(c, loginButtonLabel(id), …)`、`ButtonBase(c).Label("账号操作")` | mygo `ui/headless.go:227`–`264`、`ui/runtime.go:824`–`837`、`docs/ui/testing.md`；本仓库 `internal/gui/view.go:505`、`internal/gui/theme.go` 的 `chrome()` |
+| 11 ✏️ | 菜单测不到 | **菜单项确实不在元素树里**（`Texts()`/`HasText()` 看不到），但 headless 宿主记下了弹出的菜单，`Tester.Menu()` 能列出、`ChooseMenuItem()` 能选。原始那次失败的真实原因是 `Find("设置密钥")` 命中的按钮被滚动区裁掉了（`Rect` 的 `W=H=0`），点了个空气 | 端到端用 `Click` → `Menu()` → `ChooseMenuItem(path…)`；"菜单该有什么"仍然适合抽成纯函数单测 | mygo `ui/api_gen.go:2592`–`2632`、`:315`–`:352`、`ui/headless.go:120`–`122`、`:268`–`:325`、`ui/runtime.go:804`–`837`、`docs/ui/testing.md`（Menus）；本仓库 `internal/gui/view.go:505`–`513`、`:521`–`:549`、`internal/gui/gui_test.go:1297`；实测 `{W:0 H:0}` 与 `menu: ["粘贴 API 密钥…"]` |
+| 12 ✅ | `Click` 匹配的是控件 label | `Find`/`Click` 精确匹配元素的 text 或 `Label`，重复时取第一个 | 可点的控件都要唯一、可读的 label：`MenuButton(c, loginButtonLabel(id), …)`、`ButtonBase(c).Label("账号")` | mygo `ui/headless.go:227`–`264`、`ui/runtime.go:824`–`837`、`docs/ui/testing.md`；本仓库 `internal/gui/view.go:505`、`internal/gui/theme.go` 的 `chrome()` |
 | 13 ✏️ | 没有文字测量 API，只能渲染 PNG 数像素 | **有公开 API**：`Context.MeasureText(width, spans...)`、`Painter.MeasureText`；元素盒子有 `Bounds()`（上一帧）和 `Draw` 回调的 `Rect`（本帧） | 先量：`w, _ := c.MeasureText(0, ui.Span{Text: s, Size: sizeBody})`，跟可用宽度比；数像素只留给整图比对（`meanDifference`） | mygo `ui/richtext.go:219`–`232`、`ui/richtext.go:15`–`33`、`ui/api_gen.go:2783`、`ui/api_gen.go:3242`–`3247`；本仓库 `internal/gui/gui_test.go:1276`–`1288`、`resources/screens.py` |
 | 14 ✏️ | `MaxLines(n)`/`SingleLine()` 的行为 | mygo 行为本身确认：`MaxLines(n)` 最多 n 行、超出加省略号；`SingleLine()` = `single + maxLines(1)`；`Ellipsis(s)` 换省略号；`NoWrap()` 不折行也不加省略号。**"渲染时把完整文本放进提示里"不是 mygo 干的**，是本仓库自己挂的 `Tooltip`。而且 mygo **没有**公开"是否被截断"的信号 | 窄列里主动写短；需要悬停看全文就自己 `.Tooltip(全文)`；判断放不放得下用 `MeasureText` | mygo `ui/api_gen.go:3041`–`3055`、`internal/text/layout.go:67`–`70`、`:228`–`229`、`:787`–`798`；本仓库 `internal/gui/theme.go` 的 `keyValue()`、`internal/gui/settingsview.go:262`–`264`；实测 ink 行数：不限 62 / `SingleLine()` 13 / `MaxLines(1)` 13 / `MaxLines(2)` 26（正好 n×13）|
 | 15 ✅ | `ui.Context` 是 builder | `newElement` 挂到 `c.parent`；`Children` 换父再换回；元素身份 = 父 + 序号 + kind | 每个构造函数都传 `c`；`Children(func(){…})` 分块；`ui.Spacer(c)` 占剩余空间；跨帧身份要跟着数据就用 `Key` | mygo `ui/context.go:191`–`221`、`ui/element.go:476`–`499`、`ui/api_gen.go:1871`–`1872` |

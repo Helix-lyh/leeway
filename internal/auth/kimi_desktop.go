@@ -23,7 +23,7 @@ import (
 func kimiDesktopCookieDB() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("cannot locate home directory: %w", err)
+		return "", fmt.Errorf("找不到主目录：%w", err)
 	}
 	mac := filepath.Join(home, "Library", "Application Support", "kimi-desktop", "Cookies")
 	if runtime.GOOS == "darwin" {
@@ -53,32 +53,32 @@ LIMIT 1`
 // desktop app's own cookie store.
 func importKimiDesktop(providerID string) (string, error) {
 	if providerID != "kimi" {
-		return "", fmt.Errorf("kimi-desktop cookies only exist for the kimi provider (got %q) — use browser \"chrome\" or manual cookies: leeway login %s --manual \"name=value; ...\"", providerID, providerID)
+		return "", fmt.Errorf("kimi-desktop 里只有 kimi 的登录状态（拿到的是 %q）— 请改用浏览器 \"chrome\"，或手动填登录状态（leeway login %s --manual \"name=value; ...\"）", providerID, providerID)
 	}
 	path, err := kimiDesktopCookieDB()
 	if err != nil {
 		return "", err
 	}
 	if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
-		return "", fmt.Errorf("kimi-desktop cookie store %s not found — open the Kimi desktop app and sign in, then retry `leeway login kimi --cookie --browser kimi-desktop`; or: leeway login kimi --manual", path)
+		return "", fmt.Errorf("没找到 kimi-desktop 的登录状态库 %s — 打开 Kimi 桌面版登录，再跑 `leeway login kimi --cookie --browser kimi-desktop`；或跑 leeway login kimi --manual", path)
 	}
 	db, err := openCookieDB(path)
 	if err != nil {
-		return "", fmt.Errorf("could not open kimi-desktop cookie store %s: %v — close the Kimi desktop app or use manual cookies", path, err)
+		return "", fmt.Errorf("打不开 kimi-desktop 的登录状态库 %s，请关掉 Kimi 桌面版或手动填登录状态：%v", path, err)
 	}
 	defer db.Close()
 
 	var token string
 	err = db.QueryRow(kimiDesktopQuery).Scan(&token)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", fmt.Errorf("no kimi-auth cookie in %s — sign in to the Kimi desktop app and retry, or use manual cookies", path)
+		return "", fmt.Errorf("%s 里没有 kimi-auth 登录状态 — 请在 Kimi 桌面版里登录后重试，或手动填登录状态", path)
 	}
 	if err != nil {
-		return "", fmt.Errorf("could not read kimi-auth cookie from %s: %v", path, err)
+		return "", fmt.Errorf("读不了 %s 里的 kimi-auth 登录状态：%v", path, err)
 	}
 	token = strings.TrimSpace(token)
 	if token == "" {
-		return "", fmt.Errorf("kimi-auth cookie in %s is empty — sign in to the Kimi desktop app and retry, or use manual cookies", path)
+		return "", fmt.Errorf("%s 里的 kimi-auth 登录状态是空的 — 请在 Kimi 桌面版里登录后重试，或手动填登录状态", path)
 	}
 	return "kimi-auth=" + token, nil
 }

@@ -100,7 +100,7 @@ func TestParseAPIUsageRequiresRolling(t *testing.T) {
 	} {
 		if _, err := parseAPIUsage(text, now); err == nil {
 			t.Fatalf("expected error for %q", text)
-		} else if !strings.Contains(err.Error(), "Missing usage fields") && text != "not json" {
+		} else if !strings.Contains(err.Error(), "用量字段缺失") && text != "not json" {
 			t.Fatalf("expected missing-usage error, got %v", err)
 		}
 	}

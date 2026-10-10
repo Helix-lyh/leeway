@@ -95,7 +95,7 @@ func (p *opencodeGo) fetchWorkspaceID(ctx context.Context, cookieHeader string) 
 		ids = parseWorkspaceIDsFromJSON(fallback)
 	}
 	if len(ids) == 0 {
-		return "", parseErrorf("Missing workspace id.")
+		return "", parseErrorf("缺少工作区 ID。")
 	}
 	return ids[0], nil
 }
@@ -110,7 +110,7 @@ func (p *opencodeGo) fetchUsagePage(ctx context.Context, wsID, cookieHeader stri
 		return "", invalidCredentials()
 	}
 	if !usageFieldsPresent(text) {
-		return "", parseErrorf("Missing usage fields.")
+		return "", parseErrorf("用量字段缺失。")
 	}
 	return text, nil
 }
@@ -143,7 +143,7 @@ func (p *opencodeGo) fetchZenBillingText(ctx context.Context, wsID, cookieHeader
 	// produce malformed JSON in the _server RPC args.
 	raw, err := json.Marshal([]string{wsID})
 	if err != nil {
-		return "", apiErrorf("workspace ID not serializable: %v", err)
+		return "", apiErrorf("工作区 ID 序列化不了：%v", err)
 	}
 	argsData := string(raw)
 	return p.fetchServerText(ctx, serverRequest{
@@ -239,7 +239,7 @@ func (p *opencodeGo) doRequest(ctx context.Context, req *http.Request) (string, 
 		return "", apiErrorf("HTTP %d", status)
 	}
 	if !utf8.Valid(body) {
-		return "", parseErrorf("Response was not UTF-8.")
+		return "", parseErrorf("返回的内容不是 UTF-8。")
 	}
 	return string(body), nil
 }

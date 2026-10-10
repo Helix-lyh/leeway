@@ -39,7 +39,7 @@ func TestPlotDotsGapBreaksStroke(t *testing.T) {
 func TestRenderHistoryEmpty(t *testing.T) {
 	var buf bytes.Buffer
 	RenderHistory(&buf, nil, false)
-	if !strings.Contains(buf.String(), "(no history)") {
+	if !strings.Contains(buf.String(), "（没有历史）") {
 		t.Fatalf("%s", buf.String())
 	}
 }

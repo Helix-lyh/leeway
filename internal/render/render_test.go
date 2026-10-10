@@ -66,16 +66,16 @@ func TestRenderTablePercentWindow(t *testing.T) {
 
 func TestRenderTableErrorRow(t *testing.T) {
 	out := &model.Output{Version: 1, Providers: []model.ProviderResult{{
-		ID: "codex", DisplayName: "Codex", Status: "error", Error: "session expired — run: leeway login codex",
-		Accounts: []model.AccountResult{{Name: "default", Status: "error", Error: "session expired — run: leeway login codex"}},
+		ID: "codex", DisplayName: "Codex", Status: "error", Error: "登录已过期 — 请跑 leeway login codex",
+		Accounts: []model.AccountResult{{Name: "default", Status: "error", Error: "登录已过期 — 请跑 leeway login codex"}},
 	}}}
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
 	s := buf.String()
-	if !strings.Contains(s, "✗ session expired") {
+	if !strings.Contains(s, "✗ 登录已过期") {
 		t.Fatalf("error segment missing:\n%s", s)
 	}
-	if !strings.Contains(s, "error") {
+	if !strings.Contains(s, "失败") {
 		t.Fatalf("status badge missing from head:\n%s", s)
 	}
 }
@@ -138,7 +138,7 @@ func TestRenderTableRateLimitedMarker(t *testing.T) {
 	}}}
 	var buf bytes.Buffer
 	RenderTable(&buf, out, false)
-	if !strings.Contains(buf.String(), "rate-limited") {
+	if !strings.Contains(buf.String(), "请求太频繁") {
 		t.Fatalf("rate-limited marker missing:\n%s", buf.String())
 	}
 }
@@ -146,7 +146,7 @@ func TestRenderTableRateLimitedMarker(t *testing.T) {
 func TestRenderTableEmptyOutput(t *testing.T) {
 	var buf bytes.Buffer
 	RenderTable(&buf, &model.Output{Version: 1}, false)
-	if !strings.Contains(buf.String(), "(no providers)") {
+	if !strings.Contains(buf.String(), "（没有服务商）") {
 		t.Fatalf("empty output marker missing:\n%s", buf.String())
 	}
 }
@@ -296,19 +296,19 @@ func TestRenderTableDeltaAndReset(t *testing.T) {
 	if !strings.Contains(s, "+2") {
 		t.Fatalf("percent delta missing:\n%s", s)
 	}
-	if !strings.Contains(s, "reset") {
+	if !strings.Contains(s, "重置") {
 		t.Fatalf("reset marker missing:\n%s", s)
 	}
-	if !strings.Contains(s, "as of 14:32") {
+	if !strings.Contains(s, "截至 14:32") {
 		t.Fatalf("as of footer missing:\n%s", s)
 	}
 	buf.Reset()
 	RenderTableNoDelta(&buf, out, false)
 	hide := buf.String()
-	if strings.Contains(hide, "+2") || strings.Contains(hide, "reset") {
+	if strings.Contains(hide, "+2") || strings.Contains(hide, "重置") {
 		t.Fatalf("--no-delta still shows delta:\n%s", hide)
 	}
-	if !strings.Contains(hide, "as of 14:32") {
+	if !strings.Contains(hide, "截至 14:32") {
 		t.Fatalf("footer should remain:\n%s", hide)
 	}
 }

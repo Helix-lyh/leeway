@@ -91,7 +91,9 @@ func ResolveCredentials(p provider.Provider, cfg *config.Config, account string)
 		if err == nil {
 			creds.CodexAuth = cx
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return creds, fmt.Errorf("Codex auth.json unreadable: %w — run: leeway login codex", err)
+			// The wrapped error goes last so failureText can split it off the
+			// sentence and drop the tool's own words into the tooltip.
+			return creds, fmt.Errorf("Codex 的 auth.json 读不了 — 请跑 leeway login codex：%w", err)
 		}
 	}
 	return creds, nil
@@ -146,7 +148,7 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 	if opts.ProviderFilter != "" {
 		p, ok := provider.Get(opts.ProviderFilter)
 		if !ok {
-			return nil, fmt.Errorf("unknown provider %q", opts.ProviderFilter)
+			return nil, fmt.Errorf("不认识 %q 这个服务商", opts.ProviderFilter)
 		}
 		providers = []provider.Provider{p}
 	}
@@ -196,7 +198,7 @@ func FetchAll(ctx context.Context, cfg *config.Config, opts Options) (*model.Out
 		if err := saveSnapshotCache(fp, out); err != nil {
 			// Data is still valid; a cache write failure is non-fatal. Log it
 			// so the failure is visible without failing the whole run.
-			log.Printf("cache: snapshot cache write failed (data is still valid): %v", err)
+			log.Printf("缓存：写快照缓存失败（数据仍然有效）：%v", err)
 		}
 	}
 	return out, nil
@@ -207,7 +209,7 @@ func fetchProvider(ctx context.Context, p provider.Provider, cfg *config.Config,
 	accounts := accountsFor(p, cfg, opts.AccountFilter)
 	if opts.AccountFilter != "" && len(accounts) == 0 {
 		res.Status = "error"
-		res.Error = fmt.Sprintf("account %q not configured", opts.AccountFilter)
+		res.Error = fmt.Sprintf("账号 %q 没配置", opts.AccountFilter)
 		return res
 	}
 	if len(accounts) == 0 {
@@ -361,24 +363,24 @@ func overlayAccountCreds(base provider.Credentials, acc config.AccountConfig, co
 func missingCredentialHint(id string, spec provider.AuthSpec) string {
 	switch {
 	case spec.UsesKeychain:
-		return "missing Cursor token — run: leeway login cursor (or set CURSOR_ACCESS_TOKEN)"
+		return "没有 Cursor 的令牌 — 请跑 leeway login cursor（或设置 CURSOR_ACCESS_TOKEN）"
 	case len(spec.EnvAPIKey) > 0 && spec.UsesCookies:
 		if len(spec.EnvAuthToken) > 0 {
-			return fmt.Sprintf("missing credentials — set %s or %s or: leeway login %s (or: leeway login %s --cookie)", spec.EnvAPIKey[0], spec.EnvAuthToken[0], id, id)
+			return fmt.Sprintf("没有登录信息 — 设置 %s 或 %s，或跑 leeway login %s（或 leeway login %s --cookie）", spec.EnvAPIKey[0], spec.EnvAuthToken[0], id, id)
 		}
-		return fmt.Sprintf("missing credentials — set %s or: leeway login %s (or: leeway login %s --cookie)", spec.EnvAPIKey[0], id, id)
+		return fmt.Sprintf("没有登录信息 — 设置 %s，或跑 leeway login %s（或 leeway login %s --cookie）", spec.EnvAPIKey[0], id, id)
 	case len(spec.EnvAPIKey) > 0:
-		return fmt.Sprintf("missing credentials — set %s or: leeway login %s", spec.EnvAPIKey[0], id)
+		return fmt.Sprintf("没有登录信息 — 设置 %s，或跑 leeway login %s", spec.EnvAPIKey[0], id)
 	case len(spec.EnvAuthToken) > 0:
-		return fmt.Sprintf("missing credentials — set %s or: leeway login %s", spec.EnvAuthToken[0], id)
+		return fmt.Sprintf("没有登录信息 — 设置 %s，或跑 leeway login %s", spec.EnvAuthToken[0], id)
 	case len(spec.LocalAuthFiles) > 0 && spec.LoginHint != "":
-		return "missing local session — " + spec.LoginHint
+		return "没有本机登录文件 — " + spec.LoginHint
 	case spec.UsesCookies:
-		return "missing cookies — run: leeway login grok --manual (or: leeway login kimi --cookie)"
+		return "没有浏览器登录状态 — 请跑 leeway login grok --manual（或 leeway login kimi --cookie）"
 	case spec.UsesCodexCLI:
-		return "missing Codex session — run: leeway login codex"
+		return "没有 Codex 的登录文件 — 请跑 leeway login codex"
 	default:
-		return "missing credentials"
+		return "没有登录信息"
 	}
 }
 

@@ -65,7 +65,7 @@ func (w *platformWallet) UnmarshalJSON(data []byte) error {
 		} else {
 			var f float64
 			if err := json.Unmarshal(outer.Balance, &f); err != nil {
-				return fmt.Errorf("invalid balance value %s", string(outer.Balance))
+				return fmt.Errorf("余额值不合法 %s", string(outer.Balance))
 			}
 			w.Balance = f
 		}
@@ -114,7 +114,7 @@ func parseBalance(data []byte) (*balance, error) {
 	if resp.BalanceInfos != nil {
 		return parseBalanceInfos(resp)
 	}
-	return nil, ParseFailed("Missing balance data in response")
+	return nil, ParseFailed("返回里没有余额数据")
 }
 
 // parsedBalanceInfo is a balance_infos row with numeric amounts.
@@ -133,7 +133,7 @@ func parseBalanceInfos(resp userSummaryResponse) (*balance, error) {
 		granted, err2 := strconv.ParseFloat(strings.TrimSpace(info.GrantedBalance), 64)
 		toppedUp, err3 := strconv.ParseFloat(strings.TrimSpace(info.ToppedUpBalance), 64)
 		if err1 != nil || err2 != nil || err3 != nil {
-			return nil, ParseFailed("Non-numeric balance value in response.")
+			return nil, ParseFailed("返回里的余额值不是数字。")
 		}
 		parsed = append(parsed, parsedBalanceInfo{
 			currency: info.Currency,
@@ -189,16 +189,16 @@ func parsePlatformBalance(resp userSummaryResponse) (*balance, error) {
 		if isPlatformAuthenticationError(*resp.Code) {
 			return nil, InvalidPlatformToken()
 		}
-		return nil, APIError(fmt.Sprintf("user summary code %d", *resp.Code))
+		return nil, APIError(fmt.Sprintf("用户概览返回 code %d", *resp.Code))
 	}
 	if resp.Data != nil && resp.Data.BizCode != nil && *resp.Data.BizCode != 0 {
 		if isPlatformAuthenticationError(*resp.Data.BizCode) {
 			return nil, InvalidPlatformToken()
 		}
-		return nil, APIError(fmt.Sprintf("user summary biz_code %d", *resp.Data.BizCode))
+		return nil, APIError(fmt.Sprintf("用户概览返回 biz_code %d", *resp.Data.BizCode))
 	}
 	if resp.Data == nil || resp.Data.BizData == nil {
-		return nil, ParseFailed("Missing user summary biz_data")
+		return nil, ParseFailed("用户概览里没有 biz_data")
 	}
 	biz := resp.Data.BizData
 
@@ -462,39 +462,39 @@ func parseCostAmount(value string) float64 {
 func parseUsageSummary(amountData, costData []byte, now time.Time) (*usageSummary, error) {
 	amountPayload, err := decodeAmountPayload(amountData)
 	if err != nil {
-		return nil, ParseFailed("amount: " + err.Error())
+		return nil, ParseFailed("用量：" + err.Error())
 	}
 	costPayload, err := decodeCostPayload(costData)
 	if err != nil {
-		return nil, ParseFailed("cost: " + err.Error())
+		return nil, ParseFailed("费用：" + err.Error())
 	}
 
 	if amountPayload.Code != nil && *amountPayload.Code != 0 {
 		if isPlatformAuthenticationError(*amountPayload.Code) {
 			return nil, InvalidPlatformToken()
 		}
-		return nil, APIError(fmt.Sprintf("amount code %d", *amountPayload.Code))
+		return nil, APIError(fmt.Sprintf("用量返回 code %d", *amountPayload.Code))
 	}
 	if amountPayload.Data != nil && amountPayload.Data.BizCode != nil && *amountPayload.Data.BizCode != 0 {
 		if isPlatformAuthenticationError(*amountPayload.Data.BizCode) {
 			return nil, InvalidPlatformToken()
 		}
-		return nil, APIError(fmt.Sprintf("amount biz_code %d", *amountPayload.Data.BizCode))
+		return nil, APIError(fmt.Sprintf("用量返回 biz_code %d", *amountPayload.Data.BizCode))
 	}
 	if costPayload.Code != nil && *costPayload.Code != 0 {
 		if isPlatformAuthenticationError(*costPayload.Code) {
 			return nil, InvalidPlatformToken()
 		}
-		return nil, APIError(fmt.Sprintf("cost code %d", *costPayload.Code))
+		return nil, APIError(fmt.Sprintf("费用返回 code %d", *costPayload.Code))
 	}
 	if costPayload.Data != nil && costPayload.Data.BizCode != nil && *costPayload.Data.BizCode != 0 {
 		if isPlatformAuthenticationError(*costPayload.Data.BizCode) {
 			return nil, InvalidPlatformToken()
 		}
-		return nil, APIError(fmt.Sprintf("cost biz_code %d", *costPayload.Data.BizCode))
+		return nil, APIError(fmt.Sprintf("费用返回 biz_code %d", *costPayload.Data.BizCode))
 	}
 	if amountPayload.BizData == nil {
-		return nil, ParseFailed("Missing amount biz_data")
+		return nil, ParseFailed("用量里没有 biz_data")
 	}
 
 	currency := "CNY"

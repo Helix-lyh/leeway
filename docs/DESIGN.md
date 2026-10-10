@@ -36,14 +36,14 @@ leeway/
   resources/icon.png        # 窗口产物图标（MyGo 构建器转 .icns）
   cmd/leeway/main.go        # CLI 入口，装配 registry
   cmd/leeway-gui/main.go    # 窗口入口，装配同一 registry
-  internal/gui/             # 窗口：页面、设置、登录表单、配色与点阵
+  internal/gui/             # 窗口：页面、设置、登录表单、配色与走势图
   internal/model/           # RateWindow / Snapshot / JSON 契约
   internal/provider/        # Provider 接口 + Registry
     deepseek/  kimi/  grok/  codex/  cursor/  opencodego/  commandcode/
   internal/auth/            # cookie importer、cursor/grok 私有会话目录
   internal/config/          # ~/.config/leeway/config.json（0600）
   internal/credwrite/       # `leeway use` 打补丁 YAML 凭据（API key 家）
-  internal/switcher/        # `leeway use` 把 cursor/grok 写给官方客户端
+  internal/switcher/        # `leeway use` 把 cursor/grok 写给官方工具
   internal/fetch/           # 并行探测编排
   internal/cli/             # 子命令与 flag
   internal/render/          # json / 表格
@@ -129,16 +129,16 @@ L2 步骤（macOS）：
 - `leeway login opencode-go --cookie` 扫描全部 Chrome profile，每个登录态 = 一个账户候选
 - 多账户并发 ≤3；`--account work` 可过滤
 - 快速切换：`leeway use opencode-go <订阅>` 把 key 写入 DSH 凭据（`keyTarget`，可配置）
-- cursor / grok 的本地切号：`leeway use cursor|grok NAME`。cursor 写入本机所有已有的官方凭据位置——cursor-agent 的 macOS keychain 项、Cursor IDE `state.vscdb`、`~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`；缺的跳过，三处可用 `LEEWAY_CURSOR_KEYCHAIN` / `LEEWAY_CURSOR_STATE_DB` / `LEEWAY_CURSOR_AUTH_JSON` 覆盖）；grok 只回写文件里已有 `auth_mode`/`user_id` 的官方 `auth.json`（`login grok --file` 快照，不从 JWT 编造字段）。探测和登录仍用隔离目录。
+- cursor / grok 的本地切换账号：`leeway use cursor|grok NAME`。cursor 写入本机所有已有的官方登录位置——cursor-agent 的 macOS keychain 项、Cursor IDE `state.vscdb`、`~/.cursor/auth.json`（先退出 Cursor；macOS `~/Library/Application Support/Cursor/...`，Linux `~/.config/Cursor/...`；缺的跳过，三处可用 `LEEWAY_CURSOR_KEYCHAIN` / `LEEWAY_CURSOR_STATE_DB` / `LEEWAY_CURSOR_AUTH_JSON` 覆盖）；grok 只回写文件里已有 `auth_mode`/`user_id` 的官方 `auth.json`（`login grok --file` 备份，不从 JWT 编造字段）。探测和登录仍用隔离目录。
 
 ## 8. CLI 设计（无交互，agent 友好）
 
 ```
-leeway usage [PROVIDER [ACCOUNT]] [--json] [--watch N] [--last N]  # 查额度；--last 是点阵
-leeway login  PROVIDER [ACCOUNT]                                  # cursor/grok/codex/kimi → 官方 CLI；其余粘贴 key
+leeway usage [PROVIDER [ACCOUNT]] [--json] [--watch N] [--last N]  # 查额度；--last 是走势
+leeway login  PROVIDER [ACCOUNT]                                  # cursor/grok/codex/kimi → 官方工具；其余粘贴 API 密钥
 leeway logout PROVIDER [ACCOUNT]
 leeway status [--json]
-leeway use    PROVIDER ACCOUNT                                    # cursor → 本机所有已有官方凭据位置（keychain / IDE state.vscdb / ~/.cursor/auth.json）；grok → 完整 ~/.grok/auth.json；kimi 会话 → ~/.kimi-code；其余 → DSH
+leeway use    PROVIDER ACCOUNT                                    # cursor → 本机所有已有官方登录位置（keychain / IDE state.vscdb / ~/.cursor/auth.json）；grok → 完整 ~/.grok/auth.json；kimi 登录文件 → ~/.kimi-code；其余 → DSH
 leeway help [COMMAND]
 ```
 
@@ -203,7 +203,7 @@ DeepSeek
 | **M3** | kimi / grok / opencode-go（含多账户 + SQLite 只读） | 三家真实数据 + watch |
 | **M4** | codex（复用 CLI 会话） | 多档窗口 + 过期提示 |
 | **M5** | 打磨：超时、退出码、agent 集成文档、README | Hermes 侧一次调用可用 |
-| **M6** | 窗口界面：总览 / provider / 历史 / 设置 / 登录表单，MyGo 打包 `.app` + `.dmg` | 窗口能查、能登录、能退出登录，产物可启动 |
+| **M6** | 窗口界面：总览 / provider / 历史 / 设置 / 登录表单，MyGo 打包 `.app` + `.dmg` | 窗口能查、能登录、能移除账号，产物可启动 |
 
 ## 11. 风险与注意
 

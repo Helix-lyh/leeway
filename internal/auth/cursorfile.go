@@ -85,7 +85,7 @@ func LoadCursorAuth(account string) (CursorAuth, bool, error) {
 	}
 	var ca CursorAuth
 	if err := json.Unmarshal(raw, &ca); err != nil {
-		return CursorAuth{}, false, fmt.Errorf("cursor auth %s is unreadable: %w", p, err)
+		return CursorAuth{}, false, fmt.Errorf("cursor 的登录文件 %s 读不了：%w", p, err)
 	}
 	return ca, true, nil
 }

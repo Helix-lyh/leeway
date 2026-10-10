@@ -56,7 +56,7 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app   # 真窗
 
 CLI 与窗口共用 `internal/config`、`internal/fetch`、`internal/history`、`internal/auth`、`internal/switcher`；窗口自己的偏好放在 `~/.config/leeway/gui.json`，不要塞进 `config.json`（CLI 的 `Save()` 会抹掉不认识的字段）。
 
-日常看 `leeway help`；某一条看 `leeway help login`（还有 usage / logout / status / use）。无子命令时往 stderr 打帮助并退出 2。`leeway login cursor/grok/codex/kimi` 走官方 CLI；其余粘贴 key。`leeway use` 把 cursor 写给本机所有已有的官方凭据位置（cursor-agent 的 macOS keychain 项、Cursor IDE 的 `state.vscdb`、`~/.cursor/auth.json`；先退出 Cursor，`cursor-agent` 不算；缺的跳过，都没有才报错），grok 只回写完整官方 `~/.grok/auth.json`，kimi 会话写官方 kimi-code.json，codex 不写 `~/.codex`，其余写 DSH；不是切 leeway 自己看哪号。`PROVIDER` / `ACCOUNT` 写在命令后面，也可写成 `--provider` / `--account`。近 N 次点阵用 `usage --last`。
+日常看 `leeway help`；某一条看 `leeway help login`（还有 usage / logout / status / use）。无子命令时往 stderr 打帮助并退出 2。`leeway login cursor/grok/codex/kimi` 走官方工具；其余粘贴 API 密钥。`leeway use` 把 cursor 写给本机所有已有的官方登录位置（cursor-agent 的 macOS keychain 项、Cursor IDE 的 `state.vscdb`、`~/.cursor/auth.json`；先退出 Cursor，`cursor-agent` 不算；缺的跳过，都没有才报错），grok 只回写完整官方 `~/.grok/auth.json`，kimi 登录文件写官方 kimi-code.json，codex 不写 `~/.codex`，其余写 DSH；不是切换 leeway 自己看哪个账号。`PROVIDER` / `ACCOUNT` 写在命令后面，也可写成 `--provider` / `--account`。近 N 次走势用 `usage --last`。
 
 退出码：`0` 全部通过；`1` 至少一个 provider 报错或未配置；`2` 用法 / 配置错误。
 
@@ -65,7 +65,7 @@ CLI 与窗口共用 `internal/config`、`internal/fetch`、`internal/history`、
 ## 硬约束
 
 - CLI 的 stdout 只输出数据（JSON 或表格）；日志与错误一律走 stderr。窗口界面不写 stdout。
-- 不打印、不复制、不提交密钥、cookie、token、Authorization 或含真实凭据的配置；界面只显示凭据来源，不显示凭据内容。文档示例只用占位。
+- 不打印、不复制、不提交密钥、cookie、token、Authorization 或含真实凭据的配置；界面只显示登录信息来源，不显示登录信息内容。文档示例只用占位。
 - 配置文件 `~/.config/leeway/config.json`（0600，可用 `LEEWAY_CONFIG` 覆盖）；缓存 `~/.cache/leeway/`（`LEEWAY_CACHE`）；窗口设置 `~/.config/leeway/gui.json`（0600）。凭据优先级：环境变量 → 配置文件。
 - 未经明确授权，不访问真实 provider HTTP，也不读用户本机 cookie / keychain 做探测。
 - 不要另起一套探测或配置逻辑：窗口通过 `internal/*` 的导出 API 复用 CLI 的同一条路径。

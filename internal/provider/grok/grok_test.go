@@ -250,7 +250,7 @@ func TestValidateGRPCWebTrailers_NonAuthRPCError(t *testing.T) {
 	data := grpcFrame(0x80, []byte("grpc-status: 1\ngrpc-message: deadline exceeded"))
 	err := validateGRPCWebTrailers(data)
 	assertErrorKind(t, err, kindRPCFailed)
-	if err.Error() != "Grok web billing RPC failed with status 1: deadline exceeded" {
+	if err.Error() != "Grok 网页版账单 RPC 失败（状态 1）：deadline exceeded" {
 		t.Errorf("unexpected message: %s", err.Error())
 	}
 }
@@ -474,7 +474,7 @@ func TestFetch_HTTP500(t *testing.T) {
 	rt := &fakeRoundTripper{status: 500, body: []byte("boom")}
 	_, err := fetchWebBilling(context.Background(), "sess=abc", "", newFakeClient(rt), testNow)
 	assertErrorKind(t, err, kindRequestFailed)
-	if err.Error() != "Grok web billing request failed with HTTP 500: boom" {
+	if err.Error() != "Grok 网页版账单请求失败（HTTP 500）：boom" {
 		t.Errorf("unexpected message: %s", err.Error())
 	}
 }

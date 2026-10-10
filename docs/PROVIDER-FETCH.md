@@ -26,7 +26,7 @@ cmd/leeway/main.go
 
 ## 1. 统一凭据解析层(fetch + auth)
 
-每个 provider 用 `AuthSpec` **声明式**描述自己需要什么凭据(`provider.go:35`),编排层、`status`、`login --cookie` 都从它推导行为,新 provider 不用新写解析代码。窗口的登录按钮与菜单也由它派生:`OfficialCLI` 为真的四家(cursor / grok / codex / kimi)按钮写「登录」,其余只配 key 的三家(deepseek / opencode-go / commandcode)写「配置 key」;这家不读的凭据种类不会出现在菜单里。
+每个 provider 用 `AuthSpec` **声明式**描述自己需要什么凭据(`provider.go:35`),编排层、`status`、`login --cookie` 都从它推导行为,新 provider 不用新写解析代码。窗口的登录按钮与菜单也由它派生:`OfficialCLI` 为真的四家(cursor / grok / codex / kimi)按钮写「登录」,其余只配 API 密钥的三家(deepseek / opencode-go / commandcode)写「设置密钥」;这家不读的凭据种类不会出现在菜单里。
 
 ```go
 type AuthSpec struct {
@@ -37,9 +37,9 @@ type AuthSpec struct {
     CookieFallbacks  []string // 额外回退源,status / login 提示会用到
     UsesCodexCLI     bool     // 复用 ~/.codex/auth.json
     UsesKeychain     bool     // cursor:编排层先放行,provider 自己解析私有 auth.json / keychain
-    LocalAuthFiles   []string // 本地 CLI 会话文件(provider 自己解析)
-    OfficialCLI      bool     // 官方 CLI 能登录(`leeway login` 跑它):cursor / grok / codex / kimi
-    LoginHint        string   // 会话失效时的修复命令
+    LocalAuthFiles   []string // 本地 CLI 登录文件(provider 自己解析)
+    OfficialCLI      bool     // 官方工具能登录(`leeway login` 跑它):cursor / grok / codex / kimi
+    LoginHint        string   // 登录失效时的修复命令
     SupportsAccounts bool     // 是否多账户
 }
 ```
@@ -311,12 +311,12 @@ kimi / grok / codex 复用各自 CLI 登录态。grok 与 kimi **会自动刷新
 
 cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官方 CLI / keychain 解耦。查额度换 `--account`;让本机 Cursor IDE / grok CLI 用那个号,跑 `leeway use`。
 
-| provider | 每账号凭据 | 登录 | 切号 |
+| provider | 每账号凭据 | 登录 | 切换账号 |
 |---|---|---|---|
-| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway login cursor [A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME)；或 `--file` 快照 | 查额度 `leeway usage cursor A`；`leeway use cursor A` 写入本机**所有已有的**官方凭据位置——cursor-agent 的 macOS keychain 项、Cursor IDE 的 `state.vscdb`、`~/.cursor/auth.json`，缺的跳过、一个都没有才报错（先退出 Cursor）。路径:macOS `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`；Linux `~/.config/Cursor/...`（Flatpak 回退已在 switcher 里）。三处分别用 `LEEWAY_CURSOR_KEYCHAIN` / `LEEWAY_CURSOR_STATE_DB` / `LEEWAY_CURSOR_AUTH_JSON` 覆盖 |
-| grok | 私有 `GROK_HOME` 的完整官方 `auth.json`（文件里已有 `auth_mode`/`user_id`，绑 `accounts[].authFile`） | 切本机用 `leeway login grok [A] --file ~/.grok/auth.json` 快照已能开 CLI 的会话。设备码只够查额度，不补资料字段，也不覆盖已有完整快照 | 查额度 `leeway usage grok A`；`leeway use grok A` 只回写完整条目。瘦设备码 / JWT `sub` 都拒绝写入 |
-| kimi | 隔离 `KIMI_CODE_HOME/credentials/kimi-code.json` 或 `accounts[].apiKey` | `leeway login kimi [A]` 跑官方 `kimi login`；或 `--file` 快照；或 `--key` | 查额度 `leeway usage kimi A`；有会话则 `leeway use kimi A` 写官方 kimi-code.json（`KIMI_CODE_HOME`）；只有 key 写 DSH |
-| codex | 隔离 `CODEX_HOME/auth.json` | `leeway login codex [A]` 跑官方 `codex login`；或 `--file` 快照 | 只查额度。`use` 不写官方 `~/.codex`，避免 refresh 把官方会话作废 |
+| cursor | `<sessions>/cursor[-acct]/.cursor/auth.json`(0600) | `leeway login cursor [A]` 跑官方 `cursor-agent login`(`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME)；或 `--file` 备份 | 查额度 `leeway usage cursor A`；`leeway use cursor A` 写入本机**所有已有的**官方登录位置——cursor-agent 的 macOS keychain 项、Cursor IDE 的 `state.vscdb`、`~/.cursor/auth.json`，缺的跳过、一个都没有才报错（先退出 Cursor）。路径:macOS `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`；Linux `~/.config/Cursor/...`（Flatpak 回退已在 switcher 里）。三处分别用 `LEEWAY_CURSOR_KEYCHAIN` / `LEEWAY_CURSOR_STATE_DB` / `LEEWAY_CURSOR_AUTH_JSON` 覆盖 |
+| grok | 私有 `GROK_HOME` 的完整官方 `auth.json`（文件里已有 `auth_mode`/`user_id`，绑 `accounts[].authFile`） | 切本机用 `leeway login grok [A] --file ~/.grok/auth.json` 备份已能开 CLI 的登录文件。设备码只够查额度，不补资料字段，也不覆盖已有完整备份 | 查额度 `leeway usage grok A`；`leeway use grok A` 只回写完整条目。瘦设备码 / JWT `sub` 都拒绝写入 |
+| kimi | 隔离 `KIMI_CODE_HOME/credentials/kimi-code.json` 或 `accounts[].apiKey` | `leeway login kimi [A]` 跑官方 `kimi login`；或 `--file` 备份；或 `--key` | 查额度 `leeway usage kimi A`；有登录文件则 `leeway use kimi A` 写官方 kimi-code.json（`KIMI_CODE_HOME`）；只有 key 写 DSH |
+| codex | 隔离 `CODEX_HOME/auth.json` | `leeway login codex [A]` 跑官方 `codex login`；或 `--file` 备份 | 只查额度。`use` 不写官方 `~/.codex`，避免 refresh 把官方登录作废 |
 
 ---
 

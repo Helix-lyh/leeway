@@ -263,13 +263,13 @@ internal/gui/
   没有那个文件或目录`，哪怕后面还跟着 `：exit status 1`（切在最后一个冒号会把 OS 那半句又拉回屏幕，
   所以这一档放在切开之前）；② 中文串在**最后一个冒号**处切开，但只在**尾巴确实是机器的话**时
   （尾巴没有中文且不止一个词：「写 Cursor keychain 失败：exit status 51」切、「读取
-  /Users/…/auth.json 失败：no such file or directory」切；「登录似乎没完成：官方 CLI 没写出令牌」
+  /Users/…/auth.json 失败：no such file or directory」切；「登录似乎没完成：官方工具没有写出登录信息」
   不切，两边都是我们写的，切了会读成「登录没有完成 · 登录似乎没完成」）；③ `exit status`、以
   `/` 或 `~` 开头的串；④ 中文句子里**夹在中间**的路径且路径之外一个拉丁字母都没有——macOS 的
   `打开 /Users/张三/x 被拒绝` 就是这一档。反过来，我们自己写的句子留在屏幕上：结尾才出现路径的
-  （「请先导入 ~/.grok/auth.json」「kimi 账号 "work" 的会话文件不在 /Users/…」「无法写入
+  （「请先导入 ~/.grok/auth.json」「kimi 账号 "work" 的登录文件不在 /Users/…」「无法写入
   /Users/me/auth.json」），或者路径之外还写着工具名的（「找到 3 个 Cursor state.vscdb（/a, /b）
-  ——用 … 指定」「拒绝删除 /Users/…：不在 leeway 会话目录里」）。这一档是**故意**这么窄的：
+  ——用 … 指定」「不删除 /Users/…：它不是 leeway 的登录目录」）。这一档是**故意**这么窄的：
   一条「见到 / 就当机器」的规则会把上面这些我们自己的话藏进 tooltip，而 toast 那几条路根本不
   显示 detail，用户就只剩「切换失败」。这条判据仍是**按形状猜**，不是按作者分——真正的解法是让
   调用点自己声明（见下一条）

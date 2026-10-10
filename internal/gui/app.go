@@ -237,7 +237,7 @@ func (a *App) Due() bool {
 func (a *App) reloadConfig() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Printf("gui: config: %v", err)
+		log.Printf("窗口：读配置失败：%v", err)
 		return
 	}
 	a.cfg = cfg
@@ -246,7 +246,7 @@ func (a *App) reloadConfig() {
 func (a *App) loadHistory() {
 	series, err := history.Collect(a.settings.HistoryN, "", "")
 	if err != nil {
-		log.Printf("gui: history: %v", err)
+		log.Printf("窗口：读历史失败：%v", err)
 		return
 	}
 	a.series = series
@@ -281,11 +281,11 @@ func (a *App) Refresh(force bool) {
 			} else {
 				seen, lerr := history.LoadLastSeenBefore(out.GeneratedAt)
 				if lerr != nil {
-					log.Printf("gui: history: %v", lerr)
+					log.Printf("窗口：读历史失败：%v", lerr)
 				}
 				history.Attach(out, seen)
 				if rerr := history.Record(out, history.Meta{}); rerr != nil {
-					log.Printf("gui: history record: %v", rerr)
+					log.Printf("窗口：记历史失败：%v", rerr)
 				}
 				if s, serr := history.Collect(n, "", ""); serr == nil {
 					series = s
@@ -342,7 +342,7 @@ func (a *App) notifyFailure(reason string) {
 		Body:  reason,
 	})
 	if err := n.Show(); err != nil {
-		log.Printf("gui: notification: %v", err)
+		log.Printf("窗口：发通知失败：%v", err)
 	}
 }
 
@@ -652,7 +652,7 @@ func (a *App) Use(providerID, account string) {
 		res, err := useAccount(providerID, account)
 		a.apply(func() {
 			if err != nil {
-				log.Printf("gui: switch to %s/%s: %v", providerID, account, err)
+				log.Printf("窗口：切到 %s/%s 失败：%v", providerID, account, err)
 				a.toast, _ = failureText("切换失败", err.Error())
 				return
 			}
@@ -678,7 +678,7 @@ func (a *App) Logout(providerID, account string) {
 		msg, err := logoutAccount(providerID, account)
 		a.apply(func() {
 			if err != nil {
-				log.Printf("gui: log out %s/%s: %v", providerID, account, err)
+				log.Printf("窗口：移除 %s/%s 失败：%v", providerID, account, err)
 				a.toast, _ = failureText("移除失败", err.Error())
 				return
 			}
@@ -692,7 +692,7 @@ func (a *App) Logout(providerID, account string) {
 func (a *App) SaveSettings() {
 	a.settings.LastPage = a.page
 	if err := a.settings.save(); err != nil {
-		log.Printf("gui: settings save: %v", err)
+		log.Printf("窗口：保存设置失败：%v", err)
 		a.toast, _ = failureText("设置保存失败", err.Error())
 		return
 	}
@@ -707,7 +707,7 @@ func (a *App) ClearCache() {
 		err := auth.RemoveCookieCacheFile()
 		a.apply(func() {
 			if err != nil {
-				log.Printf("gui: clear the cookie cache: %v", err)
+				log.Printf("窗口：重新读取浏览器登录状态失败：%v", err)
 				a.toast, _ = failureText("重新读取失败", err.Error())
 				return
 			}
@@ -720,7 +720,7 @@ func (a *App) ClearCache() {
 // Enable turns a provider on or off and probes again when it is turned on.
 func (a *App) Enable(providerID string, on bool) {
 	if err := setProviderEnabled(providerID, on); err != nil {
-		log.Printf("gui: enable %s: %v", providerID, err)
+		log.Printf("窗口：保存 %s 的开关失败：%v", providerID, err)
 		a.toast, _ = failureText("保存失败", err.Error())
 		return
 	}

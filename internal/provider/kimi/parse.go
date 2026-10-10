@@ -31,7 +31,7 @@ func (d *kimiUsageDetail) UnmarshalJSON(data []byte) error {
 	}
 	limit, ok := stringValue(raw, "limit")
 	if !ok {
-		return fmt.Errorf("Kimi usage limit is missing")
+		return fmt.Errorf("Kimi 用量里缺少 limit")
 	}
 	d.Limit = limit
 	d.Used, _ = stringValue(raw, "used")

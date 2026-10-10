@@ -87,7 +87,7 @@ func classifyPlatformTokenStatus(status int) error {
 func (p *deepseekProvider) get(ctx context.Context, endpoint, token string, classify statusClassifier) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return nil, NetworkError(fmt.Errorf("invalid URL %q", endpoint))
+		return nil, NetworkError(fmt.Errorf("URL 不合法 %q", endpoint))
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")

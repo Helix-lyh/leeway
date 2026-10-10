@@ -216,7 +216,7 @@ func TestFetchUnauthorized(t *testing.T) {
 
 	t.Setenv("CURSOR_ACCESS_TOKEN", "test-token")
 	_, err := p.Fetch(context.Background(), provider.FetchRequest{Account: "default"})
-	if err == nil || !strings.Contains(err.Error(), "token rejected") {
+	if err == nil || !strings.Contains(err.Error(), "登录信息被拒") {
 		t.Fatalf("expected token-rejected error, got %v", err)
 	}
 }

@@ -21,7 +21,7 @@ func TestFilteredHeaderNoAuthCookies(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected invalidCredentials for header without auth cookies")
 	}
-	if !strings.Contains(err.Error(), "invalid or expired") {
+	if !strings.Contains(err.Error(), "不合法或已过期") {
 		t.Fatalf("expected invalid/expired message, got %v", err)
 	}
 }

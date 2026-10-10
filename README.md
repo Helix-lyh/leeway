@@ -35,7 +35,8 @@ leeway usage --json                  # 给脚本 / agent
 leeway usage --last 24               # 近 24 次走势
 leeway usage --watch 30
 
-leeway status                        # 谁登了、缺啥
+leeway status                        # 谁登了、缺啥（表格给人看）
+leeway status --json                 # 给脚本 / agent
 leeway login cursor                  # 账号名默认用邮箱；再加 work 是 tag
 leeway login grok home
 leeway login opencode-go work
@@ -47,6 +48,8 @@ leeway logout cursor work
 `leeway login cursor/grok/codex/kimi` 调官方工具；其余粘贴 API 密钥。cookie 备选：`leeway login kimi --cookie`、`leeway login grok --manual`。近 N 次走势用 `leeway usage --last N`。
 
 某一条看 `leeway help login`（还有 usage / logout / status / use）。
+
+`leeway status` 的表格是给人看的中文；要机器可读用 `leeway status --json`。JSON 里 `credential` / `status` 的取值仍是英文 token（`ok`、`apiKey (config)`、`authFile (private)` …），只有表格把它们翻成中文，所以别去解析表格。
 
 `PROVIDER` / `ACCOUNT` 也可写成 `--provider` / `--account`。ACCOUNT 是 tag、邮箱（cursor）或订阅名（opencode-go / commandcode）。不写时不读官方 keychain / 共享 `~/.grok`；要看那个号请加 `default`。
 

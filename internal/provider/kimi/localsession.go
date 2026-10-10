@@ -65,11 +65,11 @@ type kimiCodeOAuthCredential struct {
 // errSessionMissing distinguishes "no CLI session file" (falls back to the
 // generic missing-token error) from "session exists but unusable" (surfaces
 // its own hint).
-var errSessionMissing = errors.New("kimi CLI session not found — run: leeway login kimi")
+var errSessionMissing = errors.New("找不到 kimi 官方工具的登录信息 — 请跑 leeway login kimi")
 
 // errSessionExpired marks refresh failures of a present-but-expired session so
 // callers can classify them with errors.Is instead of substring matching.
-var errSessionExpired = errors.New("kimi CLI session expired")
+var errSessionExpired = errors.New("kimi 官方工具的登录已过期")
 
 // loadKimiCodeCredential reads the CLI session file. Returns a descriptive
 // error when missing or unreadable.
@@ -104,10 +104,10 @@ func loadKimiCodeCredential(authFile string) (*kimiCodeOAuthCredential, string, 
 	}
 	var c kimiCodeOAuthCredential
 	if err := json.Unmarshal(raw, &c); err != nil {
-		return nil, "", fmt.Errorf("parsing kimi-code.json: %w", err)
+		return nil, "", fmt.Errorf("解析 kimi-code.json 失败：%w", err)
 	}
 	if strings.TrimSpace(c.AccessToken) == "" {
-		return nil, "", errors.New("kimi CLI session has no access_token — run: leeway login kimi")
+		return nil, "", errors.New("kimi 官方工具的登录信息里没有 access_token — 请跑 leeway login kimi")
 	}
 	return &c, p, nil
 }
@@ -144,7 +144,7 @@ func localCLIToken(ctx context.Context, now time.Time, authFile string) (string,
 func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential, path string) error {
 	clientID := jwtClaim(cred.RefreshToken, "client_id")
 	if clientID == "" || cred.RefreshToken == "" {
-		return fmt.Errorf("%w with no usable refresh token — run: leeway login kimi", errSessionExpired)
+		return fmt.Errorf("%w — 没有可用的刷新令牌，请跑 leeway login kimi", errSessionExpired)
 	}
 	form := url.Values{}
 	form.Set("grant_type", "refresh_token")
@@ -158,11 +158,14 @@ func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential, p
 	req.Header.Set("User-Agent", "leeway")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w; refresh failed: %v — run: leeway login kimi", errSessionExpired, err)
+		// The network error goes last: failureText only splits off the tail
+		// after the final colon, so a %v parked mid-sentence would drag the
+		// transport's own words onto the screen.
+		return fmt.Errorf("%w；刷新失败 — 请重跑 leeway login kimi：%v", errSessionExpired, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w; refresh failed (HTTP %d) — run: leeway login kimi", errSessionExpired, resp.StatusCode)
+		return fmt.Errorf("%w；刷新失败（HTTP %d） — 请重跑 leeway login kimi", errSessionExpired, resp.StatusCode)
 	}
 	var body struct {
 		AccessToken  string `json:"access_token"`
@@ -172,10 +175,10 @@ func refreshKimiCredential(ctx context.Context, cred *kimiCodeOAuthCredential, p
 		TokenType    string `json:"token_type"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		return fmt.Errorf("%w; refresh response unreadable: %v — run: leeway login kimi", errSessionExpired, err)
+		return fmt.Errorf("%w；刷新返回的内容读不出来 — 请重跑 leeway login kimi：%v", errSessionExpired, err)
 	}
 	if body.AccessToken == "" || body.RefreshToken == "" {
-		return fmt.Errorf("%w; refresh returned incomplete tokens — run: leeway login kimi", errSessionExpired)
+		return fmt.Errorf("%w；刷新后返回的令牌不全 — 请重跑 leeway login kimi", errSessionExpired)
 	}
 	cred.AccessToken = body.AccessToken
 	cred.RefreshToken = body.RefreshToken

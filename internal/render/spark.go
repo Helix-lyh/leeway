@@ -167,7 +167,7 @@ type SparkBlock struct {
 // RenderHistory writes grouped braille charts. Head is "Provider  account".
 func RenderHistory(w io.Writer, blocks []SparkBlock, color bool) {
 	if len(blocks) == 0 {
-		fmt.Fprintln(w, "(no history)")
+		fmt.Fprintln(w, "（没有历史）")
 		return
 	}
 	prevHead := ""
