@@ -30,6 +30,17 @@ const (
 	chartBandWarn     = 0.10
 	chartBandCritical = 0.15
 	chartWellPad      = space1 // inset of the recessed well; keep trays short enough for two-up tests
+	// The history page draws a dot field instead of a line: a fixed lattice,
+	// like the network graph in Activity Monitor. Pitch and radius are chosen
+	// so a dot never touches its neighbour — the gap is what makes it a field
+	// rather than a textured fill.
+	dotPitch  = 3.75
+	dotR      = 1.25
+	dotFieldH = 128
+	dotLabelH = 16
+	// A reset is not a slope. The previous reading holds this far across the
+	// gap, then drops; the rule is drawn at the same place.
+	dotResetHold = 0.72
 )
 
 // chartPoint is one observation as the line draws it: the number it carries,
@@ -180,6 +191,21 @@ func (a *App) sparklineInWell(c *ui.Context, p palette, key, label string, point
 	return well, over
 }
 
+// dotfieldInWell is the history page's chart: the same recessed pad, with a
+// dot field in place of the line.
+func (a *App) dotfieldInWell(c *ui.Context, p palette, key, label string, points []history.Point, height float32, onOpen func()) (ui.Element, int) {
+	over := -1
+	well := ui.Column(c).
+		FillWidth().
+		Padding(chartWellPad).
+		Radius(radiusControl).
+		Background(chartWellColor(p))
+	well.Children(func() {
+		_, over = a.dotfield(c, p, key, label, points, height, onOpen)
+	})
+	return well, over
+}
+
 // sparkline draws the recorded observations of one window: a line with the
 // area under it filled, a dot where the series ended, and the faint rules of
 // the scale it is drawn against.
@@ -202,13 +228,7 @@ func (a *App) sparklineInWell(c *ui.Context, p palette, key, label string, point
 func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []history.Point, color ui.Color, height float32, onOpen func()) (ui.Element, int) {
 	series := chartSeries(points)
 	axis := chartAxisFor(series, points)
-	over := -1
-	// The line is a picture of numbers, so it carries the name of what it
-	// shows for assistive technology; the numbers themselves are in the
-	// caption below it and in `leeway usage --last`.
-	// Radius so the focus ring's corners match every other control's: MyGo adds
-	// 3 to the element's own radius, and a plot at 0 drew a near-square ring.
-	plot := ui.Row(c).FillWidth().Height(height).Radius(radiusControl).Focusable().Label(label).DrawOver(func(pt *ui.Painter, r ui.Rect) {
+	return a.chartPlot(c, key, label, points, height, onOpen, func(pt *ui.Painter, r ui.Rect, over int) {
 		plot := ui.Rect{X: r.X + chartInset, Y: r.Y + chartPadY, W: r.W - 2*chartInset, H: r.H - 2*chartPadY}
 		if plot.W <= 0 || plot.H <= 0 {
 			return
@@ -312,6 +332,20 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 			pt.FillPath((&ui.Path{}).Circle(hx, hy, chartDotR), color)
 		}
 	})
+}
+
+// chartPlot is the hit target, the keyboard cursor and the focus ring shared
+// by the line chart and the history dot field. The painter only draws; the
+// row of cells does the hit-testing.
+func (a *App) chartPlot(c *ui.Context, key, label string, points []history.Point, height float32, onOpen func(), draw func(pt *ui.Painter, r ui.Rect, over int)) (ui.Element, int) {
+	over := -1
+	// The picture carries the name of what it shows; the numbers themselves
+	// are in the caption below it and in `leeway usage --last`.
+	// Radius so the focus ring's corners match every other control's: MyGo adds
+	// 3 to the element's own radius, and a plot at 0 drew a near-square ring.
+	plot := ui.Row(c).FillWidth().Height(height).Radius(radiusControl).Focusable().Label(label).DrawOver(func(pt *ui.Painter, r ui.Rect) {
+		draw(pt, r, over)
+	})
 	// A chart inside a card that opens something takes the pointer for its own
 	// keys, so it hands the press back to the card it lives in: the whole card
 	// is the target, and the strip the chart covers is not an exception.
@@ -319,9 +353,9 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 		plot.OnClick(onOpen)
 	}
 	// The keyboard reads the same observations the pointer does: one stop per
-	// chart and the arrows to walk it, so a reader who cannot see the line
-	// still gets every number in it, one sentence at a time. The focus lands
-	// on the newest observation, which is the one the chart marks.
+	// chart and the arrows to walk it. The focus lands on the newest
+	// observation, which is the one a line chart marks and the bright end of
+	// a dot field.
 	if plot.Focused() {
 		before := a.scrub
 		last := len(points) - 1
@@ -356,6 +390,382 @@ func (a *App) sparkline(c *ui.Context, p palette, key, label string, points []hi
 		}
 	})
 	return plot, over
+}
+
+// dotfield draws one history series as a lattice of dots. Height is the
+// reading, left to right is time, and the colour is the level that reading
+// had reached: fine, then warn, then critical. Dots brighten toward the
+// right, so the newest sample is the one the eye lands on. A column with no
+// number stays lattice — a gap is not a zero and not a line invented across it.
+func (a *App) dotfield(c *ui.Context, p palette, key, label string, points []history.Point, height float32, onOpen func()) (ui.Element, int) {
+	strong := c.Preferences().HighContrast
+	return a.chartPlot(c, key, label, points, height, onOpen, func(pt *ui.Painter, r ui.Rect, over int) {
+		paintDotField(pt, r, p, points, over, strong)
+	})
+}
+
+// dotGrid is the lattice a dot field is drawn on. Row 0 is the baseline.
+type dotGrid struct {
+	cols, rows int
+	x0, y0     float32 // centre of the bottom-left dot
+	pitch      float32
+}
+
+func layoutDots(area ui.Rect) (dotGrid, bool) {
+	var g dotGrid
+	if area.W < dotPitch*2 || area.H < dotPitch*3 {
+		return g, false
+	}
+	g.pitch = dotPitch
+	g.cols = int(area.W / dotPitch)
+	g.rows = int(area.H / dotPitch)
+	if g.cols < 2 || g.rows < 3 {
+		return g, false
+	}
+	gridW := float32(g.cols-1) * g.pitch
+	gridH := float32(g.rows-1) * g.pitch
+	g.x0 = area.X + (area.W-gridW)/2
+	g.y0 = area.Y + area.H - (area.H-gridH)/2
+	return g, true
+}
+
+func (g dotGrid) center(col, row int) (float32, float32) {
+	return g.x0 + float32(col)*g.pitch, g.y0 - float32(row)*g.pitch
+}
+
+// colPoint is the observation a column's hit target belongs to. The pointer
+// cells are equal widths, one per observation; the field itself lerps between
+// those observations.
+func colPoint(col, cols, n int) int {
+	if n <= 1 || cols <= 1 {
+		return 0
+	}
+	i := col * n / cols
+	if i >= n {
+		return n - 1
+	}
+	return i
+}
+
+func dotFraction(v float64, axis chartAxis) float64 {
+	span := axis.hi - axis.lo
+	if span <= 0 {
+		return 0
+	}
+	f := (v - axis.lo) / span
+	if f < 0 {
+		return 0
+	}
+	if f > 1 {
+		return 1
+	}
+	return f
+}
+
+// dotSeriesInk is the colour of one observation's dots: the level, when the
+// series has one, and the money ink when it does not.
+func dotSeriesInk(p palette, pt history.Point) ui.Color {
+	if pt.UsedPercent != nil {
+		return p.toneColor(percentTone(*pt.UsedPercent))
+	}
+	return p.money
+}
+
+// dotLatticeColor is the unlit field. It is tinted, not grey, so the empty
+// part of the chart still reads as the same material as the data.
+func dotLatticeColor(p palette, highContrast bool) ui.Color {
+	a := float32(0.22)
+	if p.dark {
+		a = 0.32
+	}
+	if highContrast {
+		a = 0.55
+	}
+	if p.dark {
+		return ui.Oklch(0.74, 0.045, 175).Alpha(a)
+	}
+	return ui.Oklch(0.42, 0.03, 175).Alpha(a)
+}
+
+// dotLitAlpha is how strong a lit dot is. depth is 0 on the crest and 1 on
+// the baseline; columns brighten toward the right, which is now. On a light
+// well the tone inks are darker, so the floor is higher or the field washes out.
+func dotLitAlpha(col, cols int, depth float64, light, highContrast bool) float64 {
+	if depth < 0 {
+		depth = 0
+	}
+	if depth > 1 {
+		depth = 1
+	}
+	t := 0.0
+	if cols > 1 {
+		t = float64(col) / float64(cols-1)
+	}
+	recency := 0.72 + 0.28*t
+	if light {
+		recency = 0.84 + 0.16*t
+	}
+	body := 0.8 + 0.2*math.Pow(1-depth, 0.8)
+	a := body * recency
+	if a > 1 {
+		a = 1
+	}
+	if highContrast && a < 0.9 {
+		a = 0.9
+	}
+	return a
+}
+
+// dotSample is the reading a column draws. Adjacent observations are lerped,
+// the way the line chart already joins them; a reset is not a slope, it is a
+// cliff, so the previous reading holds until that observation.
+func dotSample(points []history.Point, has []bool, val []float64, p palette, col, cols int, axis chartAxis) (frac float64, ink ui.Color, ok bool) {
+	n := len(points)
+	if n == 0 || cols == 0 {
+		return 0, ui.Color{}, false
+	}
+	idx := 0.0
+	if n > 1 && cols > 1 {
+		idx = float64(col) / float64(cols-1) * float64(n-1)
+	}
+	i0 := int(math.Floor(idx))
+	if i0 >= n {
+		i0 = n - 1
+	}
+	if i0 < 0 {
+		i0 = 0
+	}
+	i1 := i0
+	t := 0.0
+	if i0+1 < n {
+		i1 = i0 + 1
+		t = idx - float64(i0)
+	}
+	switch {
+	case has[i0] && has[i1] && i1 != i0 && points[i1].Reset:
+		v := val[i0]
+		at := i0
+		if t >= dotResetHold {
+			v = val[i1]
+			at = i1
+		}
+		return dotFraction(v, axis), dotInkValue(p, points[at], v), true
+	case has[i0] && has[i1] && i1 != i0:
+		v := val[i0]*(1-t) + val[i1]*t
+		return dotFraction(v, axis), dotInkValue(p, points[i0], v), true
+	case has[i0] && (i1 == i0 || t < 0.5):
+		return dotFraction(val[i0], axis), dotSeriesInk(p, points[i0]), true
+	case has[i1] && t >= 0.5:
+		return dotFraction(val[i1], axis), dotSeriesInk(p, points[i1]), true
+	default:
+		return 0, ui.Color{}, false
+	}
+}
+
+// dotInkValue colours a column from the value it is showing, so a climb
+// through 50% and 80% changes colour where the reading does, not only on
+// the sample that happened to land past the line.
+func dotInkValue(p palette, pt history.Point, v float64) ui.Color {
+	if pt.UsedPercent != nil {
+		return p.toneColor(percentTone(v))
+	}
+	return p.money
+}
+
+func quantAlpha(a float64) float32 {
+	if a <= 0 {
+		return 0
+	}
+	q := math.Round(a*12) / 12
+	if q < 0.08 {
+		return 0
+	}
+	if q > 1 {
+		return 1
+	}
+	return float32(q)
+}
+
+type dotBatch struct {
+	c    ui.Color
+	path *ui.Path
+}
+
+func addDot(batches *[]dotBatch, index map[ui.Color]int, x, y float32, c ui.Color) {
+	if c.A == 0 {
+		return
+	}
+	i, ok := index[c]
+	if !ok {
+		i = len(*batches)
+		index[c] = i
+		*batches = append(*batches, dotBatch{c: c, path: &ui.Path{}})
+	}
+	(*batches)[i].path.Circle(x, y, dotR)
+}
+
+// paintDotField fills r with the lattice and the series. The bottom strip is
+// the time axis, kept clear of dots so the labels sit on the well.
+func paintDotField(pt *ui.Painter, r ui.Rect, p palette, points []history.Point, over int, highContrast bool) {
+	labelH := float32(0)
+	if len(points) > 1 && points[0].T != points[len(points)-1].T {
+		labelH = dotLabelH
+	}
+	area := ui.Rect{X: r.X + 4, Y: r.Y + 4, W: r.W - 8, H: r.H - 8 - labelH}
+	g, ok := layoutDots(area)
+	if !ok {
+		return
+	}
+	series := chartSeries(points)
+	axis := chartAxisFor(series, points)
+	has := make([]bool, len(points))
+	val := make([]float64, len(points))
+	for _, s := range series {
+		has[s.at] = true
+		val[s.at] = s.v
+	}
+	lattice := dotLatticeColor(p, highContrast)
+	var batches []dotBatch
+	index := map[ui.Color]int{}
+	n := len(points)
+	light := !p.dark
+	for col := 0; col < g.cols; col++ {
+		frac, ink, lit := dotSample(points, has, val, p, col, g.cols, axis)
+		slot := 0
+		if n > 0 {
+			slot = colPoint(col, g.cols, n)
+		}
+		level := frac * float64(g.rows)
+		hover := lit && over >= 0 && slot == over
+		for row := 0; row < g.rows; row++ {
+			x, y := g.center(col, row)
+			cover := 0.0
+			switch {
+			case !lit:
+				cover = 0
+			case float64(row)+1 <= level:
+				cover = 1
+			case float64(row) < level:
+				cover = level - float64(row)
+			case row == 0:
+				// A reading at the floor still marks the baseline, so a flat
+				// empty series is a trace and not a blank field.
+				cover = 0.45
+			}
+			if cover <= 0 {
+				addDot(&batches, index, x, y, lattice)
+				continue
+			}
+			depth := 1.0
+			if level > 0 {
+				depth = (level - (float64(row) + 0.5)) / level
+			}
+			a := dotLitAlpha(col, g.cols, depth, light, highContrast) * cover
+			if hover {
+				a = 1
+			}
+			addDot(&batches, index, x, y, ink.Alpha(quantAlpha(a)))
+		}
+	}
+	for _, b := range batches {
+		pt.FillPath(b.path, b.c)
+	}
+	// A reset is a cliff in the field. The caption points at the rule.
+	// The pointer's column gets one too, so the caption is about a place.
+	ruleAt := func(col float32) {
+		if col <= 0 {
+			return
+		}
+		x := g.x0 + col*g.pitch
+		pt.Fill(ui.Rect{X: x, Y: area.Y, W: 1, H: area.H}, p.rule, 0)
+	}
+	if n > 1 {
+		for i := 1; i < n; i++ {
+			if !points[i].Reset {
+				continue
+			}
+			// The cliff is where dotSample stops holding the previous reading.
+			drop := (float32(i) - (1 - dotResetHold)) / float32(n-1) * float32(g.cols-1)
+			ruleAt(drop)
+		}
+	}
+	if over >= 0 && n > 0 {
+		first, last := -1, -1
+		for c := 0; c < g.cols; c++ {
+			if colPoint(c, g.cols, n) == over {
+				if first < 0 {
+					first = c
+				}
+				last = c
+			}
+		}
+		if first >= 0 {
+			ruleAt(float32(first+last) / 2)
+		}
+	}
+	if labelH > 0 {
+		paintDotLabels(pt, ui.Rect{X: area.X, Y: r.Y + r.H - dotLabelH, W: area.W, H: dotLabelH}, p, points)
+	}
+}
+
+func paintDotLabels(pt *ui.Painter, r ui.Rect, p palette, points []history.Point) {
+	left := points[0].T.Local().Format("01-02 15:04")
+	right := points[len(points)-1].T.Local().Format("01-02 15:04")
+	ink := p.t.TextMuted
+	y := r.Y + 1
+	wLeft, _ := pt.MeasureText(1000, ui.Span{Text: left, Size: sizeLabel})
+	pt.Text(r.X, y, left, sizeLabel, ink)
+	wRight, _ := pt.MeasureText(1000, ui.Span{Text: right, Size: sizeLabel})
+	pt.Text(r.X+r.W-wRight, y, right, sizeLabel, ink)
+	if len(points) < 3 {
+		return
+	}
+	mid := points[len(points)/2].T.Local().Format("01-02 15:04")
+	if mid == left || mid == right {
+		return
+	}
+	wMid, _ := pt.MeasureText(1000, ui.Span{Text: mid, Size: sizeLabel})
+	x := r.X + (r.W-wMid)/2
+	if x > r.X+wLeft+12 && x+wMid < r.X+r.W-wRight-12 {
+		pt.Text(x, y, mid, sizeLabel, ink)
+	}
+}
+
+// paintDotPreview is the empty history card: the field the records will fill,
+// and a short rise where the first of them lands.
+func paintDotPreview(pt *ui.Painter, r ui.Rect, p palette) {
+	area := ui.Rect{X: r.X + 8, Y: r.Y + 8, W: r.W - 16, H: r.H - 16}
+	g, ok := layoutDots(area)
+	if !ok {
+		return
+	}
+	lattice := dotLatticeColor(p, false)
+	ink := p.toneColor(toneOK)
+	var batches []dotBatch
+	index := map[ui.Color]int{}
+	rise := g.cols / 5
+	if rise < 3 {
+		rise = 3
+	}
+	for col := 0; col < g.cols; col++ {
+		frac := 0.0
+		if col < rise {
+			frac = 0.18 + 0.22*float64(col)/float64(rise)
+		}
+		level := frac * float64(g.rows)
+		for row := 0; row < g.rows; row++ {
+			x, y := g.center(col, row)
+			if col >= rise || float64(row) >= level {
+				addDot(&batches, index, x, y, lattice)
+				continue
+			}
+			a := quantAlpha(0.55 + 0.35*float64(col)/float64(rise))
+			addDot(&batches, index, x, y, ink.Alpha(a))
+		}
+	}
+	for _, b := range batches {
+		pt.FillPath(b.path, b.c)
+	}
 }
 
 // chartValueAt is the number an observation carries, if it carries one.

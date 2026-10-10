@@ -147,8 +147,8 @@ func (a *App) overviewPage(c *ui.Context, p palette) {
 }
 
 // heroCard is the provider the page leads with: mark as category anchor, a
-// large lead number, quiet secondary readings, meter and trend — Pulse's
-// resource-card hierarchy at full width.
+// large lead number, quiet secondary readings, meter and the same dot field
+// the history page draws — Pulse's resource-card hierarchy at full width.
 func (a *App) heroCard(c *ui.Context, p palette, v providerView) ui.Element {
 	open := func() { a.navigate("provider:" + v.ID) }
 	return openCard(c, p, "查看 "+v.DisplayName, open, func() {
@@ -199,10 +199,7 @@ func (a *App) heroAccount(c *ui.Context, p palette, v providerView, av accountVi
 		a.heroWindow(c, p, v.ID, lead, heroFacts(v.ID, windows, lead, a.now()))
 		if len(points) >= 2 {
 			ui.Column(c).FillWidth().Gap(space2).Children(func() {
-				// TODO(theme): providerColor(id) for spark/meter ink so mark +
-				// series share one category hue; tone stays for warn/critical text.
-				series := p.toneColor(windowTone(lead))
-				_, over := a.sparkline(c, p, "overview-trend", "用量走势："+windowTitle(v.ID, lead.ID, lead.Title), points, series, 54, open)
+				_, over := a.dotfieldInWell(c, p, "overview-trend", "用量走势："+windowTitle(v.ID, lead.ID, lead.Title), points, dotFieldH, open)
 				summary := joinNonEmpty([]string{chartScale(points), trendCaption(points, lead)}, " · ")
 				muted(c, p, chartCaption(points, over, summary))
 				resetNote(c, p, points)

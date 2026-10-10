@@ -86,14 +86,8 @@ func (a *App) historyPage(c *ui.Context, p palette) {
 func historyEmpty(c *ui.Context, p palette, a *App) ui.Element {
 	return shell(c, p, func() {
 		ui.Column(c).FillWidth().Gap(space4).Children(func() {
-			ui.Box(c).FillWidth().Height(72).Draw(func(pt *ui.Painter, r ui.Rect) {
-				// The first observation, and the line the ones after it will
-				// draw: the page starts here and has nowhere to go but right.
-				y := r.Y + r.H*0.62
-				pt.Fill(ui.Rect{X: r.X + 2, Y: y - 4, W: 9, H: 9}, p.accent, 4.5)
-				for x := r.X + 22; x < r.X+r.W; x += 14 {
-					pt.Fill(ui.Rect{X: x, Y: y, W: 7, H: 2}, p.track, 1)
-				}
+			ui.Box(c).FillWidth().Height(96).Radius(radiusControl).Background(chartWellColor(p)).Draw(func(pt *ui.Painter, r ui.Rect) {
+				paintDotPreview(pt, r, p)
 			})
 			ui.Text(c, "还没有记录").
 				FontSize(sizeValue).
@@ -114,13 +108,11 @@ func historyEmpty(c *ui.Context, p palette, a *App) ui.Element {
 	})
 }
 
-// historyRow is one series inside its provider's tray: Pulse detail rhythm —
-// title, hero remaining/used when the point carries a number, soft-track
-// meter, chart in a recessed well, then the caption that is about this series.
+// historyRow is one series inside its provider's tray: the name, the latest
+// reading, then the dot field that shows how that reading got there.
 func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 	last := s.Points[len(s.Points)-1]
 	window := historyWindow(last, s.Window)
-	color := barColor(p, window)
 	// The series carries the window's ID, not the name the provider gives it:
 	// the probe that saw it last is where the name comes from.
 	live := a.liveWindow(s)
@@ -142,10 +134,8 @@ func (a *App) historyRow(c *ui.Context, p palette, s history.Series) {
 		})
 		if last.UsedPercent != nil || last.Used != nil {
 			historyHero(c, p, window, last)
-			meter(c, p, window, 7)
 		}
-		// The same color rule as a bar: a level has a tone, money does not.
-		_, over := a.sparklineInWell(c, p, "history:"+s.Provider+"/"+s.Window+"/"+s.Account, "走势："+windowTitle(s.Provider, s.Window, title), s.Points, color, 36, nil)
+		_, over := a.dotfieldInWell(c, p, "history:"+s.Provider+"/"+s.Window+"/"+s.Account, "走势："+windowTitle(s.Provider, s.Window, title), s.Points, dotFieldH, nil)
 		parts := []string{}
 		// A money series is drawn against its own peak, so it still says what
 		// its scale is; the percentage axis is the page's, said above.
