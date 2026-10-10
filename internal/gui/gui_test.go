@@ -2121,6 +2121,101 @@ func rewriteWindows(t *testing.T, a *App, windows func(i int) []model.RateWindow
 	a.out = &out
 }
 
+// overviewMixApp is the shape the overview's own layout is about: providers
+// carrying different numbers of accounts, so their cards come out different
+// heights, plus one that needs a hand. Kimi is the hero — the closest to its
+// limit — so the cards are the other three.
+func overviewMixApp(t *testing.T) *App {
+	t.Helper()
+	a := testApp(t)
+	if err := loginAPIKey("opencode-go", "", "oc_sk-test"); err != nil {
+		t.Fatalf("loginAPIKey: %v", err)
+	}
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	account := func(name string, used float64) model.AccountResult {
+		pct := used
+		return model.AccountResult{
+			Name: name, Status: "ok",
+			Snapshot: &model.Snapshot{
+				UpdatedAt: pinned,
+				Identity:  &model.Identity{Account: name + "@example.com", Plan: "Pro"},
+				Windows:   []model.RateWindow{{ID: "weekly", Title: "Weekly", UsedPercent: &pct}},
+			},
+		}
+	}
+	a.out = &model.Output{Version: 1, GeneratedAt: pinned, Providers: []model.ProviderResult{
+		{
+			ID: "deepseek", DisplayName: "DeepSeek", Status: "ok", UpdatedAt: pinned,
+			Accounts: []model.AccountResult{
+				account("deep-1", 11), account("deep-2", 12), account("deep-3", 13), account("deep-4", 14),
+			},
+		},
+		{
+			ID: "cursor", DisplayName: "Cursor", Status: "ok", UpdatedAt: pinned,
+			Accounts: []model.AccountResult{account("cursor-1", 21), account("cursor-2", 22)},
+		},
+		{
+			ID: "opencode-go", DisplayName: "OpenCode Go", Status: "ok", UpdatedAt: pinned,
+			Accounts: []model.AccountResult{account("og-1", 31)},
+		},
+		{
+			ID: "kimi", DisplayName: "Kimi", Status: "ok", UpdatedAt: pinned,
+			Accounts: []model.AccountResult{account("kimi-1", 99)},
+		},
+		{
+			ID: "grok", DisplayName: "Grok", Status: "error", UpdatedAt: pinned,
+			Error:    "cookie 已过期，重新登录",
+			Accounts: []model.AccountResult{{Name: "default", Status: "error", Error: "cookie 已过期，重新登录"}},
+		},
+	}}
+	a.lastAt = a.out.GeneratedAt
+	return a
+}
+
+// The overview's cards are read in the order of how much they carry, and the
+// card that carries least goes into the column that has room rather than into a
+// row of its own. A provider with four accounts beside one with a single
+// account leaves a hole the height of the short card and pushes everything
+// after them below the tall one, which is the hole this test is about.
+func TestTheOverviewPacksItsCardsByHeight(t *testing.T) {
+	a := overviewMixApp(t)
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+
+	at := func(text string) ui.Rect {
+		t.Helper()
+		box, ok := tester.Find(text)
+		if !ok {
+			t.Fatalf("the overview does not show %q; texts=%v", text, tester.Texts())
+		}
+		return box
+	}
+	// Both cards are measured on their first account's number, which is the row
+	// under the card's header.
+	four, two := at("11%"), at("21%")
+	if four.X >= two.X {
+		t.Errorf("the four-account card sits at x=%.0f and the two-account card at x=%.0f: the cards are not listed by account count",
+			four.X, two.X)
+	}
+	// The single-account card is put under the short card, not under the tall
+	// one: the same column, and above the tall card's last row.
+	one := at("31%")
+	if d := one.X - two.X; d < -2 || d > 2 {
+		t.Errorf("the single-account card sits at x=%.0f against x=%.0f for the card beside it: it started a row of its own",
+			one.X, two.X)
+	}
+	if last := at("14%"); one.Y >= last.Y {
+		t.Errorf("the single-account card starts at y=%.0f, at or below the four-account card's last row at y=%.0f: the hole beside the short card is still there",
+			one.Y, last.Y)
+	}
+	// What needs a hand comes after the cards, not above them.
+	if cho := at("需要处理"); cho.Y <= one.Y {
+		t.Errorf("需要处理 sits at y=%.0f, above the cards (the last starts at y=%.0f)", cho.Y, one.Y)
+	}
+}
+
 // sevenAccountApp is the widest matrix the page has to hold: seven accounts in
 // one provider, each reporting a different number, the first of them the widest
 // string the cell ever holds ("100%").

@@ -148,15 +148,11 @@ const matrixInlineBase = 156
 // matrixColumnWidth is how wide one account's column is. Every cell in a row
 // has to make the same choice about where the window's name goes, and the
 // layout engine has not run when the cells are built, so the width is worked
-// out here from the window: less the sidebar and the page's padding, capped at
-// the page's measure, less the card's tray and padding, shared between the
-// columns and the gaps between them.
+// out here from the window: the page's measure, less the card's tray and
+// padding, shared between the columns and the gaps between them.
 func matrixColumnWidth(c *ui.Context, accounts int) float32 {
 	winW, _ := c.Size()
-	inner := winW - sidebarWidth - 2*pagePad
-	if inner > contentMax {
-		inner = contentMax
-	}
+	inner := contentWidth(winW)
 	inner -= 2 * (cardTrayPad + space4)
 	return (inner - space4*float32(accounts-1)) / float32(accounts)
 }

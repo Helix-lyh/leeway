@@ -129,6 +129,24 @@ const (
 // what it is given, and the cap only answers a window the reader stretched.
 const contentMax = 1120
 
+// contentWidth is the page's measure: the window less the sidebar and the
+// page's own padding, capped at contentMax. Two pages lay columns out from the
+// window's width — the matrix's account columns and the overview's cards — and
+// both have to work out the same number, so it is worked out in one place.
+func contentWidth(winW float32) float32 {
+	inner := winW - sidebarWidth - 2*pagePad
+	if inner > contentMax {
+		inner = contentMax
+	}
+	return inner
+}
+
+// overviewCardMin is the narrowest a provider card is drawn: below it the card's
+// numbers and bars stop being readable across the room. The overview fits as
+// many cards side by side as this leaves room for, and lays them out in that
+// many columns.
+const overviewCardMin = 340
+
 func (a *App) view(c *ui.Context) {
 	for _, text := range a.spoken {
 		c.Announce(text)
