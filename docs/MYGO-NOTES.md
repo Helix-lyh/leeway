@@ -6,7 +6,7 @@
 > 或本仓库的 `文件:行`。现象后面带"实测"的，是在 v0.2.16 上跑最小用例量出来、
 > 并用同一套探针对照 v0.3.4 逐条复核一致的数字（mygo 行号已按 v0.3.4 重编）。
 >
-> **行号怎么读**：mygo 的行号对 `v0.3.4` 的发布源码，稳定；本仓库的行号是**并行开发中某一刻的快照**
+> **行号怎么读**：mygo 的行号对 `v0.3.4` 的发布源码（当前依赖已是 `v0.4.0`，这些行号尚未按它重编），稳定；本仓库的行号是**并行开发中某一刻的快照**
 > （核对于 2026-10-09），会随重构漂——所以每个本仓库引用旁边都给了符号名（函数/常量/测试名），
 > **行号只作定位起点，以符号名为准**。
 >
@@ -14,7 +14,7 @@
 
 ## 0. 版本，以及去哪儿看
 
-- 版本钉在 `go.mod`：`github.com/egoist/mygo v0.3.4`。
+- 版本钉在 `go.mod`：`github.com/egoist/mygo v0.4.0`。
 - **先读文档，再读源码。** mygo 的文档就在模块里：`docs/ui/*.md` 有 71 篇、约 4100 行，一个控件一篇，
   另有 `layout.md`（尺寸/对齐/间距）、`styling.md`、`testing.md`、`transitions.md`、`rendering.md`、
   `views.md`、`windows.md`；模块根还有 `docs/native.md`（对话框、剪贴板、通知、托盘）、`docs/windows.md`、
@@ -34,7 +34,7 @@
   （`CapturePage` 在根 `window.go:1085`，`ui/window.go` 只有 675 行）。`internal/text/*.go` 是 mygo 自己的
   内部包，只用来解释行为，**应用不能 import**。
 - 别在临时模块里用 `go mod tidy` 探 API：它会解析到比钉住的更新的版本，看到的行为未必一样。
-  临时模块要显式 `require github.com/egoist/mygo v0.3.4`。
+  临时模块要显式 `require github.com/egoist/mygo v0.4.0`。
 - 源码入口：`ui/element.go`（元素与 `edges`）、`ui/layout.go`（flex 布局与百分比解析）、
   `ui/context.go`（builder、主题、`Size`/`TitleBar`/`AnimationFrame`）、`ui/menu.go` + `ui/widgets.go`（菜单）、
   `ui/headless.go`（`Tester`/`Render`）、`ui/transition.go`（过渡）、`ui/svg.go` + `ui/bitmap.go`（图标）。
@@ -62,7 +62,7 @@ take the parent's whole content box），而且**是 content box，不是 border
 `ui/layout.go:61`–`66`（`base(inf) = -1`）、`ui/layout.go:455`–`457`（`flagScrollY` 把内容高度设成 `inf`）、
 `ui/layout.go:513`–`565`（flex 里子元素的 base 是 `c.height.resolve(base(ch))`，`ch` 是父容器的 content 高度）。
 
-**正确写法：要"剩下的高度"就自己算，或者让 flex 分。** 本仓库的修法（`internal/gui/view.go:128`–`156`）：
+**正确写法：要"剩下的高度"就自己算，或者让 flex 分。** 本仓库的修法（`internal/gui/view.go:152`–`189`）：
 
 ```go
 ui.Column(c).Fill().Children(func() {                 // 根 Column：高度 = 窗口，确定
@@ -70,8 +70,8 @@ ui.Column(c).Fill().Children(func() {                 // 根 Column：高度 = �
     // The row below the titlebar is given its height outright: a scroll inside
     // it clamps against its own box, and a percentage height would hand it the
     // window's instead, which leaves the end of a long page unreachable.
-    _, winH := c.Size()                                // internal/gui/view.go:137
-    ui.Row(c).Height(winH - a.titleBarHeight(c)).Children(func() {   // :138 显式算出来
+    _, winH := c.Size()                                // internal/gui/view.go:161
+    ui.Row(c).Height(winH - a.titleBarHeight(c)).Children(func() {   // :162 显式算出来
         ui.Sidebar(c, &a.page, func() { a.sidebarItems(c, p) }).
             Width(236).FillHeight().Padding(12, 10).Material(glass.Glass{})
         ui.Scroll(c).Grow(1).FillHeight().Padding(26, 32, 40, 32).
@@ -92,7 +92,7 @@ ui.Column(c).Fill().Children(func() {                 // 根 Column：高度 = �
 2. 在 **Row** 里，`Grow(1)` 管的是**宽度**；子元素的**高度**要靠 `FillHeight()` 或 `AlignItems(ui.Stretch)`，
    而这两者都需要 Row 自己有确定高度。实测：`Row.Height(winH-54)` + `Scroll.FillHeight()` → 300 ✓；
    同一个 Row 里 `Scroll` 不写高度 → 619.3 ✗；改成 `AlignItems(ui.Stretch)` → 300 ✓。
-3. 回归测试盯住这条：`internal/gui/gui_test.go:934`–`967`（`TestTheEndOfALongPageIsReachable`
+3. 回归测试盯住这条：`internal/gui/gui_test.go:1134`–`1172`（`TestTheEndOfALongPageIsReachable`
    滚到底后最后一行必须落在滚动区自己的下边距之上）。
 
 ### 1.2 `AlignSelf(Stretch)` 覆盖父 Row 的 `AlignItems`，但只在交叉轴上
@@ -137,7 +137,7 @@ auto margin 的元素返回 false——**竖线要用 Box，别用 Icon**）。
 | 每两列之间插 1px 的 `columnRule` | `[0 143 286]` | 114 |
 
 也就是**每列窄了 10px ≈ (2×14 + 1)/3**。矩阵仍然"一屏装得下"，靠的是
-`internal/gui/gui_test.go:504`–`530` 那条数 12 个 `后重置` 的测试兜着。
+`internal/gui/gui_test.go:622`–`660` 那条数 `后重置` 的测试兜着。
 
 **更省的替代做法**：容器自带的 `Dividers(width, color)` 在**已有的 gap 中间**画线，不占布局宽度
 （`ui/api_gen.go:2680`–`2686`，`docs/ui/layout.md:23`–`25`）。实测同样三列加 `Dividers(1, …)`：
@@ -158,14 +158,14 @@ auto margin 的元素返回 false——**竖线要用 Box，别用 Icon**）。
 也就是**不是"撑开"而是"被顶出去"**：窗口只有 300 宽，前两列按各自的 min-content 抢走 300，第三列
 起点落在 366.7，整列看不见。
 
-本仓库每一列都写 `Grow(1).MinWidth(0)`：`internal/gui/page_matrix.go:65`、`:78`。
+本仓库每一列都写 `Grow(1).MinWidth(0)`：`internal/gui/page_matrix.go:54`。
 注意 `MinWidth(0)` 不阻止溢出，只是允许压缩；真正把内容收进去的是 `SingleLine()`/`MaxLines(n)`
 （见 2.4 与坑 14）。
 
 ### 1.5 文字之间的空隙靠 `Gap`，不靠空格
 
 两个 `ui.Text` 放进没设 `Gap` 的 Row 会紧挨着渲染（实测 `"5-hour"` 的右边缘 41.58 = `"已用"` 的左边缘 41.58，
-中间 0px），看上去就是 `5-hour已用`。给容器 `Gap(6)`（`internal/gui/page_matrix.go:92`、`:100`）。
+中间 0px），看上去就是 `5-hour已用`。给容器 `Gap(space2)`（8；`internal/gui/page_matrix.go:191`、`:202`）。
 
 ### 1.6 `Padding` / `Margin` 的 `edges()` 语义
 
@@ -185,7 +185,7 @@ auto margin 的元素返回 false——**竖线要用 Box，别用 Icon**）。
 ### 1.7 窗口尺寸、位置与"记住上次大小"
 
 `mygo.NewWindow(mygo.WindowOptions{...})` 建窗口，`Content: ui.View(a.view)` 挂原生界面
-（`internal/gui/view.go:41`–`56`、`:59`–`79`）。窗口内取尺寸用 `c.Size()`（`ui/api_gen.go:393`）。
+（`internal/gui/view.go:43`–`63`）。窗口内取尺寸用 `c.Size()`（`ui/api_gen.go:393`）。
 
 **记住 bounds 的机制是 `WindowOptions.StateKey`**（不是自己存文件）：
 
@@ -193,9 +193,9 @@ auto margin 的元素返回 false——**竖线要用 Box，别用 Icon**）。
 win := mygo.NewWindow(mygo.WindowOptions{
     Title: "leeway", Width: mainWidth, Height: mainHeight,
     MinWidth: 780, MinHeight: 500,
-    TitleBarStyle:   mygo.TitleBarHidden,   // 自己画标题栏
+    TitleBarStyle:   mygo.TitleBarHiddenInset,   // 自己画标题栏
     BackgroundColor: appearanceCanvas,      // 首帧前的底色
-    StateKey:        "main",                // :51 主窗口
+    StateKey:        "main",                // :58 主窗口
     Content:         ui.View(a.view),
 })
 ```
@@ -205,7 +205,7 @@ win := mygo.NewWindow(mygo.WindowOptions{
 稳定 300ms 后捕捉，关闭时和 App 退出时写（`window_state.go:12`–`20`、`paths.go:21`–`23`）。
 同 key 的窗口下次启动取回，mygo 的文档说这些值会**覆盖**
 `X/Y/Width/Height/UseContentSize/Maximized/FullScreen`（`window.go:152`–`159`）。
-设置窗口用 `StateKey: "settings"`（`internal/gui/view.go:74`）。
+设置不再有自己的窗口与 `StateKey`，而是主窗上的浮层（`internal/gui/settingsview.go` 的 `settingsSheet()`）。
 
 ### 1.8 排查版式：`Debug()` 和 inspector
 
@@ -225,8 +225,8 @@ something moves.** 另外窗口被遮住时，动画会被挂起（`ui/runtime.g
 
 所以"无人值守时只能拿到开机那一帧"的正确解释不是"不重绘"，而是**没有输入就没有页面切换**：
 `LEEWAY_GUI_CAPTURE` 走的是 `Window.CapturePage()`，它拿的是**最后一次呈现的帧**
-（`ui/window.go:343`–`355`：`h.last` 重新栅格化）。本仓库的截图钩子在 `internal/gui/app.go:183`–`198`，
-`Start` 后 1.5s 截一张就退出（`internal/gui/app.go:169`–`179`）。
+（`ui/window.go:343`–`355`：`h.last` 重新栅格化）。本仓库的截图钩子在 `internal/gui/app.go:188`–`204`，
+`Start` 后 1.5s 截一张就退出（`internal/gui/app.go:166`–`175`）。
 
 要看别的页面，两条路：
 
@@ -236,8 +236,8 @@ something moves.** 另外窗口被遮住时，动画会被挂起（`ui/runtime.g
 ### 2.2 `ui.NewTester`：不建窗口跑完整界面
 
 `ui.NewTester(view, width, height)`（`ui/headless.go:144`–`147`），文档见 `docs/ui/testing.md`。
-本仓库的用法：`internal/gui/gui_test.go:372` 起，`ui.NewTester(a.view, mainWidth, mainHeight)`；
-设置窗口用 `a.settingsView` + `settingsWidth/settingsHght`（`internal/gui/gui_test.go:585`）。
+本仓库的用法：`internal/gui/gui_test.go:399` 起，`ui.NewTester(a.view, mainWidth, mainHeight)`；
+设置窗口用 `a.settingsView` + `settingsWidth/settingsHght`（`internal/gui/gui_test.go:704`）。
 
 常用面（全部在 `ui/headless.go`）：
 
@@ -302,8 +302,8 @@ if err := tester.ChooseMenuItem("粘贴 API 密钥…"); err != nil { t.Fatal(er
 if !tester.HasText("粘贴 API 密钥") { t.Errorf("the sheet did not open; texts=%v", tester.Texts()) }
 
 // 2) 只测"菜单该有什么"：把内容做成纯函数，单测纯函数。
-//    internal/gui/view.go:521 loginMethods / :553 loginButtonLabel
-//    internal/gui/gui_test.go:1282 TestProviderActionsMatchWhatTheProviderSupports
+//    internal/gui/view.go:757 loginMethods / :792 loginButtonLabel
+//    internal/gui/gui_test.go:2001 TestProviderActionsMatchWhatTheProviderSupports
 ```
 
 第 2 种仍然是好习惯（菜单内容由 `provider.AuthSpec` 派生，纯函数最好测），但它不是"因为菜单测不到"
@@ -336,10 +336,10 @@ w2, h2 := c.MeasureText(60, ui.Span{Text: "hello world", Size: 13})
 什么时候才需要数像素：**整图比对**（动画有没有生效、深浅色有没有差、某块区域有没有画出来）。
 本仓库现成的工具：
 
-- `internal/gui/gui_test.go:1276`–`1288` 的 `meanDifference(x, y image.Image) float64`：
-  逐像素三通道平均差，`internal/gui/gui_test.go:1245`–`1272` 用它断言
-  "150ms 时的入场帧 ≠ 静止帧"和"ReduceMotion 下 ≈ 静止帧"。
-- 快照：`internal/gui/gui_test.go:144`–`163` 的 `snapshot()`，只在设了 `LEEWAY_GUI_SNAPSHOT` 时写 PNG：
+- `internal/gui/gui_test.go:1978`–`1992` 的 `meanDifference(x, y image.Image) float64`：
+  逐像素三通道平均差，`internal/gui/gui_test.go:2319`（`TestTheSystemTextSizeReachesEveryPage`）
+  用它断言 1.5× 字号和 1× 不是同一张图。
+- 快照：`internal/gui/gui_test.go:169`–`188` 的 `snapshot()`，只在设了 `LEEWAY_GUI_SNAPSHOT` 时写 PNG：
 
   ```sh
   LEEWAY_GUI_SNAPSHOT=/tmp/shots go test ./internal/gui/   # 32 张 1040×700 的 PNG，人眼过版式
@@ -349,8 +349,8 @@ w2, h2 := c.MeasureText(60, ui.Span{Text: "hello world", Size: 13})
   它不是断言，只是给人看的。
 - 单独量一条线/一个色块：`tester.Image()` 后按坐标取样（本文 1.2/1.3/1.4 的数字都是这么来的）。
 
-**快照可复现性有个尾巴**：本仓库把"现在"钉在 `pinned`（`internal/gui/gui_test.go:48`，
-`a.clock` 见 `internal/gui/app.go:58`–`60`），所以同一份代码两次跑出的快照基本一致。
+**快照可复现性有个尾巴**：本仓库把"现在"钉在 `pinned`（`internal/gui/gui_test.go:49`，
+`a.clock` 见 `internal/gui/app.go:56`–`58`），所以同一份代码两次跑出的快照基本一致。
 实测两张不是逐字节可复现，而且它们坏得不一样：
 - `provider-many-burn.png`（用满预测删掉后已不再产出的那张快照）两次运行差 13745 个像素，**最大通道差 2/255**，集中在底部一条还在跑
   颜色过渡的带（y 628..698）——"颜色过渡会漂一个最低位"。
@@ -410,7 +410,7 @@ ui.Column(c).FillWidth().Gap(22).Children(func() {   // 这之后创建的元素
 - 主题写回：`c.Theme()` 拿当前主题，改一份再 `c.SetTheme(&t)`
   （`internal/gui/theme.go` 的 `paletteOf()`；mygo 侧 `ui/api_gen.go:403`–`411`）。
   深浅色由应用级开关决定：`mygo.Theme.SetSource(mygo.ThemeLight/Dark/System)`
-  （`internal/gui/view.go:82`–`91`；mygo 侧 `modules.go:224`–`226`、`:249`）。
+  （`internal/gui/view.go:72`–`81`；mygo 侧 `modules.go:224`–`226`、`:249`）。
 - 字号/字重集中在 `internal/gui/theme.go` 的字号常量（`sizeDisplay`…`sizeChrome`）（六个尺寸），数字一律
   `FontFeatures("tnum")` 等宽。
 - 无障碍：标题用 `Role(ui.RoleHeading).Level(1|2)`（`internal/gui/theme.go` 的 `title()`/`section()`），
@@ -436,7 +436,7 @@ ui.Icon(c, iconRefresh).FontSize(15).TextColor(p.t.TextMuted)   // 见 internal/
 **（b）provider 图标 = 各家发布的 PNG，`//go:embed` 进二进制**：
 
 ```go
-// internal/gui/icons.go:56-66
+// internal/gui/icons.go:49-72
 //go:embed icons/*.png
 var iconFiles embed.FS
 
@@ -459,7 +459,7 @@ e.Children(func() { ui.Image(c, b).Size(size, size) })   // ui/widgets.go:534，
 来源和加工方式记在 `internal/gui/icons/SOURCES.md`（七个 provider 各自的官方地址，
 `resources/provider-icons.py` 统一裁成 256px 圆角方块）。**provider 图标必须用官方素材**
 （用户明确要求），没有素材时退回"专属色相 + 首字母"，并有
-`TestEveryProviderHasItsOwnIcon`（`internal/gui/gui_test.go:879`）盯着不让退路悄悄发生（退路本身在 `internal/gui/theme.go` 的 `providerIcon()`）。
+`TestEveryProviderHasItsOwnIcon`（`internal/gui/gui_test.go:1042`）盯着不让退路悄悄发生（退路本身在 `internal/gui/theme.go` 的 `providerIcon()`）。
 
 ### 3.4 动效：过渡用 `ElementTransition`，入场用 `AnimationFrame`
 
@@ -504,7 +504,8 @@ e.Children(func() { ui.Image(c, b).Size(size, size) })   // ui/widgets.go:534，
   没人写 = 静默死掉的动画；卡片过渡覆盖外层 opacity）记在 `docs/GUI.md`「没有入场动画」一节，
   能钉的只有「第一帧已经有数字」（`TestOverviewRendersEveryProvider`）；动效本身写不出会失败的断言。
 - `plugins/glass`（`plugins/glass/glass.go:29` 的 `type Glass`）**不是动画**，是背景模糊材质：`ui.Column(c).Material(glass.Glass{})`
-  （`internal/gui/view.go:143`、`:198`），给标题栏和侧栏做"玻璃 chrome"。
+  （`internal/gui/view.go:242`、`internal/gui/settingsview.go:134`），给主窗与设置浮层的标题栏做"玻璃 chrome"
+  （侧栏的 `glass.Glass{}` 已经去掉：那条 x=235 的竖线是材质边缘，MyGo 的 `Sidebar` 自己只画 `Background(t.Surface)`）。
 
 ## 4. 构建与分发
 
@@ -529,7 +530,7 @@ build/darwin-arm64/leeway 0.2.0 arm64.dmg  # dmgFileName = "<Name> <Version> <ar
 
 **版本号以 bundle 的 Info.plist 为准**：`mygo.json` 的 `version` 被写进 `CFBundleVersion` 和
 `CFBundleShortVersionString`（`cmd/mygo/bundle.go:79`–`83`），Finder/关于本机读的是它。
-`internal/gui/view.go:19` 的 `Version` 常量是进程内自报的版本（`cmd/leeway-gui/main.go` 的
+`internal/gui/view.go:21` 的 `Version` 常量是进程内自报的版本（`cmd/leeway-gui/main.go` 的
 `mygo.App.SetVersion`），两边要一起改。实测 `/Applications/leeway.app` 的 plist：
 `CFBundleIdentifier = dev.helixliu.leeway`、`CFBundleShortVersionString = 0.2.0`。
 
@@ -587,33 +588,33 @@ LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 
 | # | 现象 | 原因 | 正确写法 | 证据 |
 |---|---|---|---|---|
-| 1 ✏️ | 标题栏下面的滚动区比看得见的区域高出正好一个标题栏，页面最后一截滚不到；改成显式高度才正常 | **不是"按窗口解析"，是按父容器的 content box 解析**（实测：300 宽的父容器加 `Padding(20)`，子元素 `FillWidth()` 只有 260 宽）。所以父容器的 content box 比可视区高多少，视口就高多少；父容器高度是 auto（或 `Scroll` 内部，内容高度 `inf`）时百分比解析不出来，静默退化成 auto，滚动容器长到内容高度、根本滚不动 | 要"剩下的高度"就自己算：`_, winH := c.Size()` + `Row.Height(winH - titleBarHeight(c))`；在 Column 里也可以只用 `Grow(1)`（flex 的 shrink 会收回来） | mygo `ui/element.go:56`–`66`、`ui/layout.go:61`–`66`、`ui/layout.go:455`–`457`、`ui/layout.go:513`–`565`、`docs/ui/layout.md:33`–`36`；本仓库 `internal/gui/view.go:128`–`156`、`:173`–`182`；实测 300 ✓ / 338.7 ✗ / 954 ✗ |
+| 1 ✏️ | 标题栏下面的滚动区比看得见的区域高出正好一个标题栏，页面最后一截滚不到；改成显式高度才正常 | **不是"按窗口解析"，是按父容器的 content box 解析**（实测：300 宽的父容器加 `Padding(20)`，子元素 `FillWidth()` 只有 260 宽）。所以父容器的 content box 比可视区高多少，视口就高多少；父容器高度是 auto（或 `Scroll` 内部，内容高度 `inf`）时百分比解析不出来，静默退化成 auto，滚动容器长到内容高度、根本滚不动 | 要"剩下的高度"就自己算：`_, winH := c.Size()` + `Row.Height(winH - titleBarHeight(c))`；在 Column 里也可以只用 `Grow(1)`（flex 的 shrink 会收回来） | mygo `ui/element.go:56`–`66`、`ui/layout.go:61`–`66`、`ui/layout.go:455`–`457`、`ui/layout.go:513`–`565`、`docs/ui/layout.md:33`–`36`；本仓库 `internal/gui/view.go:152`–`189`、`:167`–`187`；实测 300 ✓ / 338.7 ✗ / 954 ✗ |
 | 2 ✅ | `AlignSelf(ui.Stretch)` 能让 1px 的 Box 跟整行一样高 | `selfAlign` 先看元素自己的 `self`，再退回父容器的 `align`；Stretch 沿交叉轴拉伸 | `ui.Box(c).Width(1).Background(p.divider).AlignSelf(ui.Stretch)` | mygo `ui/layout.go:810`–`820`；本仓库 `internal/gui/page_matrix.go` 的 `Dividers` 用同一手法；实测 0..119 vs 什么都没有 |
 | 3 ✏️ | 空的预测行没有留下多余高度 | Stretch **不是**不生效：它填的是**这一行的行高**（最高兄弟的高度）；行里没有任何元素有内在高度时行高才是 0。另外 Stretch 只管交叉轴——Column 里管宽度，不管高度 | 行高靠兄弟撑；要固定行高就写 `Height`；Column 里别指望 Stretch 变高 | mygo `ui/layout.go:627`–`644`（`ln.cross` 取行内最大）、`ui/layout.go:637`–`643`（有确定高度就不拉伸）；实测 Row 兄弟 60 高 → 线 0..59 |
 | 4 ✅ | 往 Row 里插 1px 分隔线后每列变窄约 10px | `Gap` 加在**每一对相邻子元素**之间，插一个线多出两个 gap | 能接受就接受；想省宽度用容器自带的 `Dividers(width, color)`，它画在已有 gap 中间、不占宽度 | mygo `ui/api_gen.go:3070`、`ui/api_gen.go:2680`–`2686`、`ui/layout.go:516`–`522`、`docs/ui/layout.md:23`–`25`；实测 `[0 138 276]` vs `[0 143 286]` |
-| 5 ✏️ | 长文本会把列撑开 | 真正的原因是 Row 子元素的**自动最小宽度 = min-content**（`intrinsic(c, false)`），它让 flex 分配不均、最后一列被挤成窄条 | 每一列都写 `Grow(1).MinWidth(0)`，再用 `SingleLine()`/`MaxLines(n)` 把文字收进去 | mygo `ui/layout.go:554`–`564`；本仓库 `internal/gui/page_matrix.go:65`、`:78`；实测 183.3/116.7/0 vs 100/100/100（最后一列被顶出窗口）|
-| 6 ✅ | 两个 Text 挨着渲染成 `5-hour已用` | Row 没有 `Gap` | 给容器 `Gap(6)`；**别用空格拼文案** | 本仓库 `internal/gui/page_matrix.go:92`、`:100`；实测 41.58 = 41.58 |
+| 5 ✏️ | 长文本会把列撑开 | 真正的原因是 Row 子元素的**自动最小宽度 = min-content**（`intrinsic(c, false)`），它让 flex 分配不均、最后一列被挤成窄条 | 每一列都写 `Grow(1).MinWidth(0)`，再用 `SingleLine()`/`MaxLines(n)` 把文字收进去 | mygo `ui/layout.go:554`–`564`；本仓库 `internal/gui/page_matrix.go:54`；实测 183.3/116.7/0 vs 100/100/100（最后一列被顶出窗口）|
+| 6 ✅ | 两个 Text 挨着渲染成 `5-hour已用` | Row 没有 `Gap` | 给容器 `Gap(space2)`（8）；**别用空格拼文案** | 本仓库 `internal/gui/page_matrix.go:191`、`:202`；实测 41.58 = 41.58 |
 | 7 ✅ | `Padding`/`Margin` 的多值语义 | `edges()` 的下标是 top, right, bottom, left | 1 = 四边；2 = 上下/左右；3 = 上/左右/下（文档没写但源码支持）；4 = 上/右/下/左。`Radius` 是另一套：1 或 4 个值 | mygo `ui/element.go:549`–`581`、`ui/element.go:851`–`861`；实测 10/20/30/40 与 10/20/30 |
-| 8 ✏️ | 窗口初始宽高 / 记住 bounds | 待核实的机制已确认：`mygo.WindowOptions.StateKey` | 建窗口时给 `StateKey`（主窗口 `"main"`、设置 `"settings"`），mygo 存 `window-state.json`（`PathUserData`），下次启动取回并覆盖 X/Y/W/H | mygo `window.go:152`–`159`、`window_state.go:12`–`20`、`paths.go:21`–`23`；本仓库 `internal/gui/view.go:41`–`56`、`:59`–`79` |
-| 9 ✏️ | 无人值守截图只能拿到开机那一帧 | 准确说法是**帧只在有事时重建**（输入、`Update`、`Invalidate`、有东西在动），被遮住时动画还会挂起；没有输入就没有页面切换 | 要看别的页面就在测试里 `ui.NewTester`，或人工点；`LEEWAY_GUI_CAPTURE` 只够自检首屏 | mygo `ui/doc.go`、`docs/ui/transitions.md`（末句）、`ui/runtime.go:470`–`480`；本仓库 `internal/gui/app.go:183`–`198` |
-| 10 ✅ | 测试入口 | — | `ui.NewTester(view, w, h)`；另有 `Find`/`Menu`/`ChooseMenuItem`/`SetTitleBar`/`SetPreferences`/`Announcements`/`Scroll`/`Key`/`Type` 等 | mygo `ui/headless.go`、`docs/ui/testing.md`；本仓库 `internal/gui/gui_test.go:372`、`:570` |
-| 11 ✏️ | 菜单测不到 | **菜单项确实不在元素树里**（`Texts()`/`HasText()` 看不到），但 headless 宿主记下了弹出的菜单，`Tester.Menu()` 能列出、`ChooseMenuItem()` 能选。原始那次失败的真实原因是 `Find("设置密钥")` 命中的按钮被滚动区裁掉了（`Rect` 的 `W=H=0`），点了个空气 | 端到端用 `Click` → `Menu()` → `ChooseMenuItem(path…)`；"菜单该有什么"仍然适合抽成纯函数单测 | mygo `ui/api_gen.go:2592`–`2632`、`:315`–`:352`、`ui/headless.go:120`–`122`、`:268`–`:325`、`ui/runtime.go:804`–`837`、`docs/ui/testing.md`（Menus）；本仓库 `internal/gui/view.go:505`–`513`、`:521`–`:549`、`internal/gui/gui_test.go:1297`；实测 `{W:0 H:0}` 与 `menu: ["粘贴 API 密钥…"]` |
-| 12 ✅ | `Click` 匹配的是控件 label | `Find`/`Click` 精确匹配元素的 text 或 `Label`，重复时取第一个 | 可点的控件都要唯一、可读的 label：`MenuButton(c, loginButtonLabel(id), …)`、`ButtonBase(c).Label("账号")` | mygo `ui/headless.go:227`–`264`、`ui/runtime.go:824`–`837`、`docs/ui/testing.md`；本仓库 `internal/gui/view.go:505`、`internal/gui/theme.go` 的 `chrome()` |
-| 13 ✏️ | 没有文字测量 API，只能渲染 PNG 数像素 | **有公开 API**：`Context.MeasureText(width, spans...)`、`Painter.MeasureText`；元素盒子有 `Bounds()`（上一帧）和 `Draw` 回调的 `Rect`（本帧） | 先量：`w, _ := c.MeasureText(0, ui.Span{Text: s, Size: sizeBody})`，跟可用宽度比；数像素只留给整图比对（`meanDifference`） | mygo `ui/richtext.go:219`–`232`、`ui/richtext.go:15`–`33`、`ui/api_gen.go:2783`、`ui/api_gen.go:3242`–`3247`；本仓库 `internal/gui/gui_test.go:1276`–`1288`、`resources/screens.py` |
-| 14 ✏️ | `MaxLines(n)`/`SingleLine()` 的行为 | mygo 行为本身确认：`MaxLines(n)` 最多 n 行、超出加省略号；`SingleLine()` = `single + maxLines(1)`；`Ellipsis(s)` 换省略号；`NoWrap()` 不折行也不加省略号。**"渲染时把完整文本放进提示里"不是 mygo 干的**，是本仓库自己挂的 `Tooltip`。而且 mygo **没有**公开"是否被截断"的信号 | 窄列里主动写短；需要悬停看全文就自己 `.Tooltip(全文)`；判断放不放得下用 `MeasureText` | mygo `ui/api_gen.go:3041`–`3055`、`internal/text/layout.go:67`–`70`、`:228`–`229`、`:787`–`798`；本仓库 `internal/gui/theme.go` 的 `keyValue()`、`internal/gui/settingsview.go:262`–`264`；实测 ink 行数：不限 62 / `SingleLine()` 13 / `MaxLines(1)` 13 / `MaxLines(2)` 26（正好 n×13）|
+| 8 ✏️ | 窗口初始宽高 / 记住 bounds | 待核实的机制已确认：`mygo.WindowOptions.StateKey` | 建窗口时给 `StateKey`（主窗口 `"main"`、设置 `"settings"`），mygo 存 `window-state.json`（`PathUserData`），下次启动取回并覆盖 X/Y/W/H | mygo `window.go:152`–`159`、`window_state.go:12`–`20`、`paths.go:21`–`23`；本仓库 `internal/gui/view.go:43`–`63` |
+| 9 ✏️ | 无人值守截图只能拿到开机那一帧 | 准确说法是**帧只在有事时重建**（输入、`Update`、`Invalidate`、有东西在动），被遮住时动画还会挂起；没有输入就没有页面切换 | 要看别的页面就在测试里 `ui.NewTester`，或人工点；`LEEWAY_GUI_CAPTURE` 只够自检首屏 | mygo `ui/doc.go`、`docs/ui/transitions.md`（末句）、`ui/runtime.go:470`–`480`；本仓库 `internal/gui/app.go:188`–`204` |
+| 10 ✅ | 测试入口 | — | `ui.NewTester(view, w, h)`；另有 `Find`/`Menu`/`ChooseMenuItem`/`SetTitleBar`/`SetPreferences`/`Announcements`/`Scroll`/`Key`/`Type` 等 | mygo `ui/headless.go`、`docs/ui/testing.md`；本仓库 `internal/gui/gui_test.go:399`、`:704` |
+| 11 ✏️ | 菜单测不到 | **菜单项确实不在元素树里**（`Texts()`/`HasText()` 看不到），但 headless 宿主记下了弹出的菜单，`Tester.Menu()` 能列出、`ChooseMenuItem()` 能选。原始那次失败的真实原因是 `Find("设置密钥")` 命中的按钮被滚动区裁掉了（`Rect` 的 `W=H=0`），点了个空气 | 端到端用 `Click` → `Menu()` → `ChooseMenuItem(path…)`；"菜单该有什么"仍然适合抽成纯函数单测 | mygo `ui/api_gen.go:2592`–`2632`、`:315`–`:352`、`ui/headless.go:120`–`122`、`:268`–`:325`、`ui/runtime.go:804`–`837`、`docs/ui/testing.md`（Menus）；本仓库 `internal/gui/view.go:704`–`745`、`:757`–`788`、`internal/gui/gui_test.go:2001`；实测 `{W:0 H:0}` 与 `menu: ["粘贴 API 密钥…"]` |
+| 12 ✅ | `Click` 匹配的是控件 label | `Find`/`Click` 精确匹配元素的 text 或 `Label`，重复时取第一个 | 可点的控件都要唯一、可读的 label：`MenuButton(c, loginButtonLabel(id), …)`、`ButtonBase(c).Label("账号")` | mygo `ui/headless.go:227`–`264`、`ui/runtime.go:824`–`837`、`docs/ui/testing.md`；本仓库 `internal/gui/view.go:709`、`:740`、`internal/gui/theme.go` 的 `chrome()` |
+| 13 ✏️ | 没有文字测量 API，只能渲染 PNG 数像素 | **有公开 API**：`Context.MeasureText(width, spans...)`、`Painter.MeasureText`；元素盒子有 `Bounds()`（上一帧）和 `Draw` 回调的 `Rect`（本帧） | 先量：`w, _ := c.MeasureText(0, ui.Span{Text: s, Size: sizeBody})`，跟可用宽度比；数像素只留给整图比对（`meanDifference`） | mygo `ui/richtext.go:219`–`232`、`ui/richtext.go:15`–`33`、`ui/api_gen.go:2783`、`ui/api_gen.go:3242`–`3247`；本仓库 `internal/gui/gui_test.go:1978`–`1992`、`resources/screens.py` |
+| 14 ✏️ | `MaxLines(n)`/`SingleLine()` 的行为 | mygo 行为本身确认：`MaxLines(n)` 最多 n 行、超出加省略号；`SingleLine()` = `single + maxLines(1)`；`Ellipsis(s)` 换省略号；`NoWrap()` 不折行也不加省略号。**"渲染时把完整文本放进提示里"不是 mygo 干的**，是本仓库自己挂的 `Tooltip`。而且 mygo **没有**公开"是否被截断"的信号 | 窄列里主动写短；需要悬停看全文就自己 `.Tooltip(全文)`；判断放不放得下用 `MeasureText` | mygo `ui/api_gen.go:3041`–`3055`、`internal/text/layout.go:67`–`70`、`:228`–`229`、`:787`–`798`；本仓库 `internal/gui/theme.go` 的 `keyValue()`、`internal/gui/settingsview.go:388`–`390`；实测 ink 行数：不限 62 / `SingleLine()` 13 / `MaxLines(1)` 13 / `MaxLines(2)` 26（正好 n×13）|
 | 15 ✅ | `ui.Context` 是 builder | `newElement` 挂到 `c.parent`；`Children` 换父再换回；元素身份 = 父 + 序号 + kind | 每个构造函数都传 `c`；`Children(func(){…})` 分块；`ui.Spacer(c)` 占剩余空间；跨帧身份要跟着数据就用 `Key` | mygo `ui/context.go:191`–`221`、`ui/element.go:476`–`499`、`ui/api_gen.go:1871`–`1872` |
 | 16 ✅ | 本项目设计系统 | 都在 `internal/gui/theme.go` | `card()`=`shell()`（托盘 + 内层卡）、`hairline()`、`dot()`、`chromeRule()`；列间竖线用 `Dividers`；颜色全走 `palette`（`ui.RGBA`/`Hex`/`Oklch`），`t.Dark` 分深浅 | 本仓库 `internal/gui/theme.go` 的 `card()`/`shell()`/`hairline()`/`dot()`/`paletteOf()` |
-| 17 ✏️ | 图标用官方素材 + `//go:embed` | 来源对，**API 写错了**：`ui.Icon(c, …)` 收的是 `*ui.SVG`（内联 Lucide 路径），不是 PNG 字节；嵌入的 PNG 走 `ui.DecodeBitmap` → `*ui.Bitmap` → `ui.Image(c, b)` | 界面图标：`ui.MustParseSVG` + `ui.Icon(c, svg).FontSize(n).TextColor(c)`；provider 图标：`//go:embed icons/*.png` + `ui.DecodeBitmap` + `ui.Image(c, bmp).Size(s,s)` | mygo `ui/svg.go:51`–`88`、`ui/bitmap.go:38`–`50`、`ui/api_gen.go:1080`–`1092`；本仓库 `internal/gui/icons.go:10`–`12`、`:56`–`66`、`internal/gui/theme.go` 的 `icon()`、`internal/gui/icons/SOURCES.md` |
+| 17 ✏️ | 图标用官方素材 + `//go:embed` | 来源对，**API 写错了**：`ui.Icon(c, …)` 收的是 `*ui.SVG`（内联 Lucide 路径），不是 PNG 字节；嵌入的 PNG 走 `ui.DecodeBitmap` → `*ui.Bitmap` → `ui.Image(c, b)` | 界面图标：`ui.MustParseSVG` + `ui.Icon(c, svg).FontSize(n).TextColor(c)`；provider 图标：`//go:embed icons/*.png` + `ui.DecodeBitmap` + `ui.Image(c, bmp).Size(s,s)` | mygo `ui/svg.go:51`–`88`、`ui/bitmap.go:38`–`50`、`ui/api_gen.go:1080`–`1092`；本仓库 `internal/gui/icons.go:10`–`12`、`:49`–`72`、`internal/gui/theme.go` 的 `icon()`、`internal/gui/icons/SOURCES.md` |
 | 18 ✅ | 列分隔线要比 hairline 重一档 | 实测力度：`border` 浅 7% 黑 / 深 10% 白，`divider` 浅 18% 黑 / 深 26% 白 | 竖线用 `p.divider`，卡片内细分隔用 `p.border` | 本仓库 `internal/gui/theme.go` 的 `paletteOf()`（`border`/`divider` 两档） |
 | 19b ✏️ | `ui.Toast` 的淡入不受 `ReduceMotion` 管 | 实测：`SetPreferences(ReduceMotion:true)` 下数据变化帧与静止帧逐像素相同（0 差异），但 toast 的淡入照样在跑（开/关 RM 都是 181/10737 px 差异）——它是库自己起的过渡，窗口关不掉 | 要严格「ReduceMotion 下没有动」就得不用 toast 的入场，或等库把偏好接进去；本窗口的选择是留着 toast（它是失败的唯一反馈通道），并把这条写在这里 | mygo `ui/toast.go`；实测 `overview-stale.png` 与 RM 帧对比 |
 | 19 ✏️ | 动效与主题 API 的写法 | 过渡是 `ui.ElementTransition`，**一个元素一条过渡，后挂的赢**；值动画 `Animate` 首帧直接返回目标；**`mygo/plugins/glass` 与淡入无关**，它是背景模糊材质。手写入场需要帧内读时间 + `c.AnimationFrame()` 续帧 + 尊重 `ReduceMotion`——**本仓库已整段删除**（第一帧必须是答案） | 被包元素自带过渡会覆盖外层 opacity；`Margin` 用上边距；过渡预设放一处（`pageMotion`/`stateMotion`/`panelMotion`）；颜色是**构建期**读的，`SetTheme` 不是作用域（见 §3 末） | mygo `ui/api_gen.go:247`、`ui/transition.go:17`–`71`、`ui/api_gen.go` 的 `Element.Animate` 与 `Panel` 文档、`ui/context.go` 的 `SetTheme`、`plugins/glass/glass.go:29`；本仓库 `internal/gui/theme.go` 的 `panelMotion`/`pageMotion`/`stateMotion`、`internal/gui/view.go` 的页面切换 |
-| 20 ✅ | `mygo build` 出 `.app` + `.dmg` | 产物在 `<out>/<goos>-<goarch>/`，dmg 名是 `<Name> <Version>.dmg` | `go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build`；配置 `out`/`name`/`version` | mygo `cmd/mygo/build.go:22`–`52`、`:130`–`141`、`:213`–`:236`、`cmd/mygo/dmg.go:17`–`19`、`cmd/mygo/config.go:19`–`46`；本仓库 `mygo.json` |
+| 20 ✅ | `mygo build` 出 `.app` + `.dmg` | 产物在 `<out>/<goos>-<goarch>/`，dmg 名是 `<Name> <Version> <arch>.dmg` | `go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build`；配置 `out`/`name`/`version` | mygo `cmd/mygo/build.go:22`–`52`、`:130`–`141`、`:213`–`:236`、`cmd/mygo/dmg.go:17`–`19`、`cmd/mygo/config.go:19`–`46`；本仓库 `mygo.json` |
 | 21 ✅ | 装完要删掉开发目录里的 `.app` | Spotlight 按 bundle id 索引；`.metadata_never_index`/`.noindex` 放在**子目录**无效（只在卷根生效） | 删掉 `build/darwin-arm64/leeway.app`，或把 `build/` 加进 Spotlight 隐私 | 实测：有标记的目录照样被 `mdfind` 找到（对照组也能找到）；本仓库 `build/darwin-arm64/` 只剩 dmg、`.gitignore:8` |
 | 22 ✅ | 校验手段 | — | `codesign --verify --deep --strict <app>`、`hdiutil verify <dmg>` | mygo `cmd/mygo/bundle.go:189`–`222`、`cmd/mygo/dmg.go:95`–`100`；实测两条都通过 |
-| 23 ✏️ | "mygo 文档很薄，源码就是文档" | **不成立**：模块里有 `docs/ui/*.md` 71 篇约 4100 行（一个控件一篇 + layout/styling/testing/transitions/rendering/views/windows），根目录还有 native/windows/configuration/distribution，`examples/gallery` 是控件总览 | 先读 `$(go env GOMODCACHE)/github.com/egoist/mygo@v0.3.4/docs/ui/`，再看源码；缓存里没有就先 `go mod download github.com/egoist/mygo` | mygo `docs/ui/`（71 个文件）、`docs/native.md`、`examples/gallery/main.go` |
+| 23 ✏️ | "mygo 文档很薄，源码就是文档" | **不成立**：模块里有 `docs/ui/*.md` 71 篇约 4100 行（一个控件一篇 + layout/styling/testing/transitions/rendering/views/windows），根目录还有 native/windows/configuration/distribution，`examples/gallery` 是控件总览 | 先读 `$(go env GOMODCACHE)/github.com/egoist/mygo@v0.4.0/docs/ui/`，再看源码；缓存里没有就先 `go mod download github.com/egoist/mygo` | mygo `docs/ui/`（71 个文件）、`docs/native.md`、`examples/gallery/main.go` |
 | 24 ✅ | 纯 Go、无 cgo，不需要显示器 | — | `go test ./internal/gui/` 直接跑；`CGO_ENABLED=0` 一样通过 | 实测 `CGO_ENABLED=0 go test -count=1 ./internal/gui/` → `ok`；`ui` 包无 cgo，系统调用走 purego |
-| 25 ✏️ | 真窗口截图要屏幕录制权限 | 只有系统的 `screencapture` 要；`LEEWAY_GUI_CAPTURE` 走 `Window.CapturePage()`，对 `Content` 窗口是自己重新栅格化，**不需要**权限 | 用 `LEEWAY_GUI_CAPTURE`（先重新 build 出 `.app`），或者人工看 | mygo `window.go:1085`–`1104`、`ui/window.go:343`–`355`、`content.go:184`–`209`；本仓库 `internal/gui/app.go:183`–`198` |
-| 26 🆕 | 快照两次运行不完全逐字节相同 | 还在跑颜色过渡的区域会漂 1–2 个最低位 | 别用逐字节相等断言快照；用带阈值的 `meanDifference` | 实测 32 张里 1 张差 13745 像素、最大通道差 2；本仓库 `internal/gui/gui_test.go:1266`–`1268`、`:1261`–`1274` |
+| 25 ✏️ | 真窗口截图要屏幕录制权限 | 只有系统的 `screencapture` 要；`LEEWAY_GUI_CAPTURE` 走 `Window.CapturePage()`，对 `Content` 窗口是自己重新栅格化，**不需要**权限 | 用 `LEEWAY_GUI_CAPTURE`（先重新 build 出 `.app`），或者人工看 | mygo `window.go:1085`–`1104`、`ui/window.go:343`–`355`、`content.go:184`–`209`；本仓库 `internal/gui/app.go:188`–`204` |
+| 26 🆕 | 快照两次运行不完全逐字节相同 | 还在跑颜色过渡的区域会漂 1–2 个最低位 | 别用逐字节相等断言快照；用带阈值的 `meanDifference` | 实测 32 张里 1 张差 13745 像素、最大通道差 2；本仓库 `internal/gui/gui_test.go:1978`–`1992`、`:2319` |
 | 27 🆕 | 只想让某个元素"占满剩下高度"，不知道写 `Grow` 还是 `FillHeight` | 两者语义不同：`Grow(1)` 分剩余空间（按父容器主轴），`FillHeight` = 父容器 content box 的 100% | Column 里 `Grow(1)` 就够；Row 里 `Grow` 管宽度，高度必须靠 `FillHeight()` 或 `AlignItems(Stretch)`，且 Row 要有确定高度 | mygo `docs/ui/layout.md:33`–`41`、`ui/layout.go:513`–`565`；实测 300 ✓ / 619.3 ✗ / 300 ✓ |
 | 28 🆕 | 想知道"这个控件在测试里点得到吗" | `Find`/`Click` 只认可见元素，被裁掉的返回 `W=0 H=0` | 断言前先看 `Find` 的 Rect；不可见就先 `navigate` 到那一页或先 `Scroll` | mygo `ui/runtime.go:804`–`837`、`ui/headless.go:227`–`264`；实测 `{W:0 H:0}` vs `{W:46.7 H:14.1}` |
 
@@ -660,7 +661,7 @@ func (a *App) comparePage(c *ui.Context, p palette) {
 ```
 
 ```go
-// 2) internal/gui/view.go:352 的 pageView 里加一个 case
+// 2) internal/gui/view.go:449 的 pageView 里加一个 case
 func (a *App) pageView(c *ui.Context, p palette) {
 	switch {
 	case a.page == "compare":
@@ -689,9 +690,9 @@ func TestComparePageShowsEveryProvider(t *testing.T) {
 ```
 
 要点：**页面直接按顺序写块，不包任何入场 holder**（入场编排已删，见 §3）；
-`pageHead` 给页面标题和动作（`internal/gui/view.go:366`–`369`）；卡片一律 `card(c, p, fn)`；
+`pageHead` 给页面标题和动作（`internal/gui/view.go:474`–`476`）；卡片一律 `card(c, p, fn)`；
 页面里所有"现在"都用 `a.now()`，测试把 `a.clock` 钉在 `pinned` 上才能出稳定快照
-（`internal/gui/app.go:58`–`60`、`internal/gui/gui_test.go:48`）。
+（`internal/gui/app.go:56`–`58`、`internal/gui/gui_test.go:49`）。
 
 ### 6.2 加一个控件（最小骨架）
 
@@ -774,7 +775,7 @@ API 本身是 `c.Toast(text)`（简写，只有一行）与 `c.AddToast(ui.Toast
 `Frame()` 内部 `settle()` 一直画到视图不再请求为止（最多 20 帧，`ui/headless.go:159-170`）。
 所以「首帧 vs 稳定帧」这类断言**两边都是稳定帧**：把 `panelMotion.Enter` 的 Y 从 8 改成 200、
 Duration 从 240ms 改成 2000ms，测试照样绿。要看在途帧，得有一个有帧上限的渲染入口，MyGo
-v0.3.4 没有。本仓库因此把那条测试的措辞改成它真能证明的事（首帧已经有数字）。
+v0.4.0 也没有（`ui/headless.go` 的 `settle()` 固定最多 20 帧）。本仓库因此把那条测试的措辞改成它真能证明的事（首帧已经有数字）。
 
 ## `Find` 返回第一个匹配
 

@@ -90,7 +90,7 @@ open build/darwin-arm64/leeway.app        # 或直接跑 ./leeway-gui
   列间画竖线，窗口名当行头
 - **历史**：近 N 次查询的走势图；**关于**：版本与构建信息
 - 标题栏：状态汇总、`刷新`、自动刷新间隔、设置；`⌘R` 刷新，`⌘⇧C` 复制当前数据，`⌘,` 打开设置，`⌘W` 关窗
-- 设置：自动刷新间隔、查询超时（等价 `LEEWAY_TIMEOUT`）、主题、开机自启、失败通知、每个 provider 的添加/移除开关、历史点数、缓存清理
+- 设置分通用 / 服务商 / 数据三页：自动刷新间隔、查询超时（等价 `LEEWAY_TIMEOUT`）、主题、打开窗口就查询、开机自启、失败通知；服务商页逐家添加/移除；数据页有历史点数、四个文件路径、`复制数据`、`重新读取浏览器登录状态`（顺带清缓存）、`刷新`
 - 登录/移除账号走和 CLI 一样的三条路：官方工具、粘贴 API 密钥、浏览器登录状态或手动粘贴登录状态/登录文件
 
 GUI 从不显示密钥内容，只说明登录信息来自哪儿（环境变量 / 配置里的 API 密钥 / 浏览器登录状态 / 登录文件）。
@@ -130,7 +130,7 @@ GUI 从不显示密钥内容，只说明登录信息来自哪儿（环境变量 
 
 - stdout 只有表格或 JSON；日志和错误走 stderr
 - `leeway usage --json`：`providers[].accounts[].snapshot.windows[]`（`usedPercent` / `used` / `limit` / `resetsAt`，可选 `delta`）
-- `leeway usage --last N --json`：近 N 次按窗口的时间序列（`series[].points[]`）；`history` 是这条的别名
+- `leeway usage --last N --json`：近 N 次按窗口的时间序列（`series[].points[]`）
 - 退出码：`0` 全部正常；`1` 有未配置或失败；`2` 用法错误
 - 超时默认 15s（`LEEWAY_TIMEOUT`），无 TTY 自动纯文本，`COLOR=0` 关颜色
 
@@ -142,7 +142,7 @@ GUI 从不显示密钥内容，只说明登录信息来自哪儿（环境变量 
 | [docs/GUI.md](docs/GUI.md) | 窗口界面：入口、页面、设置、构建 |
 | [docs/PROVIDER-FETCH.md](docs/PROVIDER-FETCH.md) | 各家端点与登录信息 |
 | [docs/ACKNOWLEDGMENTS.md](docs/ACKNOWLEDGMENTS.md) | 感谢与参考 |
-| [docs/](docs/) | 调研与竞品对照 |
+| [docs/](docs/) | 全部文档索引（含调研与竞品对照） |
 
 ## 许可证
 

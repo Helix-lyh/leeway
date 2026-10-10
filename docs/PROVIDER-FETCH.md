@@ -19,7 +19,7 @@ cmd/leeway/main.go
 关键约定(`fetch.go`):
 - 每个 provider 并行探测;同一 provider 的多账户并发 ≤ `MaxAccountConcurrency`(3),防反爬。
 - 单次探测超时默认 15s(`LEEWAY_TIMEOUT` 覆盖,上限 3600s)。
-- 快照缓存 `~/.cache/leeway/snapshots.json`,TTL 60s;**只有不带 provider/account 过滤的全量跑**才会读写缓存,过滤跑绝不碰缓存(`fetch.go:145`)。
+- 快照缓存 `~/.cache/leeway/snapshots.json`,TTL 60s;**只有不带 provider/account 过滤的全量跑**才会读写缓存,过滤跑绝不碰缓存(`fetch.go:159` 读 / `:194` 写)。
 - 窗口(`cmd/leeway-gui`)走的是同一条 `FetchAll`,只换呈现;窗口另见 [GUI.md](GUI.md)。
 
 ---
@@ -135,7 +135,7 @@ iv  = 16 × 0x20(空格)
 - 新鲜度:12h(`ImportTTL`);`login --cookie --force` 无视 TTL 强刷。
 - 缓存损坏 ≠ 未导入:`cacheUnreadableError` 会明确说"删掉文件重导",避免用户以为要重新登录。
 
-### 2.5 header 解析优先级(`auth.go:169 ResolveCookieHeader`)
+### 2.5 header 解析优先级(`auth.go:173 ResolveCookieHeader`)
 
 对某个账户最终用哪个 header:
 
@@ -144,10 +144,10 @@ iv  = 16 × 0x20(空格)
   → 账户绑定的 profile 导入缓存 (accounts[].Profile)
   → provider 级手动 header (providers.<id>.manualCookieHeader)
   → provider 级导入缓存
-  → 报错 "run: leeway login grok --manual / leeway login kimi --cookie"
+  → 报错「没有浏览器登录状态 — 请跑 leeway login grok --manual（或 leeway login kimi --cookie）」
 ```
 
-另外 `ExtractCookieHeader`(`auth.go:269`)能从用户从 DevTools 粘来的 **curl 片段**(`-H 'Cookie: ...'`、`--cookie`、`-b`)里抽出干净 header,kimi / opencode-go 共用同一套正则,修引号一次到位。
+另外 `ExtractCookieHeader`(`auth.go:288`)能从用户从 DevTools 粘来的 **curl 片段**(`-H 'Cookie: ...'`、`--cookie`、`-b`)里抽出干净 header,kimi / opencode-go 共用同一套正则,修引号一次到位。
 
 ---
 
@@ -270,7 +270,7 @@ iv  = 16 × 0x20(空格)
 |---|---|
 | 认证 | `COMMAND_CODE_API_KEY` / `COMMANDCODE_API_KEY` / `accounts[].apiKey`(`user_...`,studio 签发,CLI 与 API 共用) |
 | 主端点 | `GET https://api.commandcode.ai/alpha/billing/credits`(`Authorization: Bearer`) |
-| 辅端点 | `GET /alpha/usage/summary`(period totals;有窗口字段则合并) |
+| 辅端点 | `GET /alpha/billing/subscriptions`(plan 名,best-effort)与 `GET /alpha/whoami`(orgId,best-effort;两者失败只降级) |
 | 窗口 | `windowLimits.fiveHour` / `weekly`(used+cap → %)+ `credits.monthlyCredits` 作 Monthly/Credits |
 | 实现 | `provider/commandcode/{provider,fetcher,parser}.go` |
 
@@ -301,7 +301,7 @@ kimi / grok / codex 复用各自 CLI 登录态。grok 与 kimi **会自动刷新
 
 - **账户 = 一次浏览器登录会话(一组 cookie)+ 可选 workspaceID**(`config.go AccountConfig`:name / manualCookieHeader / workspaceID / profile)。
 - **订阅 = 一个命名 API key**(`accounts[].apiKey`),走网关 `/usage` 端点;与 cookie 账户共存于同一 `accounts[]`。
-- 每个账户的 cookie 来源:账户级 `manualCookieHeader` → 账户绑定的 Chrome `profile` 导入缓存(`opencode-go@Profile 1`)→ provider 级(`fetch.go:286 resolveAccountCookie`)。
+- 每个账户的 cookie 来源:账户级 `manualCookieHeader` → 账户绑定的 Chrome `profile` 导入缓存(`opencode-go@Profile 1`)→ provider 级(`overlayAccountCreds` + `auth.ResolveCookieHeader`,见 §2.5)。
 - `leeway login opencode-go work --cookie --profile "Profile 1"` 会把导入的会话直接绑成一个账户。
 - 服务器窗口按账户各一份。
 - `--account NAME` 过滤;没配置的账户名直接报 `error`。
@@ -324,18 +324,18 @@ cursor / grok 的多账号是另一条路:**每账号一个私有 HOME**,与官�
 
 | 现象 | 原因 | 定位 |
 |---|---|---|
-| `not_configured` + "set DEEPSEEK_API_KEY..." | 完全没凭据 | `fetch.go:298` |
-| "missing Codex session — run: leeway login codex" | `~/.codex/auth.json` 缺失/无 token | `fetch.go missingCredentialHint` |
-| "missing cookies — run: leeway login grok --manual (or: leeway login kimi --cookie)" | cookie provider 无 header | `fetch.go missingCredentialHint` |
-| "found N cookies but none could be decrypted" | 钥匙串 key 过期或授权被拒 | `chrome.go:544` |
-| "cookie host-key hash mismatch" | 库 version ≥ 24,明文 hash 校验失败 | `chrome.go:187` |
-| "grok session refresh failed (HTTP xxx)" | OIDC 刷新失败 | `grok/localsession.go:141` |
-| "kimi CLI session expired — run: leeway login kimi" | kimi-code.json 存在但刷新失败 | `kimi/localsession.go:160` |
-| `kindUnauthorized`(codex) | wham/usage 返回 401/403 | `codex/fetcher.go:82` |
-| "Missing workspace id."(opencode-go) | cookie 有效但服务器拿不到 workspace | `opencodego/fetcher.go:97` |
-| "Cursor session … expired — re-run: leeway login cursor" | 私有 auth.json 的 JWT 过期 | `cursor/fetcher.go` |
-| "Cursor token rejected (HTTP 401)" | bearer 被 dashboard RPC 拒绝 | `cursor/fetcher.go` |
-| "invalid Command Code API key (HTTP 401)" | Bearer `user_...` 被拒 | `commandcode/fetcher.go` |
+| `not_configured` + 「没有登录信息 — 设置 DEEPSEEK_API_KEY，或跑 leeway login deepseek」 | 完全没凭据 | `fetch.go:363 missingCredentialHint`(拼接在 `:373`) |
+| 「没有 Codex 的登录文件 — 请跑 leeway login codex」 | `~/.codex/auth.json` 缺失/无 token | `fetch.go:381`;进 Fetch 后的兜底见 `codex/errors.go:12` |
+| 「没有浏览器登录状态 — 请跑 leeway login grok --manual（或 leeway login kimi --cookie）」 | cookie provider 无 header | `fetch.go:379` |
+| 「找到 N 条 … 的登录状态，但一条都解不开 — Chrome Safe Storage 密钥可能过期…」 | 钥匙串 key 过期或授权被拒 | `chrome.go:550`(另见 `:558`) |
+| 「登录状态的主机名哈希对不上」 | 库 version ≥ 24,明文 hash 校验失败 | `chrome.go:189` |
+| 「刷新 grok 登录失败（HTTP xxx）——请重跑 leeway login grok」 | OIDC 刷新失败 | `grok/localsession.go:160` |
+| 「kimi 官方工具的登录已过期；刷新失败 — 请重跑 leeway login kimi」 | kimi-code.json 存在但刷新失败 | `kimi/localsession.go:164` |
+| 「登录已过期 — 请跑 leeway login codex」(codex 401/403) | wham/usage 返回 401/403 | `codex/errors.go:41`(分类在 `codex/fetcher.go:82`) |
+| 「缺少工作区 ID。」(opencode-go) | cookie 有效但服务器拿不到 workspace | `opencodego/fetcher.go:98` |
+| 「账号 "x" 的 Cursor 登录已于 … 过期 — 请重跑 leeway login cursor」 | 私有 auth.json 的 JWT 过期 | `cursor/fetcher.go:56` |
+| 「Cursor 登录信息被拒（HTTP 401） — 请重跑 leeway login cursor」 | bearer 被 dashboard RPC 拒绝 | `cursor/fetcher.go:128` |
+| 「Command Code API 密钥不合法（HTTP 401）」 | Bearer `user_...` 被拒 | `commandcode/fetcher.go:17` |
 
 ---
 

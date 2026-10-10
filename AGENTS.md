@@ -70,7 +70,6 @@ CLI 与窗口共用 `internal/config`、`internal/fetch`、`internal/history`、
 - 未经明确授权，不访问真实 provider HTTP，也不读用户本机 cookie / keychain 做探测。
 - 不要另起一套探测或配置逻辑：窗口通过 `internal/*` 的导出 API 复用 CLI 的同一条路径。
 - `cmd/leeway` 的 CLI 行为是契约，改动要同步 README 与 `leeway help`。
-
 <!-- code-generation-rules:start -->
 ## 代码生成规则（覆盖模型默认过度设计、过度保守倾向）
 

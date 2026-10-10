@@ -8,7 +8,11 @@
 >
 > 全程未访问真实 provider HTTP，未读本机 cookie / keychain / 凭据内容。
 > 完整 PoC、截图与复现脚本在调研分支 **`analysis/mygo-to-flutter`**
-> （工作树 `.worktrees/ui-flutter-lab`），见 §9 / §10。
+> （工作树 `.worktrees/ui-flutter-lab`，`/.worktrees/` 在 `.gitignore` 里，新 clone 需按 §9 自己
+> `git worktree add`），见 §9 / §10。
+>
+> **当前决策（2026-10-11）**：**留在 MyGo**（§6 路线 A）——桌面继续 `internal/gui` + mygo，
+> Android / iOS 与 Flutter 客户端都不做。§6 的推荐 B1 与 §7 的 B2 只作备查，不是待办。
 
 ---
 
@@ -48,6 +52,8 @@
 | E11 | mygo 与 purego 的依赖面 | `go list -deps ./cmd/leeway` | mygo **0**、purego **0**；只有 `cmd/leeway-gui` 拉进（19 个 mygo 包） |
 
 E10 在 mygo **v0.3.4** 上复测；E1 / E11 在当前 `main` 上复验。产物截图与完整日志见调研分支。
+这里的 v0.3.4 是**调研当时**的依赖版本（历史事实）；依赖树此后已随提交 `23f1f08` 升到
+`go.mod` 里的 mygo **v0.4.0**，本节数字未在新版本上复验。
 
 ---
 

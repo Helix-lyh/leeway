@@ -45,32 +45,35 @@ leeway/
   internal/credwrite/       # `leeway use` 打补丁 YAML 凭据（API key 家）
   internal/switcher/        # `leeway use` 把 cursor/grok 写给官方工具
   internal/fetch/           # 并行探测编排
+  internal/history/         # history.jsonl（跨 run 观测 + delta）
+  internal/netutil/         # 各 provider 共用的 ctx 感知 HTTP 请求
   internal/cli/             # 子命令与 flag
-  internal/render/          # json / 表格
+  internal/render/          # json / 表格 / 走势点阵
 ```
 
 ## 4. 数据模型
 
 ```go
-// 对应 CodexBar UsageSnapshot：primary/secondary/tertiary 三档窗口 + 可选附加窗口
+// 对应 CodexBar UsageSnapshot：一张快照的全部窗口（primary/secondary/tertiary + 附加，按 ID 归位）
 type Snapshot struct {
-    Primary, Secondary, Tertiary *RateWindow
-    Extra        []NamedRateWindow
-    Cost         *Cost           // 余额/费用（deepseek 余额、opencode zen balance）
-    Identity     *Identity       // 账号邮箱等
-    UpdatedAt    time.Time
+    UpdatedAt time.Time
+    Identity  *Identity    // 账号 / 套餐名
+    Windows   []RateWindow // 顺序：primary、secondary、tertiary、附加
+    Cost      *Cost        // 余额/费用（deepseek 余额、opencode zen balance）
 }
 
 // 对应 CodexBar RateWindow
 type RateWindow struct {
-    ID            string     // "primary"/"secondary"/"tertiary"/自定义
-    Title         string     // "Weekly" / "5-hour" / "On-demand"
-    UsedPercent   *float64   // 0-100，nil = 非百分比窗口（如余额）
-    Used          *float64   // 原始数值（余额 ¥12.34）
+    ID            string       // "primary"/"secondary"/"tertiary"/自定义
+    Title         string       // "Weekly" / "5-hour" / "On-demand"
+    UsedPercent   *float64     // 0-100，nil = 非百分比窗口（如余额）
+    Used          *float64     // 原始数值（余额 ¥12.34）
     Limit         *float64
-    Currency      string     // "CNY"/"USD"
+    Currency      string       // "CNY"/"USD"
     ResetsAt      *time.Time
     WindowMinutes *int
+    RateLimited   bool         // provider 报告这一档已限流
+    Delta         *WindowDelta // 与上次成功观测的差（可选）
 }
 ```
 
@@ -82,7 +85,7 @@ type Provider interface {
     DisplayName() string
     AuthSpec() AuthSpec            // 声明式：env key、cookie 域名、CLI 会话复用、是否支持多账户
     DeclaredWindows() []WindowSpec // 声明档位，探测返回后按 ID 归位
-    Fetch(ctx context.Context, creds Credentials) (*Snapshot, error)
+    Fetch(ctx context.Context, req FetchRequest) (*model.Snapshot, error)
 }
 ```
 
@@ -95,10 +98,10 @@ type Provider interface {
 | **deepseek** | `DEEPSEEK_API_KEY` env 或 `leeway login deepseek`（交互式无回显 / --key 直传） | **`api.deepseek.com/user/balance`**（公共 API，Swift 的 API-key 路径；`platform.deepseek.com` 有 WAF 会拦 API key）+ 平台 token 增强：`/api/v0/usage/amount` + `/api/v0/usage/cost` | 余额（¥）+ 当日用量 | 公共 API，余额单位 ¥ |
 | **kimi** | 四选一：`KIMI_CODE_API_KEY`（Code API）/ 网页 JWT（cookie `kimi-auth` 或 `KIMI_AUTH_TOKEN`）/ L1 桌面端 / **Kimi CLI 会话**（`~/.kimi-code/credentials/kimi-code.json`，过期提示 `leeway login kimi`） | `www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`（周配额，**POST**）+ `kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats`（5h 限速，best-effort） | Weekly 7d + 5-hour + monthly/7d 附加 | JWT 自带 session 信息；两请求并行 |
 | **grok** | 三选一：**`leeway login grok`**（私有 `GROK_HOME`，OIDC bearer，过期自动刷新到 `{issuer}/oauth2/token` 并回写）/ 官方 `~/.grok/auth.json`（共享）/ L2 Chrome cookie / 手动 header | 优先 `GET cli-chat-proxy.grok.com/v1/billing?format=credits`（`creditUsagePercent` + `currentPeriod.type`）；REST 4xx/5xx 回退 grok.com grpc-web 启发式 protobuf | 共享额度；窗口类型来自 REST `currentPeriod.type`（Weekly/Monthly） | 实测 REST `creditUsagePercent` 不再被 protobuf 截成整数 |
-| **cursor** | 委托官方 `cursor-agent login`（`leeway login cursor [ACCOUNT]`：`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME，只读 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；**无私有 auth.json 时**才兜底 macOS keychain | `POST api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Bearer） | Monthly（API bucket %）+ Total/Auto（JSON）+ Credits（`limit − includedSpend`） | 不自实现浏览器 PKCE/poll；60d JWT 过期提示重登 |
+| **cursor** | 委托官方 `cursor-agent login`（`leeway login cursor [ACCOUNT]`：`AGENT_CLI_CREDENTIAL_STORE=file` + 私有 HOME，只读 `.cursor/auth.json`）；env `CURSOR_ACCESS_TOKEN` / `accounts[].apiKey`；**无私有 auth.json 时**才兜底 macOS keychain | `POST api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage`（Bearer） | Monthly（API bucket %）+ JSON 附加 `Auto` / `Included`（现金条）+ 可选 `Credits` | 不自实现浏览器 PKCE/poll；60d JWT 过期提示重登 |
 | **codex** | `leeway login codex` 写入隔离 `CODEX_HOME/auth.json`（不碰官方 `~/.codex`；`use` 也不写） | `chatgpt.com/backend-api/accounts`（身份）+ `chatgpt.com/backend-api/wham/usage`（窗口） | Session（5h）/ Weekly（7d）+ 附加窗口 + Credits | 复用 Codex CLI 会话，不自实现 OAuth |
 | **opencode-go** | **双路径**：① 订阅 API key（`OPENCODE_GO_API_KEY` / 命名订阅 `leeway login opencode-go`），走网关 `GET opencode.ai/zen/go/v1/usage` 直接查每订阅用量；② **多账户 cookie**：每个账户 = 一组 session cookie（浏览器 profile 或手动 header）+ 可选 workspaceID（CLI 的 API key 走不通 `_server`，服务器窗口需要真实浏览器会话） | ① 网关 `/usage`（每订阅）② 服务器窗口：`opencode.ai/_server`（Zen balance 等 API，按账户） | 每订阅/每账户：5-hour + Weekly + Monthly；cookie 账户另有 Zen 余额 | 多账户并发 ≤3 + TTL 缓存；workspaceID 缺失要 status 提示；`leeway use` 切换激活订阅并写入 DSH 凭据 |
-| **commandcode** | `COMMAND_CODE_API_KEY` / `accounts[].apiKey`（`user_...`，commandcode.ai/studio） | `GET api.commandcode.ai/alpha/billing/credits`（`windowLimits.fiveHour/weekly` + `credits.monthlyCredits`）+ 可选 `/alpha/usage/summary` | 5-hour + Weekly + Monthly credits | 纯 API-key 多账号，同 opencode-go 订阅模式 |
+| **commandcode** | `COMMAND_CODE_API_KEY` / `COMMANDCODE_API_KEY` / `accounts[].apiKey`（`user_...`，commandcode.ai/studio） | `GET api.commandcode.ai/alpha/billing/credits`（`windowLimits.fiveHour/weekly` + `credits.monthlyCredits`）+ best-effort `alpha/whoami`（orgId）与 `alpha/billing/subscriptions`（plan 名） | 5-hour + Weekly + Monthly credits | 纯 API-key 多账号，同 opencode-go 订阅模式 |
 
 浏览器授权（cursor / grok）一律委托官方 CLI 完成，leeway 只读落盘文件。每账号一个私有 HOME / `auth.json`，与官方 CLI / keychain 解耦，切号只换 `--account`。
 

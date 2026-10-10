@@ -25,13 +25,16 @@
 ## 2. 当前状态
 
 ```
+1571f04 文档：更正 0.2.0 dmg 文件名（含 arm64）
+492f6a4 窗口 0.2.0：按 Pulse 收紧界面，设置改成主窗浮层
+bd2d98a 交接文档：质量目标、已知问题、优化方向、参考项目与验证方法
 1451e0d 状态层：卡片悬停原来只有 1.02:1，读者看不见
 fba339c 把剩下的装饰线也收掉：页标题下、首次运行每行、账号之间、条的一圈
 bacc6f8 卡片不再是一圈描边加一条 3px 凹槽：一块面，靠填充差和投影分开
 3f02658 首次运行：详情 是画出来的控件，并挪到动作左边
 3848559 侧栏写每家还剩多少，主角卡的读数收回数字那一行
 23f1f08 mygo 升到 v0.4.0
-—— 本会话（未提交）——
+—— 以下五条原记作「未提交」，现已随 492f6a4 提交 ——
 P1 卡片按下：cardPress 状态层，OnClick 与 Pressed 挂在同一块 surface；去掉 DrawOver
 P2 安静控件 ghostFill：首次运行「详情」悬停/按下也走状态层背景
 P2 构建命令与 go.mod 对齐 mygo@v0.4.0（未动 go.mod / ICON.md）
@@ -46,6 +49,16 @@ P2 额度条：Pulse 软槽（满宽 track + 填充，无描边）；0% 仍有�
 env -u DEEPSEEK_API_KEY go test ./... 已绿。
 历史单列（对齐总览）；设置改主窗口 DialogBase 浮层（固定 400×500、轻蒙层；对齐 Pulse，非独立窗）。
 ```
+
+**0.2.0 已出包**：`build/darwin-arm64/leeway.app` 与 `build/darwin-arm64/leeway 0.2.0 arm64.dmg`
+（`hdiutil verify` 通过），已装到 `~/Applications/leeway.app` 并打开。版本三处一致：`mygo.json`、
+`internal/gui/view.go` 的 `Version` 常量、`README.md`。0.2.0 出包时工作区干净、`main` 领先
+`origin/main` **37 个提交**；**尚未 push，也尚未打 GitHub Release**（这两件仍待办，见 §9）。
+
+出包前修掉两处审查发现的问题（都在 `492f6a4`）：设置浮层盖住确认框 → 渲染顺序改成
+settings → prompt → confirm（`view.go:191–196`）；点「详情」不关设置 → 导航前
+`settingsOpen = false`（`settingsview.go:338`），并加了回归测试
+`TestSettingsProviderDetailClosesThePopover`（`gui_test.go:1705`）。
 
 `gofmt -l internal/ cmd/` 干净；验证时请 `env -u DEEPSEEK_API_KEY`（本机若有该变量会污染「未配置」类测试）。
 
@@ -109,7 +122,7 @@ Pulse 一侧（`docs/PULSE-AESTHETIC.md` §2.2）。品牌紫 `accent` 不进侧
 - provider 页：主动作 `loginActions` + 次要 `accountActions` kebab（已有）；
 - **禁止** hover 才出现的动作（语料最差方案）。
 
-### P2 — 历史页还有 5 条线 ✅（装饰线已收）
+### P2 — 历史页的装饰线 ✅（已收）
 header/row 的 `p.hairline` 已删，系列只靠 shell 的 Gap。快照亮度尺仍报 4 横，来自图/
 底槽墨，不是 hairline；`TestTheHistoryPageDoesNotRuleItsRows` 用颜色探针钉死装饰线 = 0
 （加回一条 hairline 会红）。卡宽测试改找 Label「…的历史」。
@@ -123,7 +136,7 @@ header/row 的 `p.hairline` 已删，系列只靠 shell 的 Gap。快照亮度�
 
 ### P2 — 文档与依赖版本不一致 ✅
 构建命令已与 `go.mod` 对齐为 `mygo@v0.4.0`（`AGENTS.md` / `CLAUDE.md` / `README.md` /
-`docs/GUI.md` / `docs/MYGO-NOTES.md` 的现行命令）。`docs/ICON.md` 留给图标 agent，未改。
+`docs/GUI.md` / `docs/MYGO-NOTES.md` 的现行命令）；`docs/ICON.md` 的构建命令也已对齐 v0.4.0。
 
 ### P3 — 没有命令面板
 motrix（`Ctrl K` 芯片）和 Yeek/MujicaUI 都有。我们有 ⌘R 刷新，没有全局跳转。属于**功能**，
@@ -134,10 +147,10 @@ motrix（`Ctrl K` 芯片）和 Yeek/MujicaUI 都有。我们有 ⌘R 刷新，�
   要么先扩保留期，要么放弃热力图。
 - `build/screenshots` 3.6M、`~/.cache/leeway/*.bak-20260917`（101K）——是否清理。
 
-### ⚠️ 仓库里有另一个 agent 在同时工作
-`AGENTS.md` 写明主模型 Grok 4.6 / 次模型 gpt-sol。它的未提交文件是
-`docs/ICON.md`、`internal/gui/icons.go`、`resources/icon-glyph.py`——
-**不要回退，提交时只 add 自己的路径**（本会话一直这么做）。不要动 `go.mod` / `go.sum`。
+### 仓库里的并行工作（图标那轮已收口）
+`AGENTS.md` 写明主模型 Grok 4.6 / 次模型 gpt-sol。图标那一轮的文件（`docs/ICON.md`、
+`internal/gui/icons.go`、`resources/icon-glyph.py`）都已提交；`go.mod` / `go.sum` 也已随
+`23f1f08` 升到 mygo v0.4.0。提交前先看 `git status`，只 add 自己的路径。
 
 ---
 
@@ -170,7 +183,7 @@ motrix（`Ctrl K` 芯片）和 Yeek/MujicaUI 都有。我们有 ⌘R 刷新，�
   会把旁边的文字挤动」（`ui/data/paint.go:32`）。矩阵排序标/侧栏若要有标记，照这个做。
 - **meiro 的状态层表**已采纳（§2.2），但只用在卡片悬停上——按钮、行、菜单还是各配各的。
 - **图的绘制动画**（codex-monitor 的 `p.Clip` 拉入）：未核实我们有没有，值得看一眼
-  `internal/gui/chart.go` 之类。
+  `internal/gui/charts.go` 之类。
 
 ---
 
@@ -247,7 +260,7 @@ LEEWAY_GUI_SNAPSHOT=/tmp/shots go test -count=1 ./internal/gui/
 # 真窗口截图（需要 GUI 会话）
 LEEWAY_GUI_CAPTURE=/tmp/window.png open build/darwin-arm64/leeway.app
 
-# 打包（AGENTS.md 写 v0.3.4，实际 go.mod 是 v0.4.0，用后者）
+# 打包（AGENTS.md / CLAUDE.md / README 与 go.mod 都已是 mygo v0.4.0）
 go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build
 ```
 
@@ -296,7 +309,8 @@ def count(path):
 
 ## 9. 建议的下一步（按性价比）
 
-1. ~~P1 按下 / 账号行 / 文档版本 / ghostFill / ScrollEdge / 历史装饰线~~ ✅ · core5 **10H+0V**
+1. **收口 0.2.0**：`git push` 与打 GitHub Release（附件用
+   `build/darwin-arm64/leeway 0.2.0 arm64.dmg`）——两件都还没做。
 2. **P2 统一状态层**：MyGo 自带 Button 仍用主题 `SurfaceHover`；行、菜单若还有自配 alpha，收到 §2.2 表。
 3. **对照截图下一刀**：额度条底槽已去；overview/provider 亮度尺若仍有 2H，查是否来自图/其它填充边界。
 4. **P3 命令面板**（功能级，需先问维护者要不要）。

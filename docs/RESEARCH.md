@@ -167,7 +167,7 @@ CLI: 轮询 GET api2.cursor.sh/auth/poll?uuid&verifier
 ## 6. 已处理点（重构历史，供追溯）
 
 1. ~~自实现 Cursor PKCE + poll~~ → **已退役删除**（用户安全否决；`internal/auth/login.go`、
-   `session.go` 全清，uuid 依赖移除）。
+   `session.go` 全清，uuid 依赖移除）。这两个同名文件此后已重建，内容换成委托官方 CLI 登录。
 2. 新增 `internal/auth/cursorfile.go`：官方 auth.json 读写（CursorHome/CursorAuthFile/
    LoadCursorAuth/RemoveCursorHome），含路径逃逸清洗（测试 6 下划线断言）。
 3. `cli/auth.go`：loginCursor/loginGrok 全委托官方 CLI；logout 语义修正（cursor 删私有目录、

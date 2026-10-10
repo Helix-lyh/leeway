@@ -277,7 +277,7 @@ arc(x0, y0, h0, a0 + pi, a0 + 2*pi)       # 起头，往回鼓
 ```sh
 python3 resources/icon.py                 # 从 icon-brush.png 生成 icon.png（Pillow + numpy）
 python3 resources/icon-glyph.py           # 从 icon.png 描出标题栏那段 SVG 路径（Pillow + numpy）
-go run github.com/egoist/mygo/cmd/mygo@v0.3.4 build   # 打 .app / .dmg，顺带出 icns
+go run github.com/egoist/mygo/cmd/mygo@v0.4.0 build   # 打 .app / .dmg，顺带出 icns
 ```
 
 顺序：

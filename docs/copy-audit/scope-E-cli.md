@@ -15,7 +15,7 @@
 **改写口径**：
 - 「名称 2–4 个汉字」用于概念标签（服务商 / 账号 / 登录信息）；**命令名 `usage` / `login` / `logout` / `status` / `use` / `help` 是 CLI 契约，不改**，只改它的一行说明。
 - 「描述不超过 20 个汉字」用于一行说明与 flag 描述；错误提示按硬约束 5 以「原因 + 下一步」为准，超出 20 字的在备注里标 `【超20字】`。
-- 术语与同批 `docs/copy-audit/glossary-draft.md` 对齐：provider → **服务商**，account → **账号**，会话/令牌 → **登录信息**（文件则叫**登录文件**），切号 → **切换账号**，点阵 → **走势图**，快照 → **备份**，官方 CLI/客户端 → **官方工具**，DSH → **leeway 自己保存的配置**。
+- 术语与 `docs/UI-COPY-REWRITE.md` §1（术语对照表）对齐：provider → **服务商**，account → **账号**，会话/令牌 → **登录信息**（文件则叫**登录文件**），切号 → **切换账号**，点阵 → **走势图**，快照 → **备份**，官方 CLI/客户端 → **官方工具**，DSH → **leeway 自己保存的配置**。
 - 表格里 `<br>` 表示原文的换行；多行命令示例合并成一条（给出行号范围 + 逐字原文块）。
 
 **条数统计**：主表 137 条（help.go 50、flags.go 3、cli.go 34、login.go 13、logout.go 2、auth.go 20、switcher.go 10、cursor_ide.go 2、cursor_keychain.go 3），其中帮助文本 50 条、flag 用法描述 16 条（flags.go 3 + cli.go 4 + login.go 9）、错误与运行提示 71 条。

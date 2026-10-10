@@ -142,7 +142,7 @@ sequenceDiagram
 - 目录：`auth.CacheDir()`（`internal/auth/auth.go:40`），即 `~/.cache/leeway/`，`LEEWAY_CACHE` 可覆盖。
 - 文件：`history.jsonl`（**新文件**，禁止写入 `snapshots.json` / `cookies.json`）。
 - 权限：目录 `0700`，文件 `0600`（与 `saveSnapshotCache` / `config.Save` 一致）。
-- 一行一条 JSON object，UTF-8，无密钥投影结构 `history.Record`，**禁止** `json.Marshal(model.Output)`（`AccountResult.Error` 可能含服务端原文）。
+- 一行一条 JSON object，UTF-8，无密钥投影结构（内部 `fileRecord`），**禁止** `json.Marshal(model.Output)`（`AccountResult.Error` 可能含服务端原文）。
 
 ```json
 {
@@ -155,7 +155,7 @@ sequenceDiagram
   "entries": [
     {
       "provider": "cursor",
-      "account": "codesmallstar",
+      "account": "work",
       "windows": [
         {"id": "primary", "usedPercent": 95.0, "resetsAt": "2026-09-17T04:00:00Z"},
         {"id": "auto", "usedPercent": 71.0},
@@ -275,7 +275,7 @@ Load 失败：当「无历史」处理，不打 delta，不把 usage 退出码�
 
 实现：`history.LoadLastSeenBefore(t time.Time) map[Key]Obs`，从旧到新扫 JSONL，**跳过 `generatedAt >= t` 的行**，后写覆盖。新探测与缓存回放共用这一函数：对照物永远是「比当前这张 Output 更早的观测」，缓存回放不会拿 T2 过滤跑当 T1 的上次。Watch 后续 tick 不走磁盘，用 `LastSeenFromOutput` 的内存 map。
 
-`Key`：`provider + "\x1f" + account + "\x1f" + windowID`。
+`Key`：结构体 `{Provider, Account, Window}`（对齐键 = provider id + account tag + window id）。
 
 账户改名（tag 变了）视为新账户：无 delta。不靠邮箱对齐（历史不存邮箱）。
 
@@ -412,23 +412,23 @@ func isReset(prev, curr obs, siblingPercentJumped bool) bool {
 
 ```
 Cursor
-  codesmallstar  Ultra
+  work  Ultra
     Monthly   ⣿⣿⣿⣿⣿⣿⣿⡇  95%  7d 14h  ↑2
     Auto      ⣿⣿⣿⣿⣿⣿⣀⣀  71%          ↑1
     Included  $400.00 / $400.00           +$12.00
-  lymysql  Ultra
+  home  Ultra
     Monthly   ⣿⣀⣀⣀⣀⣀⣀⣀   3%  29d 12h  reset
     Auto      ⣿⣀⣀⣀⣀⣀⣀⣀  15%          reset
     Included  $0.00 / $400.00             reset
 DeepSeek  Balance  ¥396.68  -¥4.12
 Grok
-  lymysql
+  home
     Weekly    ⣀⣀⣀⣀⣀⣀⣀⣀   0%  1d 06h
-  codesmallstar
+  work
     Weekly    ⣿⣿⣿⣿⡇⣀⣀⣀  58%  4d 06h  ↑8
 ```
 
-`lymysql`：Monthly 的 `ResetsAt` 前跳（规则 1）→ `reset`；Auto（百分比）/ Included（`Used`+`Limit`）无自己的 `ResetsAt`，但同账户**百分比**兄弟已跳且数值下降（规则 2）→ 也是 `reset`，即使 Included 只从 $50 落到 $0。若同账户还有余额窗，下降仍画成花钱 delta，不标 `reset`。
+`home`：Monthly 的 `ResetsAt` 前跳（规则 1）→ `reset`；Auto（百分比）/ Included（`Used`+`Limit`）无自己的 `ResetsAt`，但同账户**百分比**兄弟已跳且数值下降（规则 2）→ 也是 `reset`，即使 Included 只从 $50 落到 $0。若同账户还有余额窗，下降仍画成花钱 delta，不标 `reset`。
 
 - 无 delta 的行不写占位，避免 `—` 噪声。
 - 百分比：TTY `↑2` / `↓1`（`|Δ|≥10` 取整，否则一位小数 `↑2.1`）；非 TTY `+2` / `-1`。
@@ -607,9 +607,9 @@ if watchSecs > 0 {
 
 ```
 internal/history/
-    history.go     // Path, LoadLastSeenBefore, Record, flock, 轮转
-    project.go     // Output → Record（只投影 ok 账户数值）+ costDuplicatesWindow
+    history.go     // Path, LoadLastSeenBefore, Record, 投影（ok 账户数值）+ costDuplicatesWindow + 轮转
     delta.go       // isReset, Attach, 极性
+    lock_unix.go   // flock（lock_other.go 为非 Unix 降级）
     history_test.go
 ```
 
@@ -818,7 +818,7 @@ func costDuplicatesWindow(c model.Cost, windows []model.RateWindow) bool {
 ### PR 1 — `internal/history`：投影、追加、轮转、无密钥
 
 - **标题：** `history: JSONL run log under LEEWAY_CACHE`
-- **文件：** `internal/history/history.go`、`project.go`、`history_test.go`（新包）
+- **文件：** `internal/history/history.go`、`lock_unix.go`、`lock_other.go`、`history_test.go`（新包）
 - **依赖：** 无
 - **内容：** `Path`（`auth.CacheDir()/history.jsonl`）、flock、从 `Output` 投影 ok 账户、200 行轮转、**任一行** `generatedAt` 去重（不是末行）。本包内 `costDuplicatesWindow`（不 import render）。测试：投影文本无 `Bearer`/`sk-`/`Cookie`；DeepSeek Balance+Cost 不写合成 `cost`；写失败可返回 error（调用方稍后才 log）；`LEEWAY_CACHE` 隔离；全量写入 → 过滤写入 → 再用同一 `generatedAt` 调 Record **不得追加第三行**。**不接线 CLI。**
 
