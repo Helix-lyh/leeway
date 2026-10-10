@@ -699,6 +699,40 @@ func TestHistoryPageRendersSeries(t *testing.T) {
 	snapshot(t, tester, "history")
 }
 
+// The used number and the remainder are one pair. Bottom-aligning the columns
+// put the shorter remainder — caption and number together — about 5px low,
+// which is the line-box difference between 20px and 16px, not a baseline.
+func TestTheHistoryPairSitsOnOneLine(t *testing.T) {
+	a := testApp(t)
+	a.navigate("history")
+	a.series = []history.Series{{
+		Provider: "deepseek", Account: "default", Window: "primary",
+		Points: []history.Point{{T: a.now(), UsedPercent: ptrTo(30.0)}},
+	}}
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	usedCap, ok := tester.Find("已用")
+	restCap, ok2 := tester.Find("剩余")
+	if !ok || !ok2 {
+		t.Fatalf("the pair is missing; texts=%v", tester.Texts())
+	}
+	if d := restCap.Y - usedCap.Y; d < -1 || d > 1 {
+		t.Errorf("剩余 sits %.1fpx off 已用: the captions are one line", d)
+	}
+	used, ok := tester.Find("30%")
+	rest, ok2 := tester.Find("70%")
+	if !ok || !ok2 {
+		t.Fatalf("the numbers are missing; texts=%v", tester.Texts())
+	}
+	if used.H != rest.H {
+		t.Errorf("70%% is %.1f tall against 30%%'s %.1f: the pair is two sizes", rest.H, used.H)
+	}
+	img := tester.Image()
+	if d := inkBottom(img, rest) - inkBottom(img, used); d < -2 || d > 2 {
+		t.Errorf("70%% sits %dpx off 30%%: they are one baseline", d)
+	}
+}
+
 func TestSettingsWindowRendersItsTabs(t *testing.T) {
 	a := testApp(t)
 	tester := ui.NewTester(a.settingsView, settingsWidth, settingsHght)
@@ -2848,6 +2882,98 @@ func TestThePageStopsGrowingOnAWideWindow(t *testing.T) {
 	r := float32(wide) - pagePad - float32(right)
 	if l-r > 2 || r-l > 2 {
 		t.Errorf("the column sits %.0f from the sidebar and %.0f from the edge, want the same", l, r)
+	}
+}
+
+// Each account's number carries its own caption, against the number rather than
+// beside the first column's window name. The caption is the window name's face
+// on the number's baseline: a 1.5 line height is a taller box, and end alignment
+// then leaves the word off the percentage.
+func TestTheMatrixCaptionFollowsItsNumber(t *testing.T) {
+	a := manyAccountApp(t)
+	a.navigate("provider:opencode-go")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	n := 0
+	for _, text := range tester.Texts() {
+		if text == "已用" {
+			n++
+		}
+	}
+	if n != 12 {
+		t.Errorf("已用 is said %d times, want one beside each of 4 accounts × 3 windows", n)
+	}
+	word, ok := tester.Find("已用")
+	num, ok2 := tester.Find("20%")
+	title, ok3 := tester.Find("5-hour")
+	if !ok || !ok2 || !ok3 {
+		t.Fatalf("the first cell is missing a part; texts=%v", tester.Texts())
+	}
+	if gap := num.X - (word.X + word.W); gap < 0 || gap > 16 {
+		t.Errorf("已用 ends %.1fpx from 20%%: the word does not follow the number", gap)
+	}
+	if word.H != title.H {
+		t.Errorf("已用 is %.1f tall against the window name's %.1f: the caption is a different face", word.H, title.H)
+	}
+	img := tester.Image()
+	if d := inkBottom(img, word) - inkBottom(img, num); d < -2 || d > 2 {
+		t.Errorf("已用 sits %dpx off 20%%: they are one baseline", d)
+	}
+	if d := inkBottom(img, title) - inkBottom(img, num); d < -2 || d > 2 {
+		t.Errorf("5-hour sits %dpx off 20%%: the name does not share the number's baseline", d)
+	}
+}
+
+// A money caption is that account's own pool, and the pair stays inside the
+// column. The row's first window used to lend its "共 $…" to every column,
+// and a caption that refused to shrink drew the amount into the next account.
+func TestTheMatrixMoneyCaptionIsThatAccounts(t *testing.T) {
+	a := manyAccountApp(t)
+	rewriteWindows(t, a, func(i int) []model.RateWindow {
+		if i == 2 {
+			return nil
+		}
+		used := []float64{200, 800, 0, 10}[i]
+		limit := []float64{400, 1000, 0, 50}[i]
+		return []model.RateWindow{{
+			ID: "included", Title: "Included",
+			Used: &used, Limit: &limit, Currency: "USD",
+		}}
+	})
+	a.navigate("provider:opencode-go")
+	tester := ui.NewTester(a.view, mainWidth, mainHeight)
+	tester.Frame()
+	for _, want := range []string{"共 $400.00", "共 $1000.00", "共 $50.00"} {
+		n := 0
+		for _, text := range tester.Texts() {
+			if text == want {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s is said %d times, want once; texts=%v", want, n, tester.Texts())
+		}
+	}
+	if tester.HasText("共 $0.00") {
+		t.Errorf("the account with no window borrowed a pool; texts=%v", tester.Texts())
+	}
+	pairs := [][2]string{{"共 $400.00", "$200.00"}, {"共 $1000.00", "$800.00"}, {"共 $50.00", "$10.00"}}
+	prevRight := float32(-1)
+	for _, pair := range pairs {
+		word, ok := tester.Find(pair[0])
+		num, ok2 := tester.Find(pair[1])
+		if !ok || !ok2 {
+			t.Fatalf("missing %s / %s; texts=%v", pair[0], pair[1], tester.Texts())
+		}
+		if gap := num.X - (word.X + word.W); gap < 0 || gap > 16 {
+			t.Errorf("%s ends %.1fpx from %s: the caption does not follow its number", pair[0], gap, pair[1])
+		}
+		if prevRight >= 0 {
+			if gap := word.X - prevRight; gap < 2 {
+				t.Errorf("%s starts %.1fpx after the previous number: the pair ran into the next column", pair[0], gap)
+			}
+		}
+		prevRight = num.X + num.W
 	}
 }
 

@@ -157,32 +157,63 @@ func matrixColumnWidth(c *ui.Context, accounts int) float32 {
 }
 
 // matrixCell is one account's answer for one window: the number, how far it
-// has come, and when it goes back to zero. The first column also carries the
-// row's header: on the number's line while the column is wide enough for both,
-// so a window is three lines in every column — the number, the bar, and when it
-// resets — and on a line of its own when it is not, which keeps the numbers and
-// so the bars on one line across the table.
+// has come, and when it goes back to zero. While the column is wide enough,
+// every column carries the window's name on the left of the number's line and
+// the caption ("已用", or the money's) against the number, so a window is
+// three lines in every column — the number, the bar, and when it resets. When
+// it is not wide enough the name takes a line of its own, which keeps the
+// numbers and so the bars on one line across the table.
 func (a *App) matrixCell(c *ui.Context, p palette, providerID string, av accountView, w model.RateWindow, header, inline bool) {
 	cw, ok := accountWindow(av, w.ID)
-	// The header belongs to the row, not to the column that happens to carry
-	// it: an account that does not report this window still gets the row's name
-	// above its dash. The name is cut, never broken, and carries itself whole
-	// on the tooltip the way every other cut string in the window does.
-	name := func(withDetail bool) {
-		title := windowTitle(providerID, w.ID, w.Title)
-		ui.Text(c, title).
+	// The 13px name sits on the 20px number's baseline. End alignment matches
+	// box bottoms, and the number descends further. The caption is that same
+	// face: muted() carries a 1.5 line height, which is a taller box than the
+	// name and does not share the number's baseline.
+	title := windowTitle(providerID, w.ID, w.Title)
+	// The caption carries this account's own limit ("共 $…"). The row's
+	// prototype is whichever account reported the window first, and another
+	// column's pool is not that number.
+	detail := ""
+	if ok && (cw.UsedPercent != nil || cw.Used != nil) {
+		detail = amountDetail(cw)
+	}
+	namePad := ui.Font{Size: sizeValue, Weight: 600}.Metrics().Descent -
+		ui.Font{Size: sizeBody, Weight: 600}.Metrics().Descent
+	padOf := func(onNumber bool) float32 {
+		if onNumber {
+			return namePad
+		}
+		return 0
+	}
+	titleText := func(onNumber bool) {
+		// The name is cut, never broken, and carries itself whole on the
+		// tooltip the way every other cut string in the window does. Only the
+		// row header takes a tab stop: the other columns repeat the same word.
+		e := ui.Text(c, title).
 			FontSize(sizeBody).
 			FontWeight(600).
 			SingleLine().
 			Ellipsis("…").
 			Tooltip(title).
-			Focusable()
-		// "已用" states what the number counts; stacked, the line has only the
-		// column's width, and the name and the number are both worth more than
-		// the word for them, so the word is the one that goes.
-		if detail := amountDetail(w); withDetail && detail != "" {
-			muted(c, p, detail).SingleLine()
+			Padding(0, 0, padOf(onNumber), 0)
+		if header {
+			e.Focusable()
 		}
+	}
+	detailText := func(onNumber bool) {
+		if detail == "" {
+			return
+		}
+		// The number keeps its width. Past that, this word gives way and
+		// shortens: a money pair that refuses to is drawn into the next column.
+		ui.Text(c, detail).
+			FontSize(sizeBody).
+			FontWeight(600).
+			TextColor(p.t.TextMuted).
+			SingleLine().
+			Ellipsis("…").
+			Tooltip(detail).
+			Padding(0, 0, padOf(onNumber), 0)
 	}
 	if !inline {
 		// The name's line is kept in every column, empty where the name is not:
@@ -190,7 +221,8 @@ func (a *App) matrixCell(c *ui.Context, p palette, providerID string, av account
 		// and the bars stop reading across the table.
 		ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.End).Children(func() {
 			if header {
-				name(false)
+				titleText(false)
+				detailText(false)
 				return
 			}
 			// A space in the name's own style, so the line box is the one the
@@ -200,10 +232,13 @@ func (a *App) matrixCell(c *ui.Context, p palette, providerID string, av account
 		})
 	}
 	ui.Row(c).FillWidth().Gap(space2).AlignItems(ui.End).Children(func() {
-		if header && inline {
-			name(true)
+		if inline {
+			titleText(true)
 		}
 		ui.Spacer(c)
+		if inline {
+			detailText(true)
+		}
 		switch {
 		case !ok:
 			muted(c, p, "—")

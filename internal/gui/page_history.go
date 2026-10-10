@@ -172,11 +172,12 @@ func historyWindow(last history.Point, id string) model.RateWindow {
 }
 
 // historyHero is the series' lead reading: used as the number, remaining
-// beside it when the point can say how much is left (Pulse detail cards).
-// Sized at value/chrome rather than page-hero; the hierarchy is the rank
-// under the title, not a second 40px page title.
+// beside it when the point can say how much is left. Both numbers are the
+// value size. A smaller remainder sits on a different line box, and the
+// column then reads as two heights. The remainder stays in the text colour
+// so the heat colour still belongs to the amount used.
 func historyHero(c *ui.Context, p palette, w model.RateWindow, last history.Point) {
-	ui.Row(c).FillWidth().Wrap().AlignItems(ui.End).Gap(space4).Children(func() {
+	ui.Row(c).FillWidth().Wrap().AlignItems(ui.Start).Gap(space4).Children(func() {
 		ui.Column(c).Gap(space1).Children(func() {
 			if detail := amountDetail(w); detail != "" {
 				label(c, p, detail)
@@ -186,7 +187,7 @@ func historyHero(c *ui.Context, p palette, w model.RateWindow, last history.Poin
 		if rem, ok := historyRemaining(last); ok {
 			ui.Column(c).Gap(space1).Children(func() {
 				label(c, p, "剩余")
-				chrome(c, p, rem)
+				value(c, p, rem, p.t.Text)
 			})
 		}
 	})

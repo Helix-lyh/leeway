@@ -572,6 +572,22 @@ func dotInkValue(p palette, pt history.Point, v float64) ui.Color {
 	return p.money
 }
 
+// dotOn reports whether this row of the column is filled. A reading that
+// falls between two rows snaps to the nearer one. A fraction of a dot is
+// not drawn: below a small cover it is skipped entirely, and above that it
+// is still darker than the lattice, so along a slope the fringe reads as a
+// black shadow. A reading at the floor still marks the baseline, so a flat
+// empty series is a trace and not a blank field.
+func dotOn(row int, level float64, lit bool) bool {
+	if !lit {
+		return false
+	}
+	if level >= float64(row)+0.5 {
+		return true
+	}
+	return row == 0 && level < 0.5
+}
+
 func quantAlpha(a float64) float32 {
 	if a <= 0 {
 		return 0
@@ -639,20 +655,7 @@ func paintDotField(pt *ui.Painter, r ui.Rect, p palette, points []history.Point,
 		hover := lit && over >= 0 && slot == over
 		for row := 0; row < g.rows; row++ {
 			x, y := g.center(col, row)
-			cover := 0.0
-			switch {
-			case !lit:
-				cover = 0
-			case float64(row)+1 <= level:
-				cover = 1
-			case float64(row) < level:
-				cover = level - float64(row)
-			case row == 0:
-				// A reading at the floor still marks the baseline, so a flat
-				// empty series is a trace and not a blank field.
-				cover = 0.45
-			}
-			if cover <= 0 {
+			if !dotOn(row, level, lit) {
 				addDot(&batches, index, x, y, lattice)
 				continue
 			}
@@ -660,7 +663,7 @@ func paintDotField(pt *ui.Painter, r ui.Rect, p palette, points []history.Point,
 			if level > 0 {
 				depth = (level - (float64(row) + 0.5)) / level
 			}
-			a := dotLitAlpha(col, g.cols, depth, light, highContrast) * cover
+			a := dotLitAlpha(col, g.cols, depth, light, highContrast)
 			if hover {
 				a = 1
 			}
