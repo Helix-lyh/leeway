@@ -24,11 +24,9 @@ type palette struct {
 	card      ui.Color // a panel's surface
 	cardHi    ui.Color // that surface, under the pointer
 	sheet     ui.Color // a modal, which has to stay legible over the page
-	bezel     ui.Color // the tray a panel sits in
-	bezelHi   ui.Color // that tray, under the pointer
 	border    ui.Color // hairlines
-	borderHi  ui.Color // those hairlines, on the plate under the pointer
 	divider   ui.Color // the rule between two account columns, which has to read as one line
+	hairline  ui.Color // a rule that only groups: a whisper, not a boundary
 	track     ui.Color // a bar's empty part
 	trackEdge ui.Color // the line around it, which is what makes the bar a control
 	rule      ui.Color // a line the caption points at, which has to hold over every band it crosses
@@ -54,11 +52,9 @@ func paletteOf(t *ui.Theme) palette {
 		p.card = ui.RGBA(255, 255, 255, 0.055)
 		p.cardHi = ui.RGBA(255, 255, 255, 0.095)
 		p.sheet = ui.RGBA(28, 28, 34, 0.98)
-		p.bezel = ui.RGBA(255, 255, 255, 0.035)
-		p.bezelHi = ui.RGBA(255, 255, 255, 0.06)
 		p.border = ui.RGBA(255, 255, 255, 0.18)
-		p.borderHi = ui.RGBA(255, 255, 255, 0.30)
 		p.divider = ui.RGBA(255, 255, 255, 0.36)
+		p.hairline = ui.RGBA(255, 255, 255, 0.10)
 		p.track = ui.RGBA(255, 255, 255, 0.14)
 		p.trackEdge = ui.RGBA(255, 255, 255, 0.38)
 		p.markShade = ui.RGBA(0, 0, 0, 0.45)
@@ -74,11 +70,9 @@ func paletteOf(t *ui.Theme) palette {
 		p.card = ui.RGBA(255, 255, 255, 0.82)
 		p.cardHi = ui.RGBA(255, 255, 255, 0.98)
 		p.sheet = ui.RGBA(255, 255, 255, 0.98)
-		p.bezel = ui.RGBA(20, 18, 40, 0.035)
-		p.bezelHi = ui.RGBA(20, 18, 40, 0.055)
 		p.border = ui.RGBA(0, 0, 0, 0.16)
-		p.borderHi = ui.RGBA(0, 0, 0, 0.26)
 		p.divider = ui.RGBA(0, 0, 0, 0.44)
+		p.hairline = ui.RGBA(20, 18, 40, 0.10)
 		p.track = ui.RGBA(0, 0, 0, 0.10)
 		p.trackEdge = ui.RGBA(0, 0, 0, 0.45)
 		p.markShade = ui.RGBA(20, 18, 40, 0.16)
@@ -120,12 +114,10 @@ func (a *App) theme(c *ui.Context) palette {
 	// structure, so they take on the text color until they do.
 	if c.Preferences().HighContrast {
 		p.border = p.border.Mix(t.Text, 0.45)
-		p.borderHi = p.borderHi.Mix(t.Text, 0.45)
 		p.divider = p.divider.Mix(t.Text, 0.40)
+		p.hairline = p.hairline.Mix(t.Text, 0.55)
 		p.track = p.track.Mix(t.Text, 0.50)
 		p.trackEdge = p.trackEdge.Mix(t.Text, 0.30)
-		p.bezel = p.bezel.Mix(t.Text, 0.15)
-		p.bezelHi = p.bezelHi.Mix(t.Text, 0.15)
 	}
 	t.Background = p.canvas
 	t.Accent = p.accent
@@ -209,13 +201,8 @@ const (
 
 	radiusControl   = 10
 	labelColumnBase = 76 // the caption column every details list shares, at 1x
-	// A card's surface sits cardTrayPad inside its tray, so its radius is the
-	// tray's less those 3px: two curves of one centre read as one plate, and
-	// two that do not are the thing the eye catches first.
-	cardTrayPad   = 3
-	radiusInner   = 15
-	radiusTray    = 18
-	radiusCapsule = 999
+	radiusTray      = 18
+	radiusCapsule   = 999
 )
 
 // icon sizes: MyGo sizes an icon by FontSize, so these are sizes, not type.
@@ -360,47 +347,38 @@ func card(c *ui.Context, p palette, fn func()) ui.Element {
 	return shellSurface(c, p, false, fn)
 }
 
-// shell is a card in a tray that answers the pointer: an outer bezel with a
-// hairline, the surface inside it, and one soft shadow under the whole thing,
-// so a panel reads as a plate set into the window rather than as a rectangle
-// drawn on it.
+// shell is a card that answers the pointer: one surface and one soft shadow,
+// with its fill lifting under the pointer. There is no edge to lift, because
+// there is no edge: the panel is told from the canvas by its fill.
 func shell(c *ui.Context, p palette, fn func()) ui.Element {
 	return shellSurface(c, p, true, fn)
 }
 
 func shellSurface(c *ui.Context, p palette, interactive bool, fn func()) ui.Element {
-	// Three plates, because MyGo gives an element one transition and a card
-	// needs two: the outer plate is the tray, and the tray and the surface
-	// inside it answer the pointer at the state speed on transitions of their
-	// own. Hovering the tray lifts its edge as well as its fill, so the card
-	// reads as picked up rather than tinted.
+	// One surface, not a plate in a tray. The tray used to be a second rounded
+	// rectangle three DIP inside the card's edge, filled with a darkening tint
+	// and outlined with a hairline: at 1040 that is a 1px line plus a 3px
+	// groove around every panel, and the window drew eight such lines a screen
+	// against motrix's zero and codex-monitor's one. What separates a panel is
+	// its fill over the canvas — the card is eight units lighter, and the
+	// shadow under it does the rest. A line around it only says the panel is
+	// a drawing of a panel.
 	plate := ui.Column(c).FillWidth()
 	plate.Children(func() {
-		outer := ui.Column(c).
+		surface := ui.Column(c).
 			FillWidth().
-			Padding(cardTrayPad).
+			Padding(space4).
+			Gap(space3).
 			Radius(radiusTray).
-			Background(p.bezel).
-			Border(1, p.border)
-		hovered := interactive && outer.Hovered()
-		if hovered {
-			outer.Background(p.bezelHi).Border(1, p.borderHi)
+			Background(p.card)
+		if interactive && surface.Hovered() {
+			// The pointer lifts the fill, as a list row does: no edge to move,
+			// because there is no edge.
+			surface.Background(p.cardHi)
 		}
-		shadowSoft(outer, p)
-		outer.Children(func() {
-			inner := ui.Column(c).
-				FillWidth().
-				Padding(space4).
-				Gap(space3).
-				Radius(radiusInner).
-				Background(p.card).
-				Children(fn)
-			if hovered {
-				inner.Background(p.cardHi)
-			}
-			inner.Transition(stateMotion)
-		})
-		outer.Transition(stateMotion)
+		shadowSoft(surface, p)
+		surface.Children(fn)
+		surface.Transition(stateMotion)
 	})
 	return plate.Transition(panelMotion)
 }
@@ -446,7 +424,7 @@ func btnLarge(e ui.Element) ui.Element {
 func chromeRule(c *ui.Context, p palette) ui.Element {
 	// The same weight as every other separator: it is what tells the app's
 	// name from the state beside it, not an ornament.
-	return ui.Box(c).Width(1).Height(18).Shrink(0).Background(p.divider)
+	return ui.Box(c).Width(1).Height(18).Shrink(0).Background(p.hairline)
 }
 
 // sidebarItem is a sidebar item whose icon is not the accent. MyGo draws every
@@ -474,7 +452,7 @@ func sidebarItem(c *ui.Context, id string, icon *ui.SVG, label string, current b
 // is a surface's own edge, which sits back. One is read, the other is only
 // noticed, so they are two weights and not one.
 func hairline(c *ui.Context, p palette) ui.Element {
-	return ui.Box(c).FillWidth().Height(1).Background(p.divider)
+	return ui.Box(c).FillWidth().Height(1).Background(p.hairline)
 }
 
 // dot shows a small level indicator.

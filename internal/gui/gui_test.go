@@ -1479,7 +1479,7 @@ func TestASingleHistoryTraySpansTheMeasure(t *testing.T) {
 	// is matched against the row above it.
 	wide := 0
 	for y := 200; y < mainHeight-10; y++ {
-		want := over(p.divider, colorAt(img, 280, y-3))
+		want := over(p.hairline, colorAt(img, 280, y-3))
 		run := 0
 		for x := 274; x <= 1006; x++ {
 			if close3(colorAt(img, x, y), want) {
@@ -1528,7 +1528,7 @@ func TestTheHistoryCardsAreTheSameWidth(t *testing.T) {
 	var widths []int
 	rows, paired := 0, 0
 	for y := 200; y < 700; y++ {
-		want := over(p.divider, colorAt(img, 280, y-3))
+		want := over(p.hairline, colorAt(img, 280, y-3))
 		var runs []int
 		run := 0
 		for x := 274; x <= 1006; x++ {
@@ -2382,7 +2382,11 @@ func TestTheMatrixNumbersSurviveSevenColumns(t *testing.T) {
 		for i := range wide {
 			label := fmt.Sprintf("%d%%", 100-10*i)
 			whole, cut := wide[i][1]-wide[i][0], narrow[i][1]-narrow[i][0]
-			if scale == 1 && i > 0 && cut < whole {
+			// One pixel of slack: the two widths put the cell on a
+			// half-pixel of a different subpixel phase, and a glyph's ink
+			// extent moves by one when it does. A cut number loses a third
+			// of its ink or more, which the check below still catches.
+			if scale == 1 && i > 0 && cut < whole-1 {
 				t.Errorf("at 780/1x %s draws %dpx of ink against %dpx at the default width: the cell holds it, so it must not be cut",
 					label, cut+1, whole+1)
 			}

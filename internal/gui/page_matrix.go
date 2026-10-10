@@ -153,7 +153,7 @@ const matrixInlineBase = 156
 func matrixColumnWidth(c *ui.Context, accounts int) float32 {
 	winW, _ := c.Size()
 	inner := contentWidth(winW)
-	inner -= 2 * (cardTrayPad + space4)
+	inner -= 2 * space4
 	return (inner - space4*float32(accounts-1)) / float32(accounts)
 }
 

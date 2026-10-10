@@ -174,8 +174,7 @@ func (a *App) view(c *ui.Context) {
 				ui.Sidebar(c, &a.page, func() { a.sidebarItems(c, p) }).
 					Width(sidebarWidth).
 					FillHeight().
-					Padding(space3, space3).
-					Material(glass.Glass{})
+					Padding(space3, space3)
 				ui.Scroll(c).
 					Grow(1).
 					FillHeight().

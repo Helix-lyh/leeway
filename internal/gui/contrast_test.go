@@ -24,7 +24,7 @@ func TestThePaletteStaysLegible(t *testing.T) {
 		}
 		p := paletteOf(theme)
 		// A card is its surface over the tray it sits in, over the canvas.
-		card := over(p.card, over(p.bezel, p.canvas))
+		card := over(p.card, p.canvas)
 		for _, check := range []struct {
 			what   string
 			fg, bg ui.Color
@@ -261,7 +261,7 @@ func TestIncreaseContrastStrengthensTheLines(t *testing.T) {
 		}
 		strongTester.SetPreferences(ui.Preferences{HighContrast: true})
 		strongTester.Frame()
-		card := over(plain.card, over(plain.bezel, plain.canvas))
+		card := over(plain.card, plain.canvas)
 		for _, check := range []struct {
 			what   string
 			plain  ui.Color
@@ -269,7 +269,7 @@ func TestIncreaseContrastStrengthensTheLines(t *testing.T) {
 		}{
 			{"the rule between two accounts", plain.divider, strong.divider},
 			{"the empty part of a bar", plain.track, strong.track},
-			{"the edge of a card", plain.border, strong.border},
+			{"the edge of a panel that has one", plain.border, strong.border},
 		} {
 			before, after := contrast(over(check.plain, card), card), contrast(over(check.strong, card), card)
 			if after <= before {
@@ -293,7 +293,7 @@ func TestTheChartScaleStaysUnderItsData(t *testing.T) {
 			theme = ui.DarkTheme()
 		}
 		p := paletteOf(theme)
-		card := over(p.card, over(p.bezel, p.canvas))
+		card := over(p.card, p.canvas)
 		if r := contrast(p.grid, card); r > 1.5 {
 			t.Errorf("dark=%v: the chart's scale is %.2f:1 on the card, louder than the 1.5:1 a gridline is allowed", dark, r)
 		}
@@ -313,7 +313,7 @@ func TestTheStructuralLinesCarryTheirOwnContrast(t *testing.T) {
 			theme = ui.DarkTheme()
 		}
 		p := paletteOf(theme)
-		card := over(p.card, over(p.bezel, p.canvas))
+		card := over(p.card, p.canvas)
 		for _, check := range []struct {
 			what   string
 			fg, bg ui.Color
