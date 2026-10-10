@@ -75,7 +75,7 @@ func (a *App) startRow(c *ui.Context, p palette, v providerView) {
 			})).Cursor(ui.CursorPointer)
 			if detail.Hovered() {
 				detail.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-					pt.Fill(r, p.t.Text.Alpha(0.06), radiusControl)
+					pt.Fill(r, p.t.Text.Alpha(stateHover), radiusControl)
 				})
 			}
 			if detail.Clicked() {

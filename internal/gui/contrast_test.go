@@ -197,6 +197,27 @@ func modalColor(img *image.RGBA, r ui.Rect) ui.Color {
 // colorKey orders colours for a deterministic tie-break.
 func colorKey(c ui.Color) uint32 { return uint32(c.R)<<16 | uint32(c.G)<<8 | uint32(c.B) }
 
+// TestTheCardsHoverIsVisible pins the affordance a card has left. A card
+// answered the pointer by lifting its fill from card to cardHi, which over the
+// canvas is two units of luminance — nothing anyone can see, and once the
+// tray's hairline was removed it was the card's only hover. A state layer has
+// to be at least as visible as the card's own edge over the canvas (1.10:1),
+// or the card is a picture of a button.
+func TestTheCardsHoverIsVisible(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		theme := ui.LightTheme()
+		if dark {
+			theme = ui.DarkTheme()
+		}
+		p := paletteOf(theme)
+		rest := over(p.card, p.canvas)
+		hover := over(p.cardHi, p.canvas)
+		if r := contrast(hover, rest); r < 1.10 {
+			t.Errorf("dark=%v: the card's hover is %.2f:1 from its rest (%v vs %v): nobody can see it", dark, r, hover, rest)
+		}
+	}
+}
+
 func colorAt(img *image.RGBA, x, y int) ui.Color {
 	o := img.PixOffset(x, y)
 	return ui.RGB(img.Pix[o], img.Pix[o+1], img.Pix[o+2])

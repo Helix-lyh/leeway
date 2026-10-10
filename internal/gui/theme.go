@@ -22,7 +22,7 @@ type palette struct {
 	canvas    ui.Color // the window's floor
 	canvasTop ui.Color // and its ceiling, where the accent tint sits
 	card      ui.Color // a panel's surface
-	cardHi    ui.Color // that surface, under the pointer
+	cardHi    ui.Color // that surface, with the state layer over it
 	sheet     ui.Color // a modal, which has to stay legible over the page
 	border    ui.Color // hairlines
 	divider   ui.Color // the rule between two account columns, which has to read as one line
@@ -49,7 +49,7 @@ func paletteOf(t *ui.Theme) palette {
 		p.canvas = ui.Hex("#0d0d11")
 		p.canvasTop = ui.Oklch(0.20, 0.035, 285)
 		p.card = ui.RGBA(255, 255, 255, 0.055)
-		p.cardHi = ui.RGBA(255, 255, 255, 0.095)
+		p.cardHi = p.card.Mix(t.Text, stateHover)
 		p.sheet = ui.RGBA(28, 28, 34, 0.98)
 		p.border = ui.RGBA(255, 255, 255, 0.18)
 		p.divider = ui.RGBA(255, 255, 255, 0.36)
@@ -66,7 +66,7 @@ func paletteOf(t *ui.Theme) palette {
 		p.canvas = ui.Hex("#f2f2f6")
 		p.canvasTop = ui.Oklch(0.975, 0.016, 285)
 		p.card = ui.RGBA(255, 255, 255, 0.82)
-		p.cardHi = ui.RGBA(255, 255, 255, 0.98)
+		p.cardHi = p.card.Mix(t.Text, stateHover)
 		p.sheet = ui.RGBA(255, 255, 255, 0.98)
 		p.border = ui.RGBA(0, 0, 0, 0.16)
 		p.divider = ui.RGBA(0, 0, 0, 0.44)
@@ -162,6 +162,15 @@ var (
 )
 
 const trackLabel = 0.7
+
+// The state layers a surface is filled with, one number per state rather than
+// a colour per component: meiro's table (m3/theme.go:147-153) is the only one
+// in the corpus, and it is why nothing there needs a hover colour of its own.
+// Pressed is stronger than hovered, so a click reads as one.
+const (
+	stateHover = 0.08
+	statePress = 0.10
+)
 
 // typeScale is the six sizes at a system text size, and scaleType puts them
 // back. A scale of zero is a window that never asked, which is the default.
@@ -368,8 +377,10 @@ func shellSurface(c *ui.Context, p palette, interactive bool, fn func()) ui.Elem
 			Radius(radiusTray).
 			Background(p.card)
 		if interactive && surface.Hovered() {
-			// The pointer lifts the fill, as a list row does: no edge to move,
-			// because there is no edge.
+			// The pointer lays the state layer on the surface, as meiro's
+			// cards do. It used to lift the fill from card to cardHi, which
+			// over the canvas is two units: the tray's hairline was what a
+			// reader actually saw, and when that went the hover went with it.
 			surface.Background(p.cardHi)
 		}
 		shadowSoft(surface, p)

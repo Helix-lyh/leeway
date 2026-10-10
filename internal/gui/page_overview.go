@@ -371,7 +371,7 @@ func (a *App) openCard(c *ui.Context, p palette, label string, open func(), e ui
 	e.Label(label).Role(ui.RoleButton).Cursor(ui.CursorPointer).Focusable().OnClick(open)
 	if e.Pressed() {
 		e.DrawOver(func(pt *ui.Painter, r ui.Rect) {
-			pt.Fill(r, p.t.Text.Alpha(0.05), radiusTray)
+			pt.Fill(r, p.t.Text.Alpha(statePress), radiusTray)
 		})
 	}
 	return e
